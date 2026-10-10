@@ -29,7 +29,6 @@ BLUE = {
 }
 # Categorical anchors from the same reference
 ANCHOR_ORANGE = "#eb6834"
-ANCHOR_RED = "#e34948"
 ANCHOR_AQUA = "#1baf7a"     # categorical slot 3: distinct from both data ramps
 
 SURFACE_LIGHT = "#fcfcfb"
@@ -97,15 +96,6 @@ def lch_to_oklab(lch):
 
 def lightness(h: str) -> float:
     return float(rgb_to_oklab(hex_to_rgb(h))[0])
-
-
-def contrast(fg: str, bg: str) -> float:
-    def lum(h):
-        r, g, b = _lin(hex_to_rgb(h))
-        return 0.2126 * r + 0.7152 * g + 0.0722 * b
-    a, b = lum(fg), lum(bg)
-    hi, lo = max(a, b), min(a, b)
-    return (hi + 0.05) / (lo + 0.05)
 
 
 # --- ramp construction ------------------------------------------------------

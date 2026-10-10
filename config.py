@@ -109,10 +109,6 @@ def minutes(meters):
     """Meters of walking -> minutes, elementwise-safe for numpy arrays."""
     return meters / WALK_SPEED_MPS / 60.0
 
-
-def meters(mins):
-    return mins * WALK_SPEED_MPS * 60.0
-
 # A station must attach to a network of at least this many nodes. Stops this
 # from happening: a station entrance mapped on a stray footway fragment becomes
 # its own "network", serving only itself.

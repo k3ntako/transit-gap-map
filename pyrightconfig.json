@@ -8,5 +8,11 @@
     ".venv",
     "data",
     "web/data"
-  ]
+  ],
+  "reportUnusedImport": "error",
+  "reportUnusedClass": "error",
+  "reportUnusedFunction": "error",
+  "reportUnusedVariable": "error",
+  "reportUnusedExpression": "error",
+  "reportUnusedCoroutine": "error"
 }

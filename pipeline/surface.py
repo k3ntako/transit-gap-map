@@ -189,7 +189,7 @@ def run(force: bool = False):
         C.SURFACE_RESOLUTION_M, dist, serviceable, land)
 
     meta = {}
-    for mode, key in (("light", "surface_ramp"), ("dark", "surface_ramp")):
+    for mode in ("light", "dark"):
         ramp = pal["ramps"]["walk"] if mode == "light" else pal["ramps"]["walk"][::-1]
         path = C.WEB_DATA / f"walk_surface_{mode}.png"
         kb = render_png(grid, ramp, vmax, path)
@@ -211,7 +211,7 @@ def run(force: bool = False):
         "vmax_min": vmax,
         "resolution_m": C.SURFACE_RESOLUTION_M,
     }, indent=2))
-    print(f"  saved   walk_surface.json")
+    print("  saved   walk_surface.json")
 
     print("\nWalkshed polygons:")
     sheds = walksheds(dist, serviceable, land)
