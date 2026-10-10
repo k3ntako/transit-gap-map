@@ -58,7 +58,8 @@ def _grid(resolution_m: float, land_merc):
 
 def _node_tree(serviceable):
     """KD-tree over the projected coords of nodes that can actually reach a station."""
-    _csr, x, y, _osmid = load_graph(C.P_GRAPH)
+    g = load_graph(C.P_GRAPH)
+    x, y = g.x, g.y
     idx = np.flatnonzero(serviceable)
     return cKDTree(np.column_stack([x[idx], y[idx]])), idx
 

@@ -134,7 +134,8 @@ def geography_distance(gdf, dist, serviceable, spacing):
     back as having no transit access, when the street it actually sits on is
     a few meters away.
     """
-    _csr, x, y, _osmid = load_graph(C.P_GRAPH)
+    g = load_graph(C.P_GRAPH)
+    x, y = g.x, g.y
     keep = np.flatnonzero(serviceable)
     tree = cKDTree(np.column_stack([x[keep], y[keep]]))
 
@@ -196,7 +197,8 @@ def attach_nearest_station(df, dist, nearest, serviceable):
     import pandas as _pd
 
     st = _pd.read_parquet(C.P_STATIONS)
-    _csr, x, y, _osmid = load_graph(C.P_GRAPH)
+    g = load_graph(C.P_GRAPH)
+    x, y = g.x, g.y
     keep = np.flatnonzero(serviceable)
     tree = cKDTree(np.column_stack([x[keep], y[keep]]))
 

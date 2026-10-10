@@ -55,7 +55,8 @@ BANDS = {"at_station": (0, 400), "near": (0, 900), "far": (1200, 60000)}
 
 def _setup():
     dist, nearest, serviceable = compute_dist(force=False, subway_only=False)
-    _csr, x, y, _osmid = load_graph(C.P_GRAPH)
+    g = load_graph(C.P_GRAPH)
+    x, y = g.x, g.y
     keep = np.flatnonzero(serviceable)
     tree = cKDTree(np.column_stack([x[keep], y[keep]]))
     st = pd.read_parquet(C.P_STATIONS)

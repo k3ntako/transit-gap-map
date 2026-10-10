@@ -53,7 +53,8 @@ def compute(force: bool = False, subway_only: bool = False):
         z = np.load(out, allow_pickle=True)
         return z["dist"], z["nearest"], z["serviceable"]
 
-    csr, x, y, _osmid, comp = load_graph(C.P_GRAPH, with_components=True)
+    g = load_graph(C.P_GRAPH)
+    csr, x, y, comp = g.csr, g.x, g.y, g.component
     n = csr.shape[0]
     print(f"  graph   {n:,} nodes / {csr.nnz // 2:,} undirected edges, "
           f"{comp.max() + 1:,} components")

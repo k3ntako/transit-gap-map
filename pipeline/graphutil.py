@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import numpy as np
 from scipy.sparse import csr_matrix
 
@@ -48,10 +50,29 @@ def save_graph(path, csr: csr_matrix, x, y, osmid, component) -> None:
     )
 
 
-def load_graph(path, with_components: bool = False):
+class WalkGraph(NamedTuple):
+    """The cached pedestrian network: CSR adjacency plus the per-node arrays."""
+
+    csr: csr_matrix
+    x: np.ndarray
+    y: np.ndarray
+    osmid: np.ndarray
+    component: np.ndarray
+
+
+def load_graph(path) -> WalkGraph:
+    """Load the cached walk graph.
+
+    There is deliberately no `with_components` flag. save_graph always writes
+    the component labels, so the flag only ever chose whether to hand them
+    back -- and it did so by changing the *shape* of the return value based on
+    an argument's value, which no type checker can narrow. Every one of the
+    five call sites therefore reported a spurious assignment error, which is a
+    lot of noise to buy nothing. Returning one named shape costs the callers
+    that want only coordinates a single extra line.
+    """
     z = np.load(path)
     n = int(z["n_nodes"][0])
-    csr = csr_matrix((z["data"], z["indices"], z["indptr"]), shape=(n, n))
-    if with_components:
-        return csr, z["x"], z["y"], z["osmid"], z["component"]
-    return csr, z["x"], z["y"], z["osmid"]
+    return WalkGraph(
+        csr=csr_matrix((z["data"], z["indices"], z["indptr"]), shape=(n, n)),
+        x=z["x"], y=z["y"], osmid=z["osmid"], component=z["component"])
