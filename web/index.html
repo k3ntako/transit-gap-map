@@ -58,6 +58,27 @@
       Stations</label>
 
     <hr class="rule">
+    <details id="settings">
+      <summary>Display floors</summary>
+      <div class="field">
+        <div class="flabel"><label for="f-dens">Minimum density</label>
+          <output id="o-dens"></output></div>
+        <input type="range" id="f-dens" min="0" max="30000" step="500" value="0">
+      </div>
+      <div class="field">
+        <div class="flabel"><label for="f-pop">Minimum population</label>
+          <output id="o-pop"></output></div>
+        <input type="range" id="f-pop" min="0" max="3000" step="100" value="0">
+      </div>
+      <p class="sub" style="margin-top:9px">Tracts under a floor fade out rather
+        than disappearing &mdash; they stay in the tooltip and in every number
+        on this page.</p>
+    </details>
+
+    <hr class="rule">
+    <button class="ghost" id="homebtn" title="Return to the opening view">Recenter map</button>
+
+    <hr class="rule">
     <div id="keys"></div>
   </section>
 

@@ -9,6 +9,38 @@ const BASEMAP = {
 };
 const GEO = "data/tracts.geojson";
 
+// The five boroughs plus the sliver of New Jersey, Westchester and Nassau that
+// holds stations legitimately serving NYC. The opening view is framed with
+// fitBounds rather than a fixed center/zoom so the city fills whatever window
+// it lands in, and the recenter button returns to exactly this framing.
+const HOME_BOUNDS = [[-74.26, 40.49], [-73.68, 40.94]];
+
+// The pan limit, deliberately much wider than HOME_BOUNDS. MapLibre's bounds
+// constraint does not merely clamp the center: when the bounds are narrower
+// than the viewport it zooms *in* until they fill it, so bounds drawn tight
+// around the city would force a zoom that crops the city on a small window.
+// The margin is wider east-west than north-south because windows are landscape
+// and NYC is not.
+const MAX_BOUNDS = [[-74.69, 40.36], [-73.25, 41.07]];
+
+// The panels sit on top of the map, so on a wide window the city is framed into
+// the gap between them. Narrower than this there is no room for the offset to
+// buy anything, and on a phone the panels are not over the map at all.
+const fitOptions = (duration = 0) => innerWidth >= 1200
+  ? { padding: { top: 16, right: 250, bottom: 16, left: 330 }, duration }
+  : { padding: 24, duration };
+
+// Tercile names, in words. The tooltip reported the numbers but never named the
+// class the fill was showing, which left the reader matching hues against the
+// legend by eye. "longest third" rather than "top third": for walk time, "top"
+// is ambiguous about whether it means best or worst.
+const CLS_DENSITY = ["lowest third", "middle third", "highest third"];
+const CLS_WALK = ["shortest third", "middle third", "longest third"];
+
+// Tracts under a display floor fade to this instead of being filtered out. A
+// choropleth with holes in it reads as missing data, not as excluded.
+const FADED_OPACITY = 0.12;
+
 const $ = (s) => document.querySelector(s);
 const fmt = (n, d = 0) =>
   n == null || !isFinite(n) ? "—" : n.toLocaleString("en-US",
@@ -21,9 +53,20 @@ const state = {
   walksheds: true,
   stations: true,
   hovered: null,
+  hoveredStation: null,
+  densFloor: 0,
+  popFloor: 0,
 };
 
 let map, pal, stats, surf;
+
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// queryRenderedFeatures throws on an unknown layer id, and during a theme
+// switch the style is torn down and rebuilt, so the guard is not paranoia.
+const query = (layer, point) =>
+  map.getLayer(layer) ? map.queryRenderedFeatures(point, { layers: [layer] }) : [];
 
 // --- paint expressions ------------------------------------------------------
 
@@ -45,6 +88,24 @@ function fillColor() {
   return ["match", ["get", key], 0, ramp[0], 1, ramp[1], 2, ramp[2], unpop()];
 }
 
+// The floors are a display filter, not a change to the data: a faded tract is
+// still in the tooltip and still in every published statistic.
+const belowFloor = () => ["any",
+  ["<", ["coalesce", ["get", "dens"], 0], state.densFloor],
+  ["<", ["coalesce", ["get", "pop"], 0], state.popFloor]];
+
+const isBelowFloor = (p) =>
+  (p.dens ?? 0) < state.densFloor || (p.pop ?? 0) < state.popFloor;
+
+const fillOpacity = () => ["case",
+  belowFloor(), FADED_OPACITY,
+  ["boolean", ["feature-state", "hover"], false], 0.95,
+  0.78];
+
+// The outlines have to fade with the fill, or an excluded tract still reads as
+// a crisp mesh of boundaries laid over the basemap.
+const lineOpacity = () => ["case", belowFloor(), 0.15, 0.5];
+
 // --- layers -----------------------------------------------------------------
 
 function addLayers() {
@@ -53,7 +114,7 @@ function addLayers() {
   // setStyle() tears the style down, but guard anyway so this is safe to call
   // more than once.
   const LAYERS = ["tracts-fill", "tracts-line", "tracts-hover", "surface-img",
-    "stations-rail", "stations-subway",
+    "stations-hit", "stations-rail", "stations-subway",
     ...stats.thresholds_min.map((t) => `shed-${t}`)];
   LAYERS.forEach((l) => { if (map.getLayer(l)) map.removeLayer(l); });
   ["tracts", "stations", "walksheds", "surface"].forEach((sr) => {
@@ -61,7 +122,12 @@ function addLayers() {
   });
 
   map.addSource("tracts", { type: "geojson", data: GEO, promoteId: "geoid" });
-  map.addSource("stations", { type: "geojson", data: "data/stations.geojson" });
+  // generateId supplies the feature ids that feature-state needs for the hover
+  // halo; stations.geojson carries no unique property worth promoting
+  // (complex_id groups several stations together).
+  map.addSource("stations", {
+    type: "geojson", data: "data/stations.geojson", generateId: true,
+  });
   map.addSource("walksheds", { type: "geojson", data: "data/walksheds.geojson" });
   map.addSource("surface", {
     type: "image",
@@ -73,7 +139,7 @@ function addLayers() {
     id: "tracts-fill", type: "fill", source: "tracts",
     paint: {
       "fill-color": fillColor(),
-      "fill-opacity": ["case", ["boolean", ["feature-state", "hover"], false], 0.95, 0.78],
+      "fill-opacity": fillOpacity(),
     },
   });
 
@@ -81,7 +147,7 @@ function addLayers() {
     id: "tracts-line", type: "line", source: "tracts",
     paint: {
       "line-color": state.theme === "dark" ? "#000" : "#fff",
-      "line-width": 0.4, "line-opacity": 0.5,
+      "line-width": 0.4, "line-opacity": lineOpacity(),
     },
   });
 
@@ -135,6 +201,23 @@ function addLayers() {
       "circle-stroke-width": 1.2,
     },
   });
+
+  // Hit target. MapLibre has no hit padding, so a 2 px dot is close to
+  // unhoverable; an invisible wider circle beneath both visible layers is the
+  // fix. It is also the hover halo, which is the only reason it carries a
+  // color. The radius tracks roughly twice the drawn one rather than being a
+  // generous fixed pad: Manhattan subway stops are ~15 px apart at the opening
+  // zoom, so anything larger would swallow every tract hover on the island.
+  map.addLayer({
+    id: "stations-hit", type: "circle", source: "stations",
+    layout: { visibility: state.stations ? "visible" : "none" },
+    paint: {
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 4, 13, 8.5],
+      "circle-color": pal.ink[state.theme].primary,
+      "circle-opacity": ["case",
+        ["boolean", ["feature-state", "hover"], false], 0.16, 0],
+    },
+  }, "stations-rail");
 }
 
 // --- hover ------------------------------------------------------------------
@@ -142,25 +225,58 @@ function addLayers() {
 function wireHover() {
   const tip = $("#tooltip");
   map.getContainer().appendChild(tip);
+  const canvas = map.getCanvas();
 
-  const clear = () => {
-    if (state.hovered != null) {
+  const row = (k, v) =>
+    `<div class="trow"><span class="tk">${k}</span><span class="tv">${v}</span></div>`;
+
+  const setTract = (id) => {
+    if (state.hovered === id) return;
+    if (state.hovered != null)
       map.setFeatureState({ source: "tracts", id: state.hovered }, { hover: false });
-      state.hovered = null;
-    }
-    tip.style.display = "none";
+    state.hovered = id;
+    if (id != null) map.setFeatureState({ source: "tracts", id }, { hover: true });
   };
 
-  map.on("mousemove", "tracts-fill", (e) => {
-    const f = e.features?.[0];
-    if (!f) return clear();
-    if (state.hovered !== f.id) {
-      if (state.hovered != null)
-        map.setFeatureState({ source: "tracts", id: state.hovered }, { hover: false });
-      state.hovered = f.id;
-      map.setFeatureState({ source: "tracts", id: f.id }, { hover: true });
-    }
-    const p = f.properties;
+  const setStation = (id) => {
+    if (state.hoveredStation === id) return;
+    if (state.hoveredStation != null)
+      map.setFeatureState(
+        { source: "stations", id: state.hoveredStation }, { hover: false });
+    state.hoveredStation = id;
+    if (id != null) map.setFeatureState({ source: "stations", id }, { hover: true });
+  };
+
+  const clear = () => {
+    setTract(null);
+    setStation(null);
+    highlightLegend(null);
+    tip.style.display = "none";
+    canvas.style.cursor = "";
+  };
+
+  const place = (point) => {
+    tip.style.display = "block";
+    const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+    const box = canvas.getBoundingClientRect();
+    let x = point.x + pad, y = point.y + pad;
+    if (x + w > box.width - 8) x = point.x - w - pad;
+    if (y + h > box.height - 8) y = point.y - h - pad;
+    tip.style.left = `${Math.max(8, x)}px`;
+    tip.style.top = `${Math.max(8, y)}px`;
+  };
+
+  const stationHTML = (p) => {
+    const routes = (p.routes || "").trim();
+    const ada = p.ada === true || p.ada === "true";
+    return `<div class="tname">${esc(p.name)}</div>`
+      + `<div class="tk" style="margin-bottom:5px">${esc(p.mode_label || "")}`
+      + (routes ? ` &middot; ${esc(routes)}` : "") + `</div>`
+      + (p.borough ? row("Borough", esc(p.borough)) : "")
+      + `<div class="tnote">${ada ? "Step-free access" : "No step-free access"}</div>`;
+  };
+
+  const tractHTML = (p) => {
     const L = stats.lookups;
     const name = L.nta[p.nta] || "Unknown area";
     const boro = L.boro[p.boro] || "";
@@ -169,8 +285,8 @@ function wireHover() {
     const mode = L.smode[p.smode] || "";
     const noacc = p.noacc === true || p.noacc === "true";
 
-    const row = (k, v) => `<div class="trow"><span class="tk">${k}</span><span class="tv">${v}</span></div>`;
-    let html = `<div class="tname">${name}</div><div class="tk" style="margin-bottom:5px">${boro}</div>`;
+    let html = `<div class="tname">${esc(name)}</div>`
+      + `<div class="tk" style="margin-bottom:5px">${esc(boro)}</div>`;
     html += row("Population", fmt(p.pop));
     html += row("Density", `${fmt(p.dens)} /km²`);
     if (noacc) {
@@ -182,27 +298,64 @@ function wireHover() {
       if (stn) {
         const label = mode === "lirr" ? "LIRR" : mode === "mnr" ? "Metro-North"
           : mode === "sir" ? "SIR" : "Subway";
-        html += `<div class="tnote">Nearest: <strong>${stn}</strong>`
-          + (routes ? ` (${routes})` : "") + ` · ${label}</div>`;
+        html += `<div class="tnote">Nearest: <strong>${esc(stn)}</strong>`
+          + (routes ? ` (${esc(routes)})` : "") + ` · ${label}</div>`;
       }
     }
+    // Says what the fill means, so the color does not have to be matched
+    // against the legend grid by eye.
+    if (p.dc >= 0 && p.wc >= 0)
+      html += `<div class="tclass">Density <strong>${CLS_DENSITY[p.dc]}</strong>`
+        + ` · Walk <strong>${CLS_WALK[p.wc]}</strong></div>`;
     if (p.pop === 0)
       html += `<div class="tnote">No residents — excluded from the statistics.</div>`;
+    else if (isBelowFloor(p))
+      html += `<div class="tnote">Below a display floor — faded, not excluded.</div>`;
+    return html;
+  };
 
-    tip.innerHTML = html;
-    tip.style.display = "block";
-    const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
-    const box = map.getCanvas().getBoundingClientRect();
-    let x = e.point.x + pad, y = e.point.y + pad;
-    if (x + w > box.width - 8) x = e.point.x - w - pad;
-    if (y + h > box.height - 8) y = e.point.y - h - pad;
-    x = Math.max(8, x); y = Math.max(8, y);
-    tip.style.left = `${x}px`;
-    tip.style.top = `${y}px`;
+  // One handler for the whole map rather than one per layer. The station dots
+  // are drawn above the choropleth, so both handlers would fire and stack two
+  // tooltips; querying the station hit layer first and returning makes the
+  // precedence explicit instead of leaving it to dispatch order.
+  map.on("mousemove", (e) => {
+    const stn = query("stations-hit", e.point);
+    if (stn.length) {
+      setTract(null);
+      highlightLegend(null);
+      setStation(stn[0].id);
+      tip.innerHTML = stationHTML(stn[0].properties);
+      canvas.style.cursor = "pointer";
+      place(e.point);
+      return;
+    }
+    setStation(null);
+    canvas.style.cursor = "";
+
+    const f = query("tracts-fill", e.point)[0];
+    if (!f) return clear();
+    setTract(f.id);
+    tip.innerHTML = tractHTML(f.properties);
+    highlightLegend(f.properties);
+    place(e.point);
   });
 
-  map.on("mouseleave", "tracts-fill", clear);
-  map.getCanvas().addEventListener("mouseout", clear);
+  canvas.addEventListener("mouseout", clear);
+}
+
+// Outlines the legend cell the hovered feature falls in, which teaches the
+// legend rather than replacing it. The cells carry data-bi / data-cls for this.
+function highlightLegend(p) {
+  const prev = $("#legendbody .on");
+  if (prev) prev.classList.remove("on");
+  if (!p) return;
+  const bivariate = state.choropleth === "bivariate";
+  const key = bivariate ? p.bi
+    : state.choropleth === "density" ? p.dc
+      : state.choropleth === "walk" ? p.wc : -1;
+  if (key == null || key < 0) return;
+  const cell = $(`#legendbody i[${bivariate ? "data-bi" : "data-cls"}="${key}"]`);
+  if (cell) cell.classList.add("on");
 }
 
 // --- legend -----------------------------------------------------------------
@@ -214,8 +367,12 @@ function renderLegend() {
   if (state.choropleth === "bivariate") {
     const c = state.theme === "dark" ? pal.bivariate_dark : pal.bivariate;
     // Rows top-to-bottom = high density to low, so the grid reads like a map key.
+    // data-bi is the `bi` value a feature in this cell carries, so the tooltip
+    // can outline it: bi = density class * 3 + walk class. The rows are emitted
+    // highest density first, which is why the row index is not the class.
     const cells = [2, 1, 0].map((i) =>
-      c[i].map((hex) => `<i style="background:${hex}"></i>`).join("")).join("");
+      c[i].map((hex, j) =>
+        `<i data-bi="${i * 3 + j}" style="background:${hex}"></i>`).join("")).join("");
     el.innerHTML = `
       <div class="bivwrap">
         <div class="bivaxis-y">Density <span class="arrow">→</span></div>
@@ -242,7 +399,7 @@ function renderLegend() {
     `over ${fmt(brk[1], dec)}${unit}`,
   ];
   el.innerHTML = ramp.map((hex, i) =>
-    `<div class="ramprow"><i style="background:${hex}"></i>
+    `<div class="ramprow"><i data-cls="${i}" style="background:${hex}"></i>
      <span class="lab">${labels[i]}</span></div>`).join("")
     + `<div class="ramprow"><i style="background:${unpop()}"></i>
        <span class="lab">no residents</span></div>`;
@@ -332,6 +489,10 @@ function applyTheme(next) {
   // once the new style reports ready.
   map.setStyle(BASEMAP[next]);
   map.once("style.load", () => {
+    // setStyle discards feature state along with the sources, so a stale id
+    // here would make the first hover after a theme switch a silent no-op.
+    state.hovered = null;
+    state.hoveredStation = null;
     addLayers();
     renderLegend();
     renderKeys();
@@ -357,7 +518,27 @@ function wireControls() {
   });
   toggle("#t-surface", "surface", () => ["surface-img"]);
   toggle("#t-sheds", "walksheds", () => stats.thresholds_min.map((t) => `shed-${t}`));
-  toggle("#t-stations", "stations", () => ["stations-subway", "stations-rail"]);
+  toggle("#t-stations", "stations",
+    () => ["stations-subway", "stations-rail", "stations-hit"]);
+
+  // The floors repaint from fields already on every feature: no pipeline round
+  // trip, which is the roadmap's "ship metrics, score in the browser" rule.
+  const floor = (id, out, key, label) => {
+    const input = $(id), output = $(out);
+    const show = () => { output.textContent = label(state[key]); };
+    input.addEventListener("input", () => {
+      state[key] = Number(input.value);
+      show();
+      map.setPaintProperty("tracts-fill", "fill-opacity", fillOpacity());
+      map.setPaintProperty("tracts-line", "line-opacity", lineOpacity());
+    });
+    show();
+  };
+  floor("#f-dens", "#o-dens", "densFloor", (v) => v ? `${fmt(v)} /km²` : "off");
+  floor("#f-pop", "#o-pop", "popFloor", (v) => v ? `${fmt(v)} people` : "off");
+
+  $("#homebtn").addEventListener("click", () =>
+    map.fitBounds(HOME_BOUNDS, fitOptions(650)));
 
   $("#themebtn").addEventListener("click", () =>
     applyTheme(state.theme === "dark" ? "light" : "dark"));
@@ -447,12 +628,26 @@ async function main() {
   map = new maplibregl.Map({
     container: "map",
     style: BASEMAP[state.theme],
-    center: [-73.95, 40.705],
-    zoom: 10.1,
+    bounds: HOME_BOUNDS,
+    fitBoundsOptions: fitOptions(),
+    maxBounds: MAX_BOUNDS,
+    // maxBounds raises the effective floor well above this on any normal
+    // window, because the constraint zooms in until the bounds fill the
+    // viewport. minZoom stays as the backstop for a very small one.
     minZoom: 8.5,
     maxZoom: 16,
+    // A pitched choropleth misrepresents area, which is the one thing a
+    // choropleth must not do, and a rotated one breaks every "north shore" or
+    // "east side" reading of the result. This is a city, not a globe.
+    pitch: 0,
+    pitchWithRotate: false,
+    dragRotate: false,
     attributionControl: false,
   });
+  // dragRotate covers the mouse; these are the touch and keyboard paths to the
+  // same thing, and they are separate handlers with their own switches.
+  map.touchZoomRotate.disableRotation();
+  map.keyboard.disableRotation();
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
   map.addControl(new maplibregl.ScaleControl({ unit: "imperial" }), "bottom-right");
 

@@ -251,8 +251,10 @@ so more classes would need a wider lightness range or a lower gate.
 Stations carry identity by **size and ring rather than hue**, since more hues
 there would collide with the choropleth ramps underneath. Walksheds are an
 ordered magnitude, so they get one hue in three steps — contour lines, not
-categories. Identity is never color-alone: the legend is always present, the
-hover tooltip gives exact numbers, and a table view lists the same data.
+categories. Identity is never color-alone: the legend is always present and
+cross-highlights the hovered cell, the hover tooltip names the class in words
+("Density highest third · Walk longest third") as well as giving exact
+numbers, and a table view lists the same data.
 
 ## Data sources
 

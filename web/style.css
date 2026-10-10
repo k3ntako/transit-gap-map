@@ -110,6 +110,22 @@ button.ghost {
 }
 button.ghost:hover { color: var(--ink); border-color: var(--axis); }
 
+/* --- display floors ------------------------------------------------------- */
+#settings summary {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--ink-muted); font-weight: 600; cursor: pointer;
+}
+#settings summary:hover { color: var(--ink-2); }
+.field { margin-top: 9px; }
+.flabel {
+  display: flex; justify-content: space-between; gap: 10px;
+  font-size: 11.5px; color: var(--ink-2);
+}
+.flabel output {
+  font-variant-numeric: tabular-nums; font-weight: 550; color: var(--ink);
+}
+.field input[type="range"] { width: 100%; margin: 3px 0 0; accent-color: var(--accent); }
+
 /* --- legend --------------------------------------------------------------- */
 .bivgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; width: 108px; }
 .bivgrid i { display: block; aspect-ratio: 1; border-radius: 2px; }
@@ -124,6 +140,10 @@ button.ghost:hover { color: var(--ink); border-color: var(--axis); }
 .ramprow { display: flex; align-items: center; gap: 7px; font-size: 11.5px; padding: 2px 0; }
 .ramprow i { width: 15px; height: 15px; border-radius: 3px; flex: none; }
 .ramprow .lab { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+/* Hovering a feature outlines its legend cell. box-shadow rather than outline,
+   so the 2px gaps in .bivgrid do not clip it. */
+#legendbody i.on { box-shadow: 0 0 0 2px var(--ink); position: relative; z-index: 1; }
 
 .keyline { display: flex; align-items: center; gap: 7px; font-size: 11.5px; padding: 2px 0; }
 .keyline .sw { width: 18px; height: 0; border-top-width: 2px; border-top-style: solid; flex: none; }
@@ -144,6 +164,11 @@ button.ghost:hover { color: var(--ink); border-color: var(--axis); }
 #tooltip .tk { color: var(--ink-2); }
 #tooltip .tv { font-variant-numeric: tabular-nums; }
 #tooltip .tnote { color: var(--ink-2); margin-top: 5px; font-size: 11px; }
+#tooltip .tclass {
+  margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--grid);
+  font-size: 11px; color: var(--ink-2);
+}
+#tooltip .tclass strong { color: var(--ink); font-weight: 600; }
 
 /* --- table view ----------------------------------------------------------- */
 #tablewrap {

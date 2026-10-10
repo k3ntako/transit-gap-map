@@ -40,60 +40,35 @@ Two design principles follow:
 
 Everything here reads fields that are already in `tracts.geojson`.
 
-- **Density floor.** A slider in a settings panel: hide tracts below *N* people
-  per km². This is the single cheapest high-value change — most of the visual
-  noise is physically huge, nearly empty tracts. Two notes:
-  - Fade filtered tracts to ~12% opacity rather than removing them. A choropleth
-    with holes in it reads as missing data, not as "excluded".
-  - Offer a *population* floor too (`pop < 500`), which catches small odd tracts
-    that a density threshold misses.
-- **Settings panel.** The existing `#controls` panel has room; add a
-  `<details>` block for thresholds and weights so the default view stays clean.
+**Shipped 2026-10-10 — display floors with a settings panel, the station hover,
+the class named in words with its legend cell cross-highlighted, and the camera
+constraints.** Three findings worth keeping:
+
+- `maxBounds` does not merely clamp the center. When the bounds are narrower
+  than the viewport, MapLibre zooms *in* until they fill it, so bounds drawn
+  tight around the city raise the effective minimum zoom until the city no
+  longer fits a small window. `MAX_BOUNDS` is therefore much wider than
+  `HOME_BOUNDS`, and wider east-west than north-south because windows are
+  landscape and NYC is not. Re-tune the two together, and check the fit at
+  ~900 px wide, where the panels take two thirds of the width.
+- The station hit target is an invisible circle beneath the visible dots at
+  roughly twice the drawn radius. Larger is tempting and wrong: Manhattan
+  subway stops are ~15 px apart at the opening zoom, so a generous pad makes
+  the island unhoverable as a choropleth. MapLibre's circle hit test reads only
+  `circle-radius` and `circle-stroke-width`, never opacity, which is what makes
+  an invisible layer work at all.
+- The opening view is now `fitBounds` on `HOME_BOUNDS` rather than a fixed
+  center and zoom, so the city frames itself on any window and the recenter
+  button has one definition to return to.
+
+Still open:
+
 - **A single sequential "under-served" layer.** See Phase 3 — but note here that
   one ordered ramp of 7–9 steps is *far* easier to read than any matrix, and it
   is the right home for a score. Keep the bivariate matrix as the secondary
   "explain why" view.
 - **Permalink state.** Encode layer, weights and thresholds in the URL hash so a
   configuration is shareable. Cheap, and it makes every later feature citable.
-- **Hover a station.** The station layers have no handler at all today —
-  `wireHover()` binds `tracts-fill` only. `stations.geojson` already carries
-  `name`, `routes`, `mode_label`, `ada` and `complex_id`, so this is a second
-  `mousemove` binding and no pipeline change. Two details decide whether it
-  feels right:
-  - The station points sit *above* the choropleth, so both tooltips can fire.
-    Query the station layers first and suppress the tract tooltip while a
-    station is under the cursor, instead of stacking two boxes.
-  - Give the points a hit target larger than their drawn radius. A 3 px circle
-    is painful to hover and MapLibre has no hit-padding, so the fix is an
-    invisible wider circle layer beneath the visible one.
-- **Say what the color means.** The tooltip reports density and walk time as
-  numbers but never names the class the fill is showing, so the reader has to
-  eyeball the legend grid and match a hue. `dc`, `wc` and `bi` already ship on
-  every feature. In descending order of usefulness:
-  1. **Words.** "Density: top third · Walk: middle third". Unambiguous, needs no
-     legend, and survives any palette change.
-  2. **Cross-highlight the legend.** Outline the matching cell in the legend
-     grid while hovering. This teaches the legend rather than replacing it, and
-     it is a handful of lines on top of `renderLegend()`.
-  3. A code like `2C`, or the raw `bi` 0–8 — *not* as the primary label. Nobody
-     decodes a two-axis code without the key in front of them, and `bi` being
-     0-based while the legend grid renders top-down from the high row is a trap
-     waiting to mislabel something. Fine as a small suffix once the words exist.
-- **Constrain the camera.** The map is a city, not a globe, and three MapLibre
-  defaults do not serve it:
-  - **No tilt, no rotation.** A pitched choropleth misrepresents area, which is
-    the one thing a choropleth must not do, and a rotated one breaks every
-    "north shore" / "east side" reading of the result. `pitch: 0`,
-    `pitchWithRotate: false`, `dragRotate: false`, plus
-    `touchZoomRotate.disableRotation()` for trackpads and touch.
-  - **`maxBounds`.** There is none, so the city can be dragged off screen
-    entirely. Bound it to the five boroughs plus a margin — the margin matters,
-    because the walk network and a handful of serving stations legitimately sit
-    outside the city line.
-  - **A recenter button.** `fitBounds` back to the opening view. Note that
-    `NavigationControl` is constructed with `showCompass: false`, which is also
-    what removes its reset control, so this needs a button of its own next to
-    the layer toggles.
 
 ### On 16 or 25 color classes
 
@@ -469,10 +444,12 @@ description, and the architecture makes it unusually cheap.
 
 ## Suggested order
 
-The Phase 1 UI batch first — **density floor**, **station hover**, **naming the
-class in the tooltip**, **camera constraints**. All four are hours of work, none
-need new data, and together they change what the map feels like immediately.
-Then step-free access, the biggest finding available for the least new
+The Phase 1 UI batch shipped on 2026-10-10, and it did change what the map
+feels like. What is left of Phase 1 — the sequential score layer and the
+permalink — belongs with Phase 3, since neither means much until there is a
+score to put on a ramp and in a URL.
+
+Next is step-free access, the biggest finding available for the least new
 machinery. Then Phase 2 (GTFS frequency), because it is what makes a score mean
 anything. Then the score. Then time-to-hub, which is a project rather than a
 feature.
