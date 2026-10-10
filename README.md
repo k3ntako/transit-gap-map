@@ -204,26 +204,48 @@ is 1.34x.
 
 `pipeline/palette.py` generates `web/data/palette.json`, which both the raster
 and the web map read, so there is one definition of every color. Density uses
-the documented blue sequential ramp; walk time uses a ramp derived in OKLCH
-from the orange anchor; the bivariate matrix is a bilinear OKLab blend of four
-corner anchors.
+the documented blue sequential ramp and walk time a ramp derived in OKLCH from
+the orange anchor.
 
-The two single-variable corners are deliberately held at *medium* lightness.
-With dark anchors there, every dark class converges and the "dense but poorly
-served" corner — the finding the map exists to show — lands only 8 OKLab units
-from its neighbors. Medium anchors with a chroma-boosted dark corner raise the
-worst separation among all nine classes to 15.1, and the script asserts it:
+The bivariate matrix is an **OKLCH field**, not a blend of corner anchors:
+
+- lightness moves with *both* variables, away from the surface color
+- blue chroma rides the density axis and fades as walk time rises
+- warm chroma rides the walk-time axis **scaled by density**, so distance from
+  a train only shouts where there are people to be stranded
+
+That last line is the whole design. A bilinear blend of four corners cannot
+express it, because the sparse+far cell *is* a corner anchor — and that cell is
+491 tracts of largely empty land (the Staten Island interior, eastern Queens,
+the Jamaica Bay fringe), against 51 tracts in the dense+far cell the map exists
+to point at. The first version of this palette gave the empty land a chroma of
+0.175 and the finding 0.073, less than half, because the high-high corner was a
+blend of blue and warm and averaging opposing hues in OKLab cancels `a` and `b`.
+Quieting the anchor instead shrinks the matrix's gamut and drags the center cell
+into its neighbors: the measured ceiling is 14.2 among the populated cells,
+under the 15 floor, across 816k corner configurations. The field clears it,
+with chroma on the right cell:
 
 ```
-audit [bivariate]       worst pair 15.1   headline corner 15.1   monotone L
-audit [bivariate_dark]  worst pair 13.2   headline corner 19.5   monotone L
+audit [bivariate]       among populated 15.4   headline corner 15.5   ratio 2.26x
+audit [bivariate_dark]  among populated 15.5   headline corner 16.2   ratio 3.08x
 ```
 
-Dark mode is stepped against the dark surface rather than flipped. Its worst
-pair binds at 13.2 on the two darkest low-density classes — both "good access",
-where confusing one for the other costs the reader nothing — because the low end
-necessarily compresses near a dark surface. The headline corner, which is what
-carries the finding, clears 15 in both modes.
+`ratio` is the chroma of dense+far over sparse+far — the finding over the empty
+land. It was 0.42x; the gate now requires at least 2.
+
+The gates are grouped by the reader's task rather than held to one floor.
+Resolving walk-time terciles *within* the low-density row is not a task this
+map supports: those tracts are mostly airports, marshland and empty hillside,
+and the design intent is that they recede rather than compete. That row is held
+to 8 and stays ordered by lightness, while the populated cells — where the
+map's claims live — keep the full 15. Dark mode is stepped against the dark
+surface rather than flipped, so lightness rises toward the headline corner
+instead of falling, with the ordering of both variables unchanged.
+
+A 4x4 matrix was measured for comparison and scores 10.0 on its weakest pair,
+so more classes would need a wider lightness range or a lower gate.
+`bivariate_field()` takes `levels` if you want to re-check that.
 
 Stations carry identity by **size and ring rather than hue**, since more hues
 there would collide with the choropleth ramps underneath. Walksheds are an

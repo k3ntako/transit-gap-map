@@ -38,27 +38,63 @@ Two design principles follow:
 
 ## Phase 0 — known debt
 
-Small, already diagnosed, blocks nothing but makes everything after it easier to
-look at.
+**Done 2026-10-10**, except the last item, which is blocked.
 
-- **Rebalance the palette's chroma geometry.** `pipeline/palette.py`. The current
-  3×3 puts the loudest color on the 491 low-density/far tracts (Staten Island,
-  eastern Queens, Jamaica Bay) while the 51 dense-and-poorly-served tracts — the
-  actual finding — sit in near-black. Pull chroma out of the low-density row so
-  empty land recedes, and let the dense+far corner be the only genuinely loud
-  cell. Re-run `audit()`; the ΔE gates (15 headline corner, 15/13 worst pair)
-  must still pass.
-- **Gray out the 82 unpopulated tracts.** Airports, cemeteries, parks, Rikers.
-  The `noacc` flag and `pop == 0` are already in the payload and
-  `palette.json` already carries an `unpopulated` color; the fill expression in
-  `web/app.js` just ignores them. This alone removes a visible chunk of the red
-  mass, so do it *before* judging how bad the palette problem still is.
-- **Fix `load_graph`'s union return.** `pipeline/graphutil.py:51` returns a
-  4-tuple or a 5-tuple depending on a flag, which is six real pyright errors and
-  a live mis-unpack hazard. Split into two functions, or always return five
-  values with `None` in the unused slot.
-- **Set `config.SOURCE_URL`** once the repo has a public remote, so the deployed
-  map links its source instead of saying "source in this distribution".
+- ~~Rebalance the palette's chroma geometry.~~ **Done.** The matrix was
+  shouting its least interesting cell: sparse+far (491 tracts of largely empty
+  land) carried the highest chroma in the matrix at 0.175, while dense+far —
+  51 tracts, the finding the map exists to show — sat at 0.073. The cause was
+  specific: the high-high corner was built by blending `BLUE[650]` with the
+  warm ramp, and averaging opposing hues in OKLab cancels `a` and `b`, so no
+  chroma boost afterwards recovers it.
+
+  Fixed by replacing the four-corner bilinear blend with an OKLCH field,
+  because bilinear provably cannot do this: the sparse+far cell *is* a corner
+  anchor, so quieting it means desaturating that anchor, which shrinks the
+  whole matrix's gamut and drags the center cell toward its neighbors. The
+  measured ceiling for bilinear is **14.2** among the populated cells — under
+  the 15 floor — across 816k corner configurations searched. The field encodes
+  the semantics instead: lightness moves with both variables, blue chroma rides
+  the density axis, and warm chroma rides the walk-time axis **scaled by
+  density**, so distance from a train only shouts where there are people to be
+  stranded.
+
+  | | before | after |
+  |---|---|---|
+  | chroma, dense+far (the finding) | 0.073 | **0.125** |
+  | chroma, sparse+far (491 tracts) | 0.175 | **0.055** |
+  | ratio | 0.42× | **2.26×** (3.08× dark) |
+  | weakest pair among populated cells | — | 15.4 |
+  | headline corner | 15.1 | 15.5 |
+
+  The audit gates were regrouped by the reader's task at the same time. Holding
+  all 36 pairs to one floor was the wrong test: resolving walk-time terciles
+  *inside* the low-density row is not something this map supports, since those
+  tracts are mostly airports, marshland and empty hillside and the whole point
+  is that they recede. That row is now held to 8 and stays ordered by
+  lightness; the populated cells keep the full 15.
+
+- ~~Gray out the 82 unpopulated tracts.~~ **Already implemented — this roadmap
+  item was wrong.** All 82 carry `bi/dc/wc == -1`, and `fillColor()`'s `match`
+  fallback already paints them with `palette.unpopulated`. Verified against the
+  built payload: the set `pop == 0 and bi != -1` is empty. So the red mass was
+  never unpopulated land — it was 491 *populated* low-density tracts, which is
+  what the palette work above addresses.
+
+- ~~Fix `load_graph`'s union return.~~ **Done** — now a `WalkGraph` NamedTuple.
+  The `with_components` flag was redundant (`save_graph` always writes the
+  labels) and chose the return *shape* from an argument's value, which no type
+  checker can narrow. pyright 43 → 38 errors, no new ones; the remainder are
+  stub gaps rather than defects (pyrosm typed as returning `Optional`,
+  `scipy.spatial.cKDTree` missing from the stubs, `shapely`
+  `BaseGeometry.geoms`, `Series.map` with a dict), so they want casts, not
+  fixes. Behavior-preserving: a forced recompute through every changed call
+  site reproduces `node_distance.npz`, `tracts.geojson`, `stations.geojson`,
+  `walksheds.geojson`, both surface PNGs and `palette.json` byte-identically.
+
+- **Set `config.SOURCE_URL`** — **still open**, blocked on the repo having a
+  public remote. Until then the map says "source in this distribution", which
+  is AGPL-compliant for a local run.
 
 ## Phase 1 — legibility and configurability (no new data)
 
@@ -82,23 +118,26 @@ Everything here reads fields that are already in `tracts.geojson`.
 
 ### On 16 or 25 color classes
 
-Measure before committing. The honest version:
+**Measured 2026-10-10: a 4×4 matrix scores 10.0 on its weakest pair, against
+15.1 for the 3×3 it would replace.** That is below the floor, so 16 classes
+need either a wider lightness range or a lower gate — a deliberate trade rather
+than a surprise. `bivariate_field()` takes `levels`, so re-measuring after any
+palette change is a one-line call.
 
-- A 4×4 bivariate matrix is defensible. **5×5 is not** — nobody decodes 25 cells
-  against a legend, and the per-cell perceptual separation falls below the point
-  where two adjacent classes are distinguishable at choropleth sizes.
+The rest of the reasoning stands:
+
+- A 4×4 bivariate matrix is defensible *if* the gate is renegotiated. **5×5 is
+  not** — nobody decodes 25 cells against a legend, and the per-cell perceptual
+  separation falls below the point where two adjacent classes are
+  distinguishable at choropleth sizes.
 - More classes will not fix the problem you actually saw. "Hard to tell between
   neighborhoods because a lot of parts are red" is the chroma-geometry bug in
   Phase 0, not a resolution limit. Sixteen classes on the current corner
   geometry will make it *worse*, because the same perceptual volume gets divided
   into more pieces.
-- `pipeline/palette.py` already takes `levels` as a parameter and `audit()`
-  already reports worst-pair ΔE. So this is a 10-minute experiment: run
-  `bivariate_matrix(warm, levels=4)` through `audit()` and read the number. If
-  the worst pair lands near 9–11 as expected, 4×4 needs a wider lightness range
-  or a lower gate, and that is a deliberate trade rather than a surprise.
 - The better route to more resolution is a *score* on one axis with more steps,
-  which is Phase 3.
+  which is Phase 3. One ordered ramp carries 7–9 readable steps; a matrix does
+  not.
 
 ## Phase 2 — service quality from GTFS
 
@@ -303,7 +342,7 @@ description, and the architecture makes it unusually cheap.
 
 ## Suggested order
 
-Phase 0 and the density floor first — they are hours of work and they change what
+Phase 0 is done; the density floor is next — hours of work, and it changes what
 the map looks like immediately. Then step-free access, which is the biggest
 finding available for the least new machinery. Then Phase 2 (GTFS frequency),
 because it is what makes a score meaningful. Then the score. Then time-to-hub,
