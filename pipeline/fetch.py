@@ -21,7 +21,7 @@ import config as C
 # A descriptive User-Agent is sent on every request; several of these providers
 # ask for one, and it lets them identify (and contact) a misbehaving client
 # rather than just blocking an anonymous IP.
-UA = {"User-Agent": "mta-map/1.0 (NYC transit access analysis; +https://github.com/)"}
+UA = {"User-Agent": "transit-gap-map/1.0 (transit access analysis; +https://github.com/k3ntako/transit-gap-map)"}
 
 
 class FetchError(RuntimeError):

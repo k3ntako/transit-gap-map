@@ -1,6 +1,7 @@
-# NYC Transit Access & Population Density
+# transit-gap-map
 
-Maps two things together for New York City, by census tract:
+Finds under-served areas by mapping two things together. The current
+deployment covers New York City, by census tract:
 
 1. **Walking distance to the nearest train station** — routed along the real
    pedestrian network, not straight-line distance

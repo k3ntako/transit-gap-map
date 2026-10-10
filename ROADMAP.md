@@ -38,7 +38,7 @@ Two design principles follow:
 
 ## Phase 0 — known debt
 
-**Done 2026-10-10**, except the last item, which is blocked.
+**Done 2026-10-10.**
 
 - ~~Rebalance the palette's chroma geometry.~~ **Done.** The matrix was
   shouting its least interesting cell: sparse+far (491 tracts of largely empty
@@ -92,9 +92,11 @@ Two design principles follow:
   site reproduces `node_distance.npz`, `tracts.geojson`, `stations.geojson`,
   `walksheds.geojson`, both surface PNGs and `palette.json` byte-identically.
 
-- **Set `config.SOURCE_URL`** — **still open**, blocked on the repo having a
-  public remote. Until then the map says "source in this distribution", which
-  is AGPL-compliant for a local run.
+- ~~Set `config.SOURCE_URL`.~~ **Done** — the repo went public as
+  `k3ntako/transit-gap-map`, so AGPL section 13's offer of source is now a real
+  link rather than "source in this distribution". The URL reaches the web map
+  through `stats.json`, so deploying a build made before this commit would
+  still show the fallback.
 
 ## Phase 1 — legibility and configurability (no new data)
 

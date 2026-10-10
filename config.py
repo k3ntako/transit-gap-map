@@ -89,7 +89,7 @@ ATTRIBUTION = {
 # users interacting with it remotely" a way to get the corresponding source.
 # Set this to the public URL of this repository before deploying; the map shows
 # a source link only when it is non-empty, so a local run stays uncluttered.
-SOURCE_URL = ""
+SOURCE_URL = "https://github.com/k3ntako/transit-gap-map"
 
 # --- Derived file paths -----------------------------------------------------
 P_SUBWAY = RAW / "subway_stations.csv"
