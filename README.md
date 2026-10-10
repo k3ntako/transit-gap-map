@@ -248,6 +248,18 @@ A 4x4 matrix was measured for comparison and scores 10.0 on its weakest pair,
 so more classes would need a wider lightness range or a lower gate.
 `bivariate_field()` takes `levels` if you want to re-check that.
 
+The **walk-access gap** layer is the real answer to that resolution question:
+one ordered ramp carries 7 steps where a matrix could not carry 16, because the
+reader only has to see the order rather than identify a cell. It is violet —
+slot 7 of the documented palette — and not a shade of either data ramp, since
+blue already means density and warm already means walk time. Its gates are the
+ones for an ordered ramp and not for a matrix: monotone lightness, at least
+0.06 lightness per step, and a near-surface step that still clears 2:1 against
+the page, measured at 0.068 and 2.23:1 light, 0.067 and 2.44:1 dark. Sampling
+the bivariate field's own diagonal was tried first and rejected: it crosses
+from cool grey to dark red, which reads as a diverging scale with a midpoint
+the score does not have, and its pale end sits at 1.35:1 on the light surface.
+
 Stations carry identity by **size and ring rather than hue**, since more hues
 there would collide with the choropleth ramps underneath. Walksheds are an
 ordered magnitude, so they get one hue in three steps — contour lines, not
@@ -315,6 +327,14 @@ deserts, which is the clearest sign the routing is behaving: **Canarsie**
 (28.8 min), **Flatlands** (27.4), **Co-op City** (25.0 min at 38,886 people/km²),
 **East Flushing**, **Coney Island–Sea Gate**.
 
+That list is picked by a hard rule — the top density third, then the longest
+walks — and the rule has a cliff in it. The **walk-access gap** layer ranks the
+same two variables continuously instead: density and walk time each as a
+percentile rank, multiplied, so a tract needs both to score high. **Nine tracts
+score worse than the worst tract in the table above**, led by a Canarsie tract
+at 21,783 people/km² and a **33.1-minute** walk, which misses the list only by
+sitting a hair under the density cut-off.
+
 ## Caveats
 
 - Walk times assume **1.35 m/s** (~3.0 mph) on a flat network. Grades are not
@@ -323,6 +343,11 @@ deserts, which is the clearest sign the routing is behaving: **Canarsie**
   only**. Much of the borough depends on buses and the ferry.
 - All stations count equally. A two-train local stop is treated the same as a
   hub, so the map measures *physical access*, not service quality.
+- The **walk-access gap** score combines density and walk time, and nothing
+  else. It is deliberately not called an under-service score: service quality
+  is not in it, so a 30-minute headway still counts the same as Times Square.
+  It is also an *ordering* — a tract's score is a position among the 2,243
+  inhabited tracts, not a quantity to quote.
 - ACS tract populations are estimates with margins of error; `pop_moe` is
   fetched alongside. Switch `config.CENSUS_DATASET` to `2020/dec/pl` with
   `P1_001N` for exact decennial counts.

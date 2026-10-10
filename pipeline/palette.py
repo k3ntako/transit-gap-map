@@ -30,6 +30,18 @@ BLUE = {
 # Categorical anchors from the same reference
 ANCHOR_ORANGE = "#eb6834"
 ANCHOR_AQUA = "#1baf7a"     # categorical slot 3: distinct from both data ramps
+# Categorical slot 7, for the walk-access gap score. Blue already means density
+# and warm already means walk time, so a score drawn in either would read as
+# "that variable again" instead of "the two combined". Violet is also where the
+# two axes mix, which is what the score is.
+ANCHOR_VIOLET = "#6250d6"
+
+# Endpoints of the gap ramp, as OKLCH lightness, nearest-the-surface first.
+# That first step is the binding constraint: it must still clear 2:1 against
+# the surface, which on the violet ramp means L 0.753 light (2.22:1) and
+# L 0.479 dark (2.44:1). The far end runs to the edge of the ramp family.
+GAP_L = {"light": (0.753, 0.338), "dark": (0.479, 0.894)}
+GAP_STEPS = 7
 
 SURFACE_LIGHT = "#fcfcfb"
 SURFACE_DARK = "#1a1a19"
@@ -100,6 +112,23 @@ def lightness(h: str) -> float:
 
 # --- ramp construction ------------------------------------------------------
 
+def _fit_chroma(L: float, target_C: float, hue: float,
+                tol: float = 0.012, tries: int = 40):
+    """The most chroma `hue` can carry at lightness `L` before sRGB clipping
+    drags the lightness off target by more than `tol`.
+
+    The default tolerance is loose enough to matter: it lets a step land up to
+    0.012 off its target lightness, which is a sixth of an ordinal step, so
+    ordinal_ramp() asks for a tighter fit and more attempts. derive_ramp()
+    keeps the original numbers, because its output is already published.
+    """
+    for scale in np.linspace(1.0, 0.25, tries):
+        cand = oklab_to_rgb(lch_to_oklab([L, target_C * scale, hue]))
+        if abs(rgb_to_oklab(cand)[0] - L) < tol:
+            return cand
+    return oklab_to_rgb(lch_to_oklab([L, target_C * 0.3, hue]))
+
+
 def derive_ramp(anchor: str, reference: list[str]) -> list[str]:
     """A single-hue ramp at the anchor's hue, matching `reference`'s lightness
     profile. Chroma is capped so each step stays inside sRGB after conversion.
@@ -111,16 +140,35 @@ def derive_ramp(anchor: str, reference: list[str]) -> list[str]:
         # Keep the anchor's hue; follow the reference ramp's lightness, and take
         # the chroma the hue can actually carry at that lightness.
         target_C = min(c_anchor * (C_ref / max(C_ref, 1e-6)), c_anchor)
-        best = None
-        for scale in np.linspace(1.0, 0.25, 40):
-            cand = oklab_to_rgb(lch_to_oklab([L_ref, target_C * scale, h_anchor]))
-            # Reject if sRGB clipping moved the lightness off target.
-            if abs(rgb_to_oklab(cand)[0] - L_ref) < 0.012:
-                best = cand
-                break
-        out.append(rgb_to_hex(best if best is not None else
-                              oklab_to_rgb(lch_to_oklab([L_ref, target_C * 0.3, h_anchor]))))
+        out.append(rgb_to_hex(_fit_chroma(L_ref, target_C, h_anchor)))
     return out
+
+
+def ordinal_ramp(anchor: str, l_near: float, l_far: float, n: int) -> list[str]:
+    """`n` steps of one hue at evenly spaced lightness, l_near -> l_far.
+
+    derive_ramp() follows a reference ramp's lightness profile, which is right
+    for a 13-step family and wrong once it is subsampled: 7 of those 11 steps
+    gave lightness deltas alternating 0.095 / 0.041, half of them under the
+    0.06 an ordinal ramp needs. Here the even spacing *is* the encoding, so the
+    steps are generated at even lightness rather than picked from a list.
+    """
+    _, c_anchor, h_anchor = oklab_to_lch(rgb_to_oklab(hex_to_rgb(anchor)))
+    return [rgb_to_hex(_fit_chroma(float(L), c_anchor, h_anchor,
+                                   tol=0.002, tries=240))
+            for L in np.linspace(l_near, l_far, n)]
+
+
+def contrast(a: str, b: str) -> float:
+    """WCAG relative contrast ratio. The gap ramp's near-surface step is gated
+    on this and not on perceptual distance: delta E says two colors differ from
+    each other, contrast says one of them is still visible against the page.
+    """
+    def lum(h: str) -> float:
+        r, g, bl = _lin(hex_to_rgb(h))
+        return float(0.2126 * r + 0.7152 * g + 0.0722 * bl)
+    lo, hi = sorted((lum(a), lum(b)))
+    return (hi + 0.05) / (lo + 0.05)
 
 
 # --- bivariate color field -------------------------------------------------
@@ -248,6 +296,30 @@ def audit(matrix, rising: bool = False) -> dict:
     }
 
 
+def audit_ordinal(ramp: list[str], surface: str) -> dict:
+    """Checks for an ordered ramp, which are not the checks for a matrix.
+
+    Adjacent CVD separation is deliberately not the test: a ramp's neighbors
+    are *meant* to be close, and running the categorical floor over them fails
+    by design. What has to hold is that the order is readable (monotone
+    lightness, with steps even enough to see), that nothing dissolves into the
+    page, and that it is one hue -- a ramp that drifts across hues reads as
+    diverging, which implies a midpoint this score does not have.
+    """
+    L = [lightness(h) for h in ramp]
+    deltas = [abs(b - a) for a, b in zip(L, L[1:])]
+    rising = L[-1] > L[0]
+    hues = [float(oklab_to_lch(rgb_to_oklab(hex_to_rgb(h)))[2]) for h in ramp]
+    return {
+        "steps": len(ramp),
+        "min_delta_l": round(min(deltas), 3),
+        "min_delta_e": round(min(delta_e(a, b) for a, b in zip(ramp, ramp[1:])), 1),
+        "surface_contrast": round(min(contrast(h, surface) for h in ramp), 2),
+        "hue_spread_deg": round(max(hues) - min(hues), 1),
+        "lightness_monotone": bool(all((b > a) == rising for a, b in zip(L, L[1:]))),
+    }
+
+
 def sample(ramp: list[str], n: int) -> list[str]:
     idx = np.linspace(0, len(ramp) - 1, n)
     return [ramp[int(round(i))] for i in idx]
@@ -284,6 +356,12 @@ def build() -> dict:
             "light": {"fill": "#fcfcfb", "stroke": "#0b0b0b"},
             "dark": {"fill": "#1a1a19", "stroke": "#ffffff"},
         },
+        # The walk-access gap score: one ordered ramp, 7 steps. This is the
+        # resolution a 4x4 matrix was asked for and could not pass the gates
+        # for -- an ordered ramp carries more steps than a matrix because the
+        # reader only has to see the order, not identify a cell.
+        "gap_classes": ordinal_ramp(ANCHOR_VIOLET, *GAP_L["light"], GAP_STEPS),
+        "gap_classes_dark": ordinal_ramp(ANCHOR_VIOLET, *GAP_L["dark"], GAP_STEPS),
         "unpopulated": {"light": "#e4e3dd", "dark": "#232322"},
     }
     return pal
@@ -327,6 +405,29 @@ def main() -> int:
             print(f"  {k:30} {v}")
         assert rep["lightness_monotone"], f"{key} lightness is not monotone"
         for gate, floor in GATES.items():
+            assert rep[gate] >= floor, (
+                f"{key} {gate} is {rep[gate]}, below the {floor} floor")
+
+    # Ordinal-ramp gates: see audit_ordinal(). The lightness floor is the
+    # dataviz spec's 0.06 per step; the contrast floor is its 2:1 for the step
+    # nearest the surface; and the hue spread keeps it a single hue, so it
+    # cannot be read as diverging.
+    ORDINAL_GATES = {"min_delta_l": 0.06, "surface_contrast": 2.0}
+    HUE_SPREAD_MAX = 2.0
+    print("\nwalk-access gap ramp (violet, ordinal):")
+    pal["gap_audit"] = {}
+    for key, surface in (("gap_classes", SURFACE_LIGHT),
+                         ("gap_classes_dark", SURFACE_DARK)):
+        rep = audit_ordinal(pal[key], surface)
+        pal["gap_audit"][key] = rep
+        print(f"  {key}:")
+        print("    " + " ".join(pal[key]))
+        for k, v in rep.items():
+            print(f"    {k:22} {v}")
+        assert rep["lightness_monotone"], f"{key} lightness is not monotone"
+        assert rep["hue_spread_deg"] <= HUE_SPREAD_MAX, (
+            f"{key} spans {rep['hue_spread_deg']} degrees of hue, not one hue")
+        for gate, floor in ORDINAL_GATES.items():
             assert rep[gate] >= floor, (
                 f"{key} {gate} is {rep[gate]}, below the {floor} floor")
 

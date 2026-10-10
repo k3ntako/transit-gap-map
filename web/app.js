@@ -49,6 +49,8 @@ const fmt = (n, d = 0) =>
 const state = {
   theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
   choropleth: "bivariate",
+  // The gap score's weight: 1 is density only, 0 is walk time only.
+  gapWeight: 0.5,
   surface: false,
   walksheds: true,
   stations: true,
@@ -62,7 +64,7 @@ const state = {
   themePinned: false,
 };
 
-let map, pal, stats, surf;
+let map, pal, stats, surf, tracts;
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -80,7 +82,7 @@ const query = (layer, point) =>
 // and reads as a list of deliberate choices. Plain key=value with unknown keys
 // ignored, which means a later control is one more key and there is no format
 // to version. `v` is zoom/lat/lon, the order OSM and Mapbox hashes use.
-const CHOROPLETHS = ["bivariate", "density", "walk", "none"];
+const CHOROPLETHS = ["bivariate", "gap", "density", "walk", "none"];
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 // Reads the hash into `state` and returns the camera it asked for, if any.
@@ -98,6 +100,8 @@ function applyHash() {
   if (dens != null) state.densFloor = dens;
   const pop = num("pop", 0, 3000);
   if (pop != null) state.popFloor = pop;
+  const w = num("w", 0, 1);
+  if (w != null) state.gapWeight = w;
   if (q.get("t") === "dark" || q.get("t") === "light") {
     state.theme = q.get("t");
     state.themePinned = true;
@@ -125,6 +129,7 @@ function syncHash() {
     if (state.choropleth !== "bivariate") q.push(`c=${state.choropleth}`);
     if (state.densFloor) q.push(`dens=${state.densFloor}`);
     if (state.popFloor) q.push(`pop=${state.popFloor}`);
+    if (state.gapWeight !== 0.5) q.push(`w=${state.gapWeight}`);
     if (state.themePinned) q.push(`t=${state.theme}`);
     if (state.surface) q.push("surface=1");
     if (!state.walksheds) q.push("sheds=0");
@@ -149,8 +154,102 @@ function reflectState() {
   $("#t-stations").checked = state.stations;
   $("#f-dens").value = state.densFloor;
   $("#f-pop").value = state.popFloor;
+  $("#f-weight").value = state.gapWeight;
+  showGapWeight();
   // Open the panel when a floor is in force, or the faded tracts look like a bug.
   if (state.densFloor || state.popFloor) $("#settings").open = true;
+}
+
+// --- the walk-access gap score ----------------------------------------------
+
+// Not "under-served": two of the three axes in ROADMAP.md's reframe are still
+// missing, so this is what it says it is -- a crowd with a long walk.
+const GAP_BANDS = 7;
+
+// Percentile rank rather than the raw value. Density is roughly log-normal --
+// the middle tract holds 16,664 people/km2 and the densest 110,790 -- while
+// walk time is not, so a product of raw values would be a density map with a
+// rounding error. Ranks put both on 0-1, where neither can dominate.
+//
+// `(i + 1) / n` with later writes winning means ties take the highest position,
+// so a rank reads as "the share of tracts at or below this one".
+function rankInto(feats, src, dst) {
+  const vals = feats.map((f) => f.properties[src]).sort((a, b) => a - b);
+  const rank = new Map();
+  vals.forEach((v, i) => rank.set(v, (i + 1) / vals.length));
+  for (const f of feats) f.properties[dst] = rank.get(f.properties[src]);
+}
+
+// The ranks are written into the fetched GeoJSON *before* it is handed to the
+// source, so the score is a paint expression over ordinary properties: a weight
+// change is then one setPaintProperty, with no per-feature state to push and no
+// re-parse of 1.7 MB of geometry. Nothing is added to the payload on disk.
+function rankTracts() {
+  const scored = tracts.features.filter(
+    (f) => f.properties.pop > 0 && f.properties.walk != null);
+  rankInto(scored, "dens", "rd");
+  rankInto(scored, "walk", "rw");
+  return scored.length;
+}
+
+// A weighted geometric mean, so a tract needs BOTH halves to be bad. A weighted
+// sum lets one half carry it: Mariner's Harbor at 279 people/km2 and a
+// 127-minute walk lands mid-ramp under a sum and near the floor under this,
+// which is the honest answer for 1,078 people on marshland.
+const gapScore = (p, w) => Math.pow(p.rd, w) * Math.pow(p.rw, 1 - w);
+
+// Quantile breaks, not equal intervals. The product is heavily skewed -- half
+// the city scores under 0.18 of a 0-0.79 range -- so equal slices would put
+// nearly everything in the palest band and eight tracts in the darkest.
+//
+// The bands come out equal to within a tract or two, except at w=0 or w=1,
+// where the score collapses to one variable and that variable's ties cannot be
+// split: walk time ships rounded to 0.1 min, so those bands run ~300-345.
+let gapCache = { w: null };
+function gapCompute(w) {
+  if (gapCache.w === w) return gapCache;
+  const sorted = tracts.features
+    .filter((f) => f.properties.rd != null)
+    .map((f) => gapScore(f.properties, w))
+    .sort((a, b) => a - b);
+  const breaks = [];
+  for (let i = 1; i < GAP_BANDS; i++) {
+    let b = sorted[Math.floor(i * sorted.length / GAP_BANDS)];
+    const prev = breaks[breaks.length - 1];
+    // `step` requires strictly ascending stops, and a quantile can repeat when
+    // many tracts share a score. Nudging keeps the band empty instead of
+    // throwing out the whole expression.
+    if (prev !== undefined && b <= prev) b = prev + 1e-6;
+    breaks.push(b);
+  }
+  gapCache = { w, sorted, breaks };
+  return gapCache;
+}
+
+// Share of tracts scoring at or below `s`, for the tooltip.
+function gapPercentile(s) {
+  const { sorted } = gapCompute(state.gapWeight);
+  let lo = 0, hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (sorted[mid] <= s) lo = mid + 1; else hi = mid;
+  }
+  return lo / sorted.length;
+}
+
+const gapRamp = () =>
+  state.theme === "dark" ? pal.gap_classes_dark : pal.gap_classes;
+
+function gapColor() {
+  const ramp = gapRamp();
+  const w = state.gapWeight;
+  // `^` is an expression operator, so the entire score evaluates in the paint.
+  const score = ["*", ["^", ["get", "rd"], w], ["^", ["get", "rw"], 1 - w]];
+  const steps = ["step", score, ramp[0]];
+  gapCompute(w).breaks.forEach((b, i) => steps.push(b, ramp[i + 1]));
+  // No rank means unpopulated, or no station reachable on foot: no score, so it
+  // takes the unpopulated color rather than quietly landing in band 0.
+  return ["case", ["!", ["has", "rd"]], unpop(), steps];
 }
 
 // --- paint expressions ------------------------------------------------------
@@ -162,6 +261,7 @@ const shedCls = () => state.theme === "dark" ? pal.walkshed_dark : pal.walkshed;
 const unpop = () => pal.unpopulated[state.theme];
 
 function fillColor() {
+  if (state.choropleth === "gap") return gapColor();
   if (state.choropleth === "bivariate") {
     const c = biFlat();
     return ["match", ["get", "bi"],
@@ -206,7 +306,9 @@ function addLayers() {
     if (map.getSource(sr)) map.removeSource(sr);
   });
 
-  map.addSource("tracts", { type: "geojson", data: GEO, promoteId: "geoid" });
+  // The parsed object, not the URL: main() has already fetched it to rank the
+  // tracts, so handing over the URL would be a second download of 1.7 MB.
+  map.addSource("tracts", { type: "geojson", data: tracts, promoteId: "geoid" });
   // generateId supplies the feature ids that feature-state needs for the hover
   // halo; stations.geojson carries no unique property worth promoting
   // (complex_id groups several stations together).
@@ -393,10 +495,18 @@ function wireHover() {
       }
     }
     // Says what the fill means, so the color does not have to be matched
-    // against the legend grid by eye.
-    if (p.dc >= 0 && p.wc >= 0)
+    // against the legend by eye. The gap layer shows its decomposition
+    // instead: a score nobody can interrogate persuades nobody.
+    if (state.choropleth === "gap" && p.rd != null) {
+      const s = gapScore(p, state.gapWeight);
+      html += `<div class="tclass">Gap: worse than <strong>`
+        + `${Math.round(100 * gapPercentile(s))}%</strong> of tracts<br>`
+        + `density ${Math.round(100 * p.rd)}th percentile · `
+        + `walk ${Math.round(100 * p.rw)}th percentile</div>`;
+    } else if (p.dc >= 0 && p.wc >= 0) {
       html += `<div class="tclass">Density <strong>${CLS_DENSITY[p.dc]}</strong>`
         + ` · Walk <strong>${CLS_WALK[p.wc]}</strong></div>`;
+    }
     if (p.pop === 0)
       html += `<div class="tnote">No residents — excluded from the statistics.</div>`;
     else if (isBelowFloor(p))
@@ -433,6 +543,16 @@ function wireHover() {
   canvas.addEventListener("mouseout", clear);
 }
 
+// Which of the 7 gap bands a tract falls in, or -1 if it has no score.
+function gapBand(p) {
+  if (p.rd == null) return -1;
+  const s = gapScore(p, state.gapWeight);
+  const { breaks } = gapCompute(state.gapWeight);
+  let i = 0;
+  while (i < breaks.length && s >= breaks[i]) i++;
+  return i;
+}
+
 // Outlines the legend cell the hovered feature falls in, which teaches the
 // legend rather than replacing it. The cells carry data-bi / data-cls for this.
 function highlightLegend(p) {
@@ -442,7 +562,8 @@ function highlightLegend(p) {
   const bivariate = state.choropleth === "bivariate";
   const key = bivariate ? p.bi
     : state.choropleth === "density" ? p.dc
-      : state.choropleth === "walk" ? p.wc : -1;
+      : state.choropleth === "walk" ? p.wc
+        : state.choropleth === "gap" ? gapBand(p) : -1;
   if (key == null || key < 0) return;
   const cell = $(`#legendbody i[${bivariate ? "data-bi" : "data-cls"}="${key}"]`);
   if (cell) cell.classList.add("on");
@@ -480,6 +601,24 @@ function renderLegend() {
         Darkest corner (top right) is <strong>dense but poorly served</strong>:
         above ${fmt(b.density[1])} people/km² and over ${fmt(b.walk_min[1], 1)} min walk.
       </div>`;
+    return;
+  }
+
+  if (state.choropleth === "gap") {
+    const ramp = gapRamp();
+    const pct = (i) => Math.round(100 * i / GAP_BANDS);
+    // Worst band at the top, so the legend reads in the same direction as the
+    // finding. The label is a percentile of tracts, never the score itself:
+    // the score is a position in a line-up, not a quantity.
+    el.innerHTML = ramp.map((hex, i) => [hex, i]).reverse().map(([hex, i]) =>
+      `<div class="ramprow"><i data-cls="${i}" style="background:${hex}"></i>
+       <span class="lab">${pct(i)}\u2013${pct(i + 1)}%</span></div>`).join("")
+      + `<div class="ramprow"><i style="background:${unpop()}"></i>
+         <span class="lab">no residents</span></div>`
+      + `<div class="sub" style="margin-top:9px">Percentile of tracts, worst
+         first. Density and walk time each as a rank, then multiplied \u2014 a
+         tract needs <strong>both</strong> a crowd and a long walk to score
+         high.</div>`;
     return;
   }
 
@@ -576,6 +715,11 @@ function repaint() {
   renderLegend();
 }
 
+// The weight slider is meaningless unless the gap layer is the one on screen.
+function showGapWeight() {
+  $("#gapweight").hidden = state.choropleth !== "gap";
+}
+
 function applyTheme(next) {
   state.theme = next;
   state.themePinned = true;
@@ -604,6 +748,7 @@ function wireControls() {
       map.setLayoutProperty("tracts-fill", "visibility", on ? "visible" : "none");
       map.setLayoutProperty("tracts-line", "visibility", on ? "visible" : "none");
       if (on) repaint(); else renderLegend();
+      showGapWeight();
       syncHash();
     });
   });
@@ -635,6 +780,21 @@ function wireControls() {
   };
   floor("#f-dens", "#o-dens", "densFloor", (v) => v ? `${fmt(v)} /km²` : "off");
   floor("#f-pop", "#o-pop", "popFloor", (v) => v ? `${fmt(v)} people` : "off");
+
+  // The weight only repaints: the score lives in the expression, so there is
+  // nothing to recompute per feature beyond the quantile breaks.
+  const weight = $("#f-weight"), weightOut = $("#o-weight");
+  const showWeight = () => {
+    const w = state.gapWeight;
+    weightOut.textContent = `${Math.round(w * 100)} / ${Math.round((1 - w) * 100)}`;
+  };
+  weight.addEventListener("input", () => {
+    state.gapWeight = Number(weight.value);
+    showWeight();
+    if (state.choropleth === "gap") repaint();
+    syncHash();
+  });
+  showWeight();
 
   $("#homebtn").addEventListener("click", () =>
     map.fitBounds(HOME_BOUNDS, fitOptions(650)));
@@ -688,9 +848,12 @@ async function main() {
   };
 
   try {
-    [pal, stats, surf] = await Promise.all([
+    [pal, stats, surf, tracts] = await Promise.all([
       j("data/palette.json"), j("data/stats.json"), j("data/walk_surface.json"),
+      j(GEO),
     ]);
+    const n = rankTracts();
+    console.info(`ranked ${n} populated tracts for the gap score`);
   } catch (err) {
     $("#loading").innerHTML =
       `<div style="max-width:420px;text-align:center;line-height:1.6">

@@ -40,9 +40,10 @@ Two design principles follow:
 
 Everything here reads fields that are already in `tracts.geojson`.
 
-**Shipped 2026-10-10 — display floors with a settings panel, the station hover,
-the class named in words with its legend cell cross-highlighted, the camera
-constraints, and the permalink.** Four findings worth keeping:
+**Shipped 2026-10-10, in full** — display floors with a settings panel, the
+station hover, the class named in words with its legend cell cross-highlighted,
+the camera constraints, the permalink, and the walk-access gap layer. Findings
+worth keeping:
 
 - `maxBounds` does not merely clamp the center. When the bounds are narrower
   than the viewport, MapLibre zooms *in* until they fill it, so bounds drawn
@@ -66,13 +67,31 @@ constraints, and the permalink.** Four findings worth keeping:
   assigning `location.hash` pushes a history entry on every pan and turns the
   back button into a scrub bar. A hash the *reader* changes reloads the page
   rather than re-syncing every control in place.
-
-Still open:
-
-- **A single sequential "under-served" layer.** See Phase 3 — but note here that
-  one ordered ramp of 7–9 steps is *far* easier to read than any matrix, and it
-  is the right home for a score. Keep the bivariate matrix as the secondary
-  "explain why" view.
+- The gap layer is **not** called "under-served", and should not be until
+  Phase 2 lands. Two of the three axes in the reframe above are still missing,
+  so what it measures is a crowd with a long walk. The name is the only part of
+  this that would be dishonest to get wrong.
+- **The score is a paint expression, not a precomputed field.** `^` is an
+  expression operator, so `rd^w × rw^(1-w)` evaluates in the paint and a weight
+  change costs one `setPaintProperty` — no per-feature state to push, no
+  re-parse of 1.7 MB of geometry per slider frame. The percentile ranks are
+  injected into the fetched GeoJSON *before* it is handed to the source, so
+  nothing was added to the payload on disk and the pipeline did not change.
+  Phase 3 adds terms to this; it does not need to build it.
+- **Quantile bands, not equal intervals.** A product of ranks is heavily skewed
+  — half the city scores under 0.18 of a 0–0.79 range — so equal slices put
+  nearly everything in the palest band and 8 tracts in the darkest. The bands
+  come out equal to a tract or two, except at w=0 or w=1 where the score
+  collapses to one variable and that variable's ties cannot be split.
+- **The score is an ordering and is never quoted as a quantity.** 0.79 is not
+  "79% under-served"; the legend and the tooltip both talk in percentiles of
+  tracts. Phase 3's sensitivity analysis is the thing that would earn a number.
+- The top-20 table still picks its rows the old way — top density tercile, then
+  the longest walks — which is the cliff the score was built to remove. **9
+  tracts score worse than the worst tract in that table**, led by a Canarsie
+  tract at 21,783 people/km² and a 33.1-minute walk. Re-ranking the table
+  belongs with Phase 3's live re-weighting; until then the map and the table
+  disagree on purpose, and that is worth knowing before someone quotes both.
 
 ### On 16 or 25 color classes
 
@@ -92,9 +111,14 @@ The rest of the reasoning stands:
   neighborhoods because a lot of parts are red" was the palette's chroma
   geometry, since fixed; it was never a resolution limit. Dividing the same
   perceptual volume into more pieces would have made it worse.
-- The better route to more resolution is a *score* on one axis with more steps,
-  which is Phase 3. One ordered ramp carries 7–9 readable steps; a matrix does
-  not.
+- The better route to more resolution is a *score* on one axis with more
+  steps. One ordered ramp carries 7–9 readable steps; a matrix does not.
+  **Settled 2026-10-10 at 7:** the gap ramp clears 0.068 of lightness per step
+  against a 0.06 floor, where 9 steps held 0.047. Sampling the bivariate
+  field's own diagonal for it was measured and rejected — it crosses from cool
+  grey to dark red, which reads as a *diverging* scale with a midpoint the
+  score does not have, and its pale end sits at 1.35:1 against the light
+  surface. One hue, violet, generated at even lightness instead.
 
 ## Phase 2 — service quality from GTFS
 
@@ -193,7 +217,9 @@ Design notes that matter more than the formula:
 - **Weights live in the UI.** Sliders, recomputed client-side, with the top-20
   table re-ranking live and the weights in the permalink. This turns the map from
   an assertion into an instrument — anyone who disagrees with the weighting can
-  move it and see.
+  move it and see. *Half-shipped in Phase 1:* one weight, in the paint
+  expression and the permalink. What is missing is the table re-ranking with it,
+  which is also what would settle the disagreement noted above.
 - **Show the decomposition.** The tooltip should say *why* a tract scores high
   (e.g. "92nd percentile need, 88th percentile deficit; driven by wait time").
   A score nobody can interrogate does not persuade anyone.
@@ -448,12 +474,13 @@ description, and the architecture makes it unusually cheap.
 
 ## Suggested order
 
-The Phase 1 UI batch shipped on 2026-10-10, and it did change what the map
-feels like. The permalink followed, and the sequential score layer is the last
-of Phase 1: buildable on density and walk time alone, but it has to be named
-for what it measures until Phase 2 earns it the word "under-served".
+**Phase 1 is done** — shipped 2026-10-10, including the permalink and the
+walk-access gap layer. The scoring machinery, its decomposition in the tooltip
+and its weight in the permalink all exist now, which changes what Phase 3 is:
+adding terms to a score that already works, and publishing its sensitivity,
+rather than building one.
 
-Then step-free access, the biggest finding available for the least new
+Next is step-free access, the biggest finding available for the least new
 machinery. Then Phase 2 (GTFS frequency), because it is what makes a score mean
 anything. Then the score. Then time-to-hub, which is a project rather than a
 feature.

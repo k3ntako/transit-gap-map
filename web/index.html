@@ -41,6 +41,13 @@
     <p class="grouplabel">Choropleth</p>
     <label class="opt"><input type="radio" name="choro" value="bivariate" checked>
       Density &times; walk time</label>
+    <label class="opt"><input type="radio" name="choro" value="gap">
+      Walk-access gap</label>
+    <div class="field" id="gapweight" hidden>
+      <div class="flabel"><label for="f-weight">Density / walk time</label>
+        <output id="o-weight"></output></div>
+      <input type="range" id="f-weight" min="0" max="1" step="0.05" value="0.5">
+    </div>
     <label class="opt"><input type="radio" name="choro" value="density">
       Population density</label>
     <label class="opt"><input type="radio" name="choro" value="walk">
