@@ -1,0 +1,178 @@
+/* Tokens from the dataviz reference palette. Dark values are declared under
+   both scopes so the OS setting and the in-page toggle each win correctly. */
+:root {
+  color-scheme: light;
+  --surface:    #fcfcfb;
+  --plane:      #f9f9f7;
+  --ink:        #0b0b0b;
+  --ink-2:      #52514e;
+  --ink-muted:  #898781;
+  --grid:       #e1e0d9;
+  --axis:       #c3c2b7;
+  --border:     rgba(11, 11, 11, 0.10);
+  --shadow:     0 1px 3px rgba(11, 11, 11, 0.08), 0 8px 24px rgba(11, 11, 11, 0.07);
+  --accent:     #2a78d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface: #1a1a19;
+    --plane:   #0d0d0d;
+    --ink:     #ffffff;
+    --ink-2:   #c3c2b7;
+    --ink-muted: #898781;
+    --grid:    #2c2c2a;
+    --axis:    #383835;
+    --border:  rgba(255, 255, 255, 0.10);
+    --shadow:  0 1px 3px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.45);
+    --accent:  #3987e5;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: #1a1a19;
+  --plane:   #0d0d0d;
+  --ink:     #ffffff;
+  --ink-2:   #c3c2b7;
+  --ink-muted: #898781;
+  --grid:    #2c2c2a;
+  --axis:    #383835;
+  --border:  rgba(255, 255, 255, 0.10);
+  --shadow:  0 1px 3px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.45);
+  --accent:  #3987e5;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--plane);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+#map { position: absolute; inset: 0; }
+
+/* --- panels --------------------------------------------------------------- */
+.panel {
+  position: absolute;
+  z-index: 2;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
+}
+
+#titlecard { top: 12px; left: 12px; width: 310px; }
+#controls  { top: 12px; right: 12px; width: 232px; }
+#legend    { bottom: 12px; left: 12px; width: 310px; }
+
+h1 {
+  font-size: 15px;
+  line-height: 1.25;
+  margin: 0 0 4px;
+  letter-spacing: -0.01em;
+}
+.sub { font-size: 11.5px; color: var(--ink-2); margin: 0; line-height: 1.45; }
+
+.hero { margin: 12px 0 2px; display: flex; align-items: baseline; gap: 7px; }
+.hero .n { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; line-height: 1; }
+.hero .u { font-size: 11.5px; color: var(--ink-2); line-height: 1.3; }
+
+.statrow {
+  display: flex; justify-content: space-between; gap: 10px;
+  font-size: 11.5px; padding: 3px 0;
+}
+.statrow .k { color: var(--ink-2); }
+.statrow .v { font-variant-numeric: tabular-nums; font-weight: 550; }
+
+hr.rule { border: 0; border-top: 1px solid var(--grid); margin: 11px 0; }
+
+/* --- controls ------------------------------------------------------------- */
+.grouplabel {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--ink-muted); margin: 0 0 7px; font-weight: 600;
+}
+.opt {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; padding: 4px 0; cursor: pointer; line-height: 1.3;
+}
+.opt input { accent-color: var(--accent); margin: 0; flex: none; }
+.opt:hover { color: var(--accent); }
+
+button.ghost {
+  font: inherit; font-size: 11.5px; color: var(--ink-2);
+  background: transparent; border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 9px; cursor: pointer;
+}
+button.ghost:hover { color: var(--ink); border-color: var(--axis); }
+
+/* --- legend --------------------------------------------------------------- */
+.bivgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; width: 108px; }
+.bivgrid i { display: block; aspect-ratio: 1; border-radius: 2px; }
+.bivwrap { display: flex; gap: 11px; align-items: flex-end; }
+.bivaxis-y {
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  font-size: 10px; color: var(--ink-2); text-align: center; height: 108px;
+}
+.bivaxis-x { font-size: 10px; color: var(--ink-2); margin-top: 5px; }
+.arrow { color: var(--ink-muted); }
+
+.ramprow { display: flex; align-items: center; gap: 7px; font-size: 11.5px; padding: 2px 0; }
+.ramprow i { width: 15px; height: 15px; border-radius: 3px; flex: none; }
+.ramprow .lab { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+.keyline { display: flex; align-items: center; gap: 7px; font-size: 11.5px; padding: 2px 0; }
+.keyline .sw { width: 18px; height: 0; border-top-width: 2px; border-top-style: solid; flex: none; }
+.keyline .dot {
+  width: 10px; height: 10px; border-radius: 50%; flex: none;
+  border: 1.5px solid var(--ink);
+}
+
+/* --- tooltip -------------------------------------------------------------- */
+#tooltip {
+  position: absolute; z-index: 5; pointer-events: none; display: none;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: var(--shadow);
+  padding: 9px 11px; font-size: 12px; max-width: 262px; line-height: 1.45;
+}
+#tooltip .tname { font-weight: 600; margin-bottom: 5px; }
+#tooltip .trow { display: flex; justify-content: space-between; gap: 12px; }
+#tooltip .tk { color: var(--ink-2); }
+#tooltip .tv { font-variant-numeric: tabular-nums; }
+#tooltip .tnote { color: var(--ink-2); margin-top: 5px; font-size: 11px; }
+
+/* --- table view ----------------------------------------------------------- */
+#tablewrap {
+  position: absolute; z-index: 6; inset: 0; display: none;
+  background: var(--plane); overflow: auto; padding: 26px 30px;
+}
+#tablewrap.open { display: block; }
+#tablewrap h2 { font-size: 16px; margin: 0 0 3px; }
+table { border-collapse: collapse; width: 100%; max-width: 940px; font-size: 12.5px; margin-top: 16px; }
+caption { text-align: left; font-size: 12px; color: var(--ink-2); padding-bottom: 7px; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--grid); }
+th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-muted); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Attribution lives inside the title card: as a floating corner element it
+   landed on top of the map's own bottom-right zoom and scale controls. */
+.srcline { font-size: 10px; color: var(--ink-muted); margin: 0; line-height: 1.6; }
+.srcline a { color: inherit; }
+
+#loading {
+  position: absolute; inset: 0; z-index: 10; display: grid; place-items: center;
+  background: var(--plane); font-size: 13px; color: var(--ink-2);
+}
+
+/* --- phone ---------------------------------------------------------------- */
+@media (max-width: 760px) {
+  .panel { position: static; width: auto !important; margin: 0 0 10px; }
+  #map { position: relative; height: 62vh; inset: auto; }
+  body { padding: 16px; overflow-y: auto; height: auto; }
+  #panels { display: block; }
+  #loading { position: fixed; }
+}

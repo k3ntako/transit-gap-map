@@ -1,0 +1,13 @@
+# Loose constraints; pip resolves. `make lock` writes requirements.lock.txt.
+# All of these have cp314/py3 wheels (verified 2026-10-09).
+geopandas>=1.0
+shapely>=2.0
+pyproj>=3.6
+pyrosm>=0.17
+scipy>=1.14
+numpy>=2.0
+pandas>=2.2
+requests>=2.32
+python-dotenv>=1.0
+Pillow>=11.0
+pyarrow>=18.0

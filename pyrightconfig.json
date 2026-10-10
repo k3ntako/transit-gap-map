@@ -1,0 +1,12 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "typeCheckingMode": "basic",
+  "reportMissingTypeStubs": "none",
+  "exclude": [
+    "**/__pycache__",
+    ".venv",
+    "data",
+    "web/data"
+  ]
+}

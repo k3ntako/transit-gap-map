@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NYC Transit Access</title>
+<meta name="description" content="Walking distance to the nearest train station and population density across New York City, by census tract.">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/6.13.0/maplibre-gl.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="map"></div>
+<div id="tooltip" role="tooltip" aria-live="polite"></div>
+
+<div id="panels">
+  <section class="panel" id="titlecard">
+    <h1>Transit access &amp; population density</h1>
+    <p class="sub">How far New Yorkers actually have to walk to reach a train &mdash;
+      routed along real streets, not measured in straight lines.</p>
+
+    <div class="hero">
+      <span class="n" id="hero-n">&mdash;</span>
+      <span class="u" id="hero-u"></span>
+    </div>
+
+    <hr class="rule">
+    <div id="statlist"></div>
+    <hr class="rule">
+    <p class="sub" id="bench"></p>
+    <div style="display:flex; gap:7px; margin-top:11px">
+      <button class="ghost" id="tablebtn">Table view</button>
+      <button class="ghost" id="themebtn">Dark mode</button>
+    </div>
+    <hr class="rule">
+    <p class="srcline">Built <span id="builtat"></span><br><span id="src"></span><br>
+      Basemap &copy; <a href="https://carto.com/">CARTO</a><br><span id="license"></span></p>
+  </section>
+
+  <section class="panel" id="controls">
+    <p class="grouplabel">Choropleth</p>
+    <label class="opt"><input type="radio" name="choro" value="bivariate" checked>
+      Density &times; walk time</label>
+    <label class="opt"><input type="radio" name="choro" value="density">
+      Population density</label>
+    <label class="opt"><input type="radio" name="choro" value="walk">
+      Walk time to station</label>
+    <label class="opt"><input type="radio" name="choro" value="none">
+      None</label>
+
+    <hr class="rule">
+    <p class="grouplabel">Overlays</p>
+    <label class="opt"><input type="checkbox" id="t-surface">
+      Continuous walk-time surface</label>
+    <label class="opt"><input type="checkbox" id="t-sheds" checked>
+      Network walksheds</label>
+    <label class="opt"><input type="checkbox" id="t-stations" checked>
+      Stations</label>
+
+    <hr class="rule">
+    <div id="keys"></div>
+  </section>
+
+  <section class="panel" id="legend">
+    <p class="grouplabel">Legend</p>
+    <div id="legendbody"></div>
+  </section>
+</div>
+
+<div id="tablewrap" tabindex="-1" role="region" aria-label="Data tables">
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; max-width:940px">
+    <div>
+      <h2>Walking access to a train station</h2>
+      <p class="sub">The same numbers behind the map, as a table.
+        Press <kbd>Esc</kbd> to close.</p>
+    </div>
+    <button class="ghost" id="closetable">Close</button>
+  </div>
+  <div id="tables"></div>
+</div>
+
+<div id="loading">Loading&hellip;</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

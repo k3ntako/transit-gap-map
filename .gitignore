@@ -1,0 +1,24 @@
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Data: raw downloads and large intermediates are reproducible via `make fetch`
+data/raw/
+data/processed/
+*.osm.pbf
+
+# Generated web payloads (rebuild with `make all`). Everything in here is
+# pipeline output, including palette.json and walk_surface.json, so ignore the
+# directory wholesale rather than listing extensions that drift out of date.
+web/data/*
+!web/data/.gitkeep
+
+# pip freeze output from `make lock` is platform-specific
+requirements.lock.txt
+
+# macOS
+.DS_Store
