@@ -36,68 +36,6 @@ Two design principles follow:
 
 ---
 
-## Phase 0 — known debt
-
-**Done 2026-10-10.**
-
-- ~~Rebalance the palette's chroma geometry.~~ **Done.** The matrix was
-  shouting its least interesting cell: sparse+far (491 tracts of largely empty
-  land) carried the highest chroma in the matrix at 0.175, while dense+far —
-  51 tracts, the finding the map exists to show — sat at 0.073. The cause was
-  specific: the high-high corner was built by blending `BLUE[650]` with the
-  warm ramp, and averaging opposing hues in OKLab cancels `a` and `b`, so no
-  chroma boost afterwards recovers it.
-
-  Fixed by replacing the four-corner bilinear blend with an OKLCH field,
-  because bilinear provably cannot do this: the sparse+far cell *is* a corner
-  anchor, so quieting it means desaturating that anchor, which shrinks the
-  whole matrix's gamut and drags the center cell toward its neighbors. The
-  measured ceiling for bilinear is **14.2** among the populated cells — under
-  the 15 floor — across 816k corner configurations searched. The field encodes
-  the semantics instead: lightness moves with both variables, blue chroma rides
-  the density axis, and warm chroma rides the walk-time axis **scaled by
-  density**, so distance from a train only shouts where there are people to be
-  stranded.
-
-  | | before | after |
-  |---|---|---|
-  | chroma, dense+far (the finding) | 0.073 | **0.125** |
-  | chroma, sparse+far (491 tracts) | 0.175 | **0.055** |
-  | ratio | 0.42× | **2.26×** (3.08× dark) |
-  | weakest pair among populated cells | — | 15.4 |
-  | headline corner | 15.1 | 15.5 |
-
-  The audit gates were regrouped by the reader's task at the same time. Holding
-  all 36 pairs to one floor was the wrong test: resolving walk-time terciles
-  *inside* the low-density row is not something this map supports, since those
-  tracts are mostly airports, marshland and empty hillside and the whole point
-  is that they recede. That row is now held to 8 and stays ordered by
-  lightness; the populated cells keep the full 15.
-
-- ~~Gray out the 82 unpopulated tracts.~~ **Already implemented — this roadmap
-  item was wrong.** All 82 carry `bi/dc/wc == -1`, and `fillColor()`'s `match`
-  fallback already paints them with `palette.unpopulated`. Verified against the
-  built payload: the set `pop == 0 and bi != -1` is empty. So the red mass was
-  never unpopulated land — it was 491 *populated* low-density tracts, which is
-  what the palette work above addresses.
-
-- ~~Fix `load_graph`'s union return.~~ **Done** — now a `WalkGraph` NamedTuple.
-  The `with_components` flag was redundant (`save_graph` always writes the
-  labels) and chose the return *shape* from an argument's value, which no type
-  checker can narrow. pyright 43 → 38 errors, no new ones; the remainder are
-  stub gaps rather than defects (pyrosm typed as returning `Optional`,
-  `scipy.spatial.cKDTree` missing from the stubs, `shapely`
-  `BaseGeometry.geoms`, `Series.map` with a dict), so they want casts, not
-  fixes. Behavior-preserving: a forced recompute through every changed call
-  site reproduces `node_distance.npz`, `tracts.geojson`, `stations.geojson`,
-  `walksheds.geojson`, both surface PNGs and `palette.json` byte-identically.
-
-- ~~Set `config.SOURCE_URL`.~~ **Done** — the repo went public as
-  `k3ntako/transit-gap-map`, so AGPL section 13's offer of source is now a real
-  link rather than "source in this distribution". The URL reaches the web map
-  through `stats.json`, so deploying a build made before this commit would
-  still show the fallback.
-
 ## Phase 1 — legibility and configurability (no new data)
 
 Everything here reads fields that are already in `tracts.geojson`.
@@ -117,6 +55,45 @@ Everything here reads fields that are already in `tracts.geojson`.
   "explain why" view.
 - **Permalink state.** Encode layer, weights and thresholds in the URL hash so a
   configuration is shareable. Cheap, and it makes every later feature citable.
+- **Hover a station.** The station layers have no handler at all today —
+  `wireHover()` binds `tracts-fill` only. `stations.geojson` already carries
+  `name`, `routes`, `mode_label`, `ada` and `complex_id`, so this is a second
+  `mousemove` binding and no pipeline change. Two details decide whether it
+  feels right:
+  - The station points sit *above* the choropleth, so both tooltips can fire.
+    Query the station layers first and suppress the tract tooltip while a
+    station is under the cursor, instead of stacking two boxes.
+  - Give the points a hit target larger than their drawn radius. A 3 px circle
+    is painful to hover and MapLibre has no hit-padding, so the fix is an
+    invisible wider circle layer beneath the visible one.
+- **Say what the color means.** The tooltip reports density and walk time as
+  numbers but never names the class the fill is showing, so the reader has to
+  eyeball the legend grid and match a hue. `dc`, `wc` and `bi` already ship on
+  every feature. In descending order of usefulness:
+  1. **Words.** "Density: top third · Walk: middle third". Unambiguous, needs no
+     legend, and survives any palette change.
+  2. **Cross-highlight the legend.** Outline the matching cell in the legend
+     grid while hovering. This teaches the legend rather than replacing it, and
+     it is a handful of lines on top of `renderLegend()`.
+  3. A code like `2C`, or the raw `bi` 0–8 — *not* as the primary label. Nobody
+     decodes a two-axis code without the key in front of them, and `bi` being
+     0-based while the legend grid renders top-down from the high row is a trap
+     waiting to mislabel something. Fine as a small suffix once the words exist.
+- **Constrain the camera.** The map is a city, not a globe, and three MapLibre
+  defaults do not serve it:
+  - **No tilt, no rotation.** A pitched choropleth misrepresents area, which is
+    the one thing a choropleth must not do, and a rotated one breaks every
+    "north shore" / "east side" reading of the result. `pitch: 0`,
+    `pitchWithRotate: false`, `dragRotate: false`, plus
+    `touchZoomRotate.disableRotation()` for trackpads and touch.
+  - **`maxBounds`.** There is none, so the city can be dragged off screen
+    entirely. Bound it to the five boroughs plus a margin — the margin matters,
+    because the walk network and a handful of serving stations legitimately sit
+    outside the city line.
+  - **A recenter button.** `fitBounds` back to the opening view. Note that
+    `NavigationControl` is constructed with `showCompass: false`, which is also
+    what removes its reset control, so this needs a button of its own next to
+    the layer toggles.
 
 ### On 16 or 25 color classes
 
@@ -133,10 +110,9 @@ The rest of the reasoning stands:
   separation falls below the point where two adjacent classes are
   distinguishable at choropleth sizes.
 - More classes will not fix the problem you actually saw. "Hard to tell between
-  neighborhoods because a lot of parts are red" is the chroma-geometry bug in
-  Phase 0, not a resolution limit. Sixteen classes on the current corner
-  geometry will make it *worse*, because the same perceptual volume gets divided
-  into more pieces.
+  neighborhoods because a lot of parts are red" was the palette's chroma
+  geometry, since fixed; it was never a resolution limit. Dividing the same
+  perceptual volume into more pieces would have made it worse.
 - The better route to more resolution is a *score* on one axis with more steps,
   which is Phase 3. One ordered ramp carries 7–9 readable steps; a matrix does
   not.
@@ -187,6 +163,37 @@ cover nearly everything and tell you nothing. The informative versions:
 - Six bus feeds, ~62 MB total (`gtfs_b` 19.6 MB, `gtfs_bx` 9.6 MB, `gtfs_busco`
   9.6 MB, `gtfs_m` 9.5 MB, `gtfs_si` 7.5 MB, `gtfs_q` 6.8 MB). Budget a cache
   stage; the existing conditional-GET cache in `pipeline/fetch.py` handles it.
+
+### Ridership and crowding
+
+Worth doing — but **after** the frequency join above, and the reason is the
+whole insight. Crowding is a ratio, riders over seats. Ridership on its own is a
+popularity measure, and the places this map exists to find are unpopular by
+construction: a station with few riders is as likely to be badly served as to be
+unneeded. Once Phase 2 has trains per hour, the supply side exists and the ratio
+becomes computable:
+
+```
+pressure = riders per hour / (trains per hour × capacity per train)
+```
+
+- **The data.** Hourly ridership by station (`wujg-7c2s` through 2024,
+  `5wq4-mkjj` for 2025 onward) is large but aggregates cleanly to
+  station × hour × day type, and it joins on `gtfs_stop_id` like everything else.
+- **Honest limit, stated up front.** These are *fare transactions at a station*,
+  not passengers on a train. They miss transfers made inside the fare gates,
+  they say nothing about direction, and a packed train passing through a quiet
+  station is invisible to them. A station-level pressure index is defensible;
+  "the 4 train is at 112% of capacity through Grand Central" is not, from this
+  dataset.
+- **Where it changes the answer.** A tract whose only option is a station
+  already running at the edge of its scheduled capacity is worse off than its
+  walk time suggests, because the next increment of service there is harder to
+  deliver. That is a distinct condition from "far from a station" and belongs as
+  its own deficit term in Phase 3 rather than folded into frequency.
+- **Free side benefit:** ridership is the sanity check on Phase 4's hub list. If
+  a chosen hub is not among the busiest stations in the city, it is the wrong
+  hub.
 
 ## Phase 3 — the under-service score
 
@@ -277,6 +284,72 @@ Two cautions worth writing into the methodology:
   noisier. The right answer may be geometry at block-group level and the social
   variables at tract level.
 
+### Destinations, not just residents
+
+Residential density answers "who needs to leave from here". It says nothing
+about "who needs to get *to* here", and the Met is the ideal case: a tract whose
+resident population is a few thousand absorbs millions of visits a year, and the
+map today treats it as ordinary.
+
+The right shape for this is **not** a boost applied to population density. Two
+reasons. First, a boost makes the density field stop meaning people per km²,
+which breaks the density floor, the terciles and the legend in one move — and
+those are Phase 1's whole output. Second, the two kinds of demand want different
+treatment: a resident's trip is daily and bidirectional, a visitor's is
+occasional and often off-peak.
+
+So carry it as a separate **attraction** field and let the score combine the two:
+
+- **Jobs per block** — LEHD LODES8 WAC, already verified reachable and already
+  wanted for Phase 4. The best destination signal available: comprehensive,
+  uncurated, and it captures the thing most visitor lists miss, which is that
+  the largest destination in almost every tract is somebody's workplace.
+- **A curated anchor list** for what jobs data under-weights — museums (Met,
+  AMNH, MoMA, Brooklyn Museum), stadiums and arenas (Yankee Stadium, Citi Field,
+  Barclays, MSG, Arthur Ashe), the big parks and beaches (Prospect, Flushing
+  Meadows, the Botanic Gardens, Rockaway, Orchard Beach), major medical centers,
+  CUNY campuses, and the intercity gateways (Penn, Grand Central, Port
+  Authority, the ferry terminals, the AirTrain connections). Keep it as a small
+  hand-editable GeoJSON in the repo with one weight per entry, so the choices
+  are reviewable instead of buried in code.
+- **Use published attendance as the weight** wherever it exists. Museum and
+  stadium attendance figures are public and enormously unequal; a hand-assigned
+  1-to-5 importance scale would be inventing data when real counts are available
+  for the largest entries.
+- **The Met is also a walk-time finding, not only a destination one.** It sits
+  mid-block on Fifth Avenue with the park behind it, so the real walk from the
+  86 St station is materially longer than the station-point distance implies.
+  Phase 6's entrance-level snapping is what fixes that half of the problem, and
+  it generalizes — every destination set back from the street grid is
+  mis-measured the same way.
+
+One caveat to write down now: a destination layer makes the map answer a second
+question, and the two answers want different colors. Resist merging them into a
+single score by default. "Under-served residents" and "hard-to-reach
+destinations" should be two views that share a pipeline.
+
+### On parking data
+
+Probably not worth building, and the reasoning is worth recording so the
+question does not have to be re-opened.
+
+Parking would be a proxy for "can people here simply drive instead?" But there
+is no comprehensive off-street parking inventory for NYC. What is published is
+municipal lots and garages (a few hundred facilities), licensed-garage records,
+and curb *regulation* signage — which describes rules, not supply. None of it
+adds up to spaces per tract, and assembling an estimate from building records
+would be a project with a worse error bar than the thing it is proxying.
+
+And the proxy is already available directly, and better: `B08201_002E`,
+**households with no vehicle available**, is in the table above and measures
+exactly what parking would only hint at. Vehicle registrations by ZIP are a
+second direct source if car *ownership* rather than access is the question.
+
+The one version that would earn its keep: **park-and-ride capacity at outer
+stations**, which is a real access mechanism on Staten Island and at the eastern
+Queens and north Bronx commuter-rail stops, and a small enough set to compile by
+hand. That belongs as a column on the station table, not as a citywide layer.
+
 ## Phase 6 — access cost, done properly
 
 - **Step-free access.** 2,120 subway entrances exist; **116 are step-free**
@@ -313,11 +386,63 @@ description, and the architecture makes it unusually cheap.
   Dijkstra already returns the *existing* nearest-station distance for every
   node, the marginal calculation is a comparison against a vector you already
   have — not a re-run from scratch.
-- **Proposed-project toggles.** Interborough Express along the Bay Ridge Branch,
-  Second Avenue Subway Phase 2, Triboro proposals. Each is a station list and an
-  alignment; the pipeline recomputes with them added, and the map shows the
-  before/after population moved inside each threshold. This directly answers
-  "does the IBX fix the Brooklyn–Queens gap this map shows?"
+- **Proposed-project toggles.** The concrete near-term version of the above, and
+  the single most compelling thing on this list — it turns every finding into a
+  question with an answer:
+  - **Interborough Express** — Brooklyn to Queens along the existing Bay Ridge
+    Branch freight right-of-way, roughly 14 miles, with light rail announced as
+    the preferred mode. Its alignment runs through exactly the band of dense,
+    poorly-served tracts the bivariate map lights up, so it is the strongest
+    test case available: *does the IBX fix the Brooklyn–Queens gap this map
+    shows?*
+  - **Second Avenue Subway** — Phase 2 (96th to 125th) is under construction;
+    the full **T** south of 63rd through Lower Manhattan is unfunded but has a
+    published alignment. Toggle the phases separately, because their benefits
+    land in completely different places and bundling them hides that.
+  - **Triboro and others** — the earlier Triboro RX variants, and room to load
+    anything else worth testing.
+
+  Mechanically each one is a station list plus an alignment, added to the source
+  set before the Dijkstra pass; the map then reports the before/after population
+  moved inside each threshold. Three things to get right:
+  - **Take station locations from each project's own published documents**, and
+    cite them per project with a vintage. Proposed station lists change, and a
+    map quietly using a stale one is worse than no map.
+  - **Render a proposal unmistakably as a proposal** — dashed alignment, hollow
+    station markers, a persistent "scenario" indicator that survives a
+    screenshot. A screenshot of this map with the IBX silently switched on is
+    misinformation.
+  - **Report the delta as population *moved* inside 10 minutes**, broken out by
+    borough and density class. "Serves 400,000 people" is meaningless without
+    saying how many of them already had service.
+- **Propose the line, not just the station** (the long-term goal). The marginal
+  surface above ranks *points*; a line is a connected sequence of them, and
+  getting from one to the other is the hard part. A tractable path:
+  1. **Cluster, don't search.** The space of possible alignments is hopeless;
+     the hottest contiguous bands of the marginal surface are a short list a
+     person can actually review. Produce candidate *corridors*, not scored
+     polylines.
+  2. **Snap to what is buildable** — existing and former rail rights-of-way (the
+     IBX's entire premise), wide arterials, bridge and tunnel approaches. A
+     corridor that requires taking buildings is not a proposal.
+  3. **Cost by mode and construction type**, because that is where the orders of
+     magnitude are. Deep-bore tunnel in New York has run well over $1B per mile
+     — Second Avenue Phase 1 is among the most expensive subway mileage ever
+     built anywhere — while surface light rail on an owned right-of-way,
+     bus lanes with signal priority, or a ferry landing are one to three orders
+     of magnitude cheaper. Ferries need their own caution: they move very few
+     people per dollar of operating subsidy and must not be allowed to win on
+     capital cost alone.
+  4. **Report cost per newly-served resident, ranked.** Not an absolute dollar
+     figure, and not a benefit-cost ratio to two decimal places. The defensible
+     output of a model at this level is an *ordering* of corridors plus a
+     statement of what would change the order. Anything formatted like a capital
+     budget will be quoted as one.
+
+  Worth being clear-eyed: this is the part of the roadmap where it is easiest to
+  produce something that looks authoritative and is not. The ordering is
+  genuinely useful. Precision is not available here, and the methodology page
+  should say so in as many words.
 - **Click to place a station.** The live version of the above. Needs the graph in
   the browser (too big) or a small local endpoint — so the pre-computed marginal
   surface is the better default, with the interactive version as a `make serve`
@@ -335,24 +460,32 @@ description, and the architecture makes it unusually cheap.
   work against numbers they already trust.
 - **CSV / GeoJSON export** of the per-tract table, and a documented schema.
   `stats.json` already carries `schema`; surface it as a download.
-- **Crowding, maybe.** Hourly ridership (`wujg-7c2s` through 2024, `5wq4-mkjj`
-  for 2025+) gives entries per station per hour. "Far from a station *and* the
-  nearest one is already at capacity" is a distinct and worse condition. Large
-  dataset; needs a server-side aggregation step. Lower priority than it sounds.
+- **Crowding** has moved up to Phase 2 — see *Ridership and crowding* there. It
+  landed in this phase originally on the assumption that it was a nice-to-have;
+  it is really a service-quality measure, and it means very little until
+  scheduled service is in hand.
 
 ---
 
 ## Suggested order
 
-Phase 0 is done; the density floor is next — hours of work, and it changes what
-the map looks like immediately. Then step-free access, which is the biggest
-finding available for the least new machinery. Then Phase 2 (GTFS frequency),
-because it is what makes a score meaningful. Then the score. Then time-to-hub,
-which is a project rather than a feature.
+The Phase 1 UI batch first — **density floor**, **station hover**, **naming the
+class in the tooltip**, **camera constraints**. All four are hours of work, none
+need new data, and together they change what the map feels like immediately.
+Then step-free access, the biggest finding available for the least new
+machinery. Then Phase 2 (GTFS frequency), because it is what makes a score mean
+anything. Then the score. Then time-to-hub, which is a project rather than a
+feature.
+
+Proposed-line toggles (IBX, the T) are the most tempting thing to pull forward,
+and they should not be. Their entire value is the before/after comparison, so
+they are only as credible as the walk and service model underneath them —
+shipping them early would produce confident answers from the weaker model.
 
 Deliberately *not* first: more color classes, which solves a problem the map
-does not have, and bus proximity, which would add 62 MB of data to draw a layer
-that covers the whole city.
+does not have; bus proximity, which would add 62 MB of data to draw a layer
+covering the whole city; and ridership, which means little before scheduled
+service exists.
 
 ---
 
