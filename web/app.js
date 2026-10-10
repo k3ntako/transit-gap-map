@@ -56,6 +56,10 @@ const state = {
   hoveredStation: null,
   densFloor: 0,
   popFloor: 0,
+  // Set once the theme is an explicit choice -- by the toggle or by the URL --
+  // so a shared link carries the theme but an unshared one keeps following the
+  // reader's own OS setting.
+  themePinned: false,
 };
 
 let map, pal, stats, surf;
@@ -67,6 +71,87 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g,
 // switch the style is torn down and rebuilt, so the guard is not paranoia.
 const query = (layer, point) =>
   map.getLayer(layer) ? map.queryRenderedFeatures(point, { layers: [layer] }) : [];
+
+// --- permalink --------------------------------------------------------------
+
+// #c=walk&dens=10000&pop=500&t=dark&surface=1&sheds=0&v=11.20/40.7050/-73.9500
+//
+// Only what differs from the default is written, so the usual link stays short
+// and reads as a list of deliberate choices. Plain key=value with unknown keys
+// ignored, which means a later control is one more key and there is no format
+// to version. `v` is zoom/lat/lon, the order OSM and Mapbox hashes use.
+const CHOROPLETHS = ["bivariate", "density", "walk", "none"];
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// Reads the hash into `state` and returns the camera it asked for, if any.
+// Every value is validated and clamped: a hand-edited URL should land on a
+// sane map, never a blank one.
+function applyHash() {
+  const q = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const num = (k, lo, hi) => {
+    const v = Number(q.get(k));
+    return q.has(k) && isFinite(v) ? clamp(v, lo, hi) : null;
+  };
+
+  if (CHOROPLETHS.includes(q.get("c"))) state.choropleth = q.get("c");
+  const dens = num("dens", 0, 30000);
+  if (dens != null) state.densFloor = dens;
+  const pop = num("pop", 0, 3000);
+  if (pop != null) state.popFloor = pop;
+  if (q.get("t") === "dark" || q.get("t") === "light") {
+    state.theme = q.get("t");
+    state.themePinned = true;
+  }
+  for (const [key, field] of [["surface", "surface"], ["sheds", "walksheds"],
+    ["stations", "stations"]]) {
+    if (q.has(key)) state[field] = q.get(key) === "1";
+  }
+
+  const v = (q.get("v") || "").split("/").map(Number);
+  if (v.length !== 3 || !v.every(isFinite)) return null;
+  return {
+    zoom: clamp(v[0], 8.5, 16),
+    center: [clamp(v[2], -180, 180), clamp(v[1], -85, 85)],
+  };
+}
+
+let hashTimer;
+function syncHash() {
+  // Debounced: a pan fires moveend repeatedly and a slider drag fires input on
+  // every pixel, and rewriting the URL on each one is wasted work.
+  clearTimeout(hashTimer);
+  hashTimer = setTimeout(() => {
+    const q = [];
+    if (state.choropleth !== "bivariate") q.push(`c=${state.choropleth}`);
+    if (state.densFloor) q.push(`dens=${state.densFloor}`);
+    if (state.popFloor) q.push(`pop=${state.popFloor}`);
+    if (state.themePinned) q.push(`t=${state.theme}`);
+    if (state.surface) q.push("surface=1");
+    if (!state.walksheds) q.push("sheds=0");
+    if (!state.stations) q.push("stations=0");
+    const c = map.getCenter();
+    q.push(`v=${map.getZoom().toFixed(2)}/${c.lat.toFixed(4)}/${c.lng.toFixed(4)}`);
+    // replaceState rather than assigning location.hash: assignment pushes a
+    // history entry per pan, which turns the back button into a scrub bar.
+    history.replaceState(null, "",
+      `${location.pathname}${location.search}#${q.join("&")}`);
+  }, 300);
+}
+
+// Pushes `state` back into the controls, so a link that arrives with floors and
+// a layer already set does not show defaults in the panel.
+function reflectState() {
+  const r = document.querySelector(
+    `input[name="choro"][value="${state.choropleth}"]`);
+  if (r) r.checked = true;
+  $("#t-surface").checked = state.surface;
+  $("#t-sheds").checked = state.walksheds;
+  $("#t-stations").checked = state.stations;
+  $("#f-dens").value = state.densFloor;
+  $("#f-pop").value = state.popFloor;
+  // Open the panel when a floor is in force, or the faded tracts look like a bug.
+  if (state.densFloor || state.popFloor) $("#settings").open = true;
+}
 
 // --- paint expressions ------------------------------------------------------
 
@@ -135,8 +220,12 @@ function addLayers() {
     coordinates: surf.coordinates,
   });
 
+  // Visibility comes from state, not from the default: the choropleth can now
+  // start hidden, because a permalink said so.
+  const choro = state.choropleth === "none" ? "none" : "visible";
   map.addLayer({
     id: "tracts-fill", type: "fill", source: "tracts",
+    layout: { visibility: choro },
     paint: {
       "fill-color": fillColor(),
       "fill-opacity": fillOpacity(),
@@ -145,6 +234,7 @@ function addLayers() {
 
   map.addLayer({
     id: "tracts-line", type: "line", source: "tracts",
+    layout: { visibility: choro },
     paint: {
       "line-color": state.theme === "dark" ? "#000" : "#fff",
       "line-width": 0.4, "line-opacity": lineOpacity(),
@@ -364,6 +454,11 @@ function renderLegend() {
   const el = $("#legendbody");
   const b = stats.breaks;
 
+  if (state.choropleth === "none") {
+    el.innerHTML = `<div class="sub">Choropleth hidden.</div>`;
+    return;
+  }
+
   if (state.choropleth === "bivariate") {
     const c = state.theme === "dark" ? pal.bivariate_dark : pal.bivariate;
     // Rows top-to-bottom = high density to low, so the grid reads like a map key.
@@ -483,6 +578,8 @@ function repaint() {
 
 function applyTheme(next) {
   state.theme = next;
+  state.themePinned = true;
+  syncHash();
   document.documentElement.setAttribute("data-theme", next);
   $("#themebtn").textContent = next === "dark" ? "Light mode" : "Dark mode";
   // setStyle swaps the basemap wholesale, so every source and layer is re-added
@@ -506,8 +603,8 @@ function wireControls() {
       const on = r.value !== "none";
       map.setLayoutProperty("tracts-fill", "visibility", on ? "visible" : "none");
       map.setLayoutProperty("tracts-line", "visibility", on ? "visible" : "none");
-      if (on) repaint(); else $("#legendbody").innerHTML =
-        `<div class="sub">Choropleth hidden.</div>`;
+      if (on) repaint(); else renderLegend();
+      syncHash();
     });
   });
 
@@ -515,6 +612,7 @@ function wireControls() {
     state[key] = e.target.checked;
     layers().forEach((l) =>
       map.setLayoutProperty(l, "visibility", e.target.checked ? "visible" : "none"));
+    syncHash();
   });
   toggle("#t-surface", "surface", () => ["surface-img"]);
   toggle("#t-sheds", "walksheds", () => stats.thresholds_min.map((t) => `shed-${t}`));
@@ -531,6 +629,7 @@ function wireControls() {
       show();
       map.setPaintProperty("tracts-fill", "fill-opacity", fillOpacity());
       map.setPaintProperty("tracts-line", "line-opacity", lineOpacity());
+      syncHash();
     });
     show();
   };
@@ -602,6 +701,10 @@ async function main() {
     return;
   }
 
+  // Before anything reads state: the hash decides the theme, the layer, the
+  // floors and the opening camera.
+  const view = applyHash();
+
   document.documentElement.setAttribute("data-theme", state.theme);
   $("#themebtn").textContent = state.theme === "dark" ? "Light mode" : "Dark mode";
   $("#builtat").textContent = (stats.built_at || "").slice(0, 10);
@@ -628,8 +731,9 @@ async function main() {
   map = new maplibregl.Map({
     container: "map",
     style: BASEMAP[state.theme],
-    bounds: HOME_BOUNDS,
-    fitBoundsOptions: fitOptions(),
+    // A shared view wins over the opening framing; maxBounds still clamps it.
+    ...(view ? { center: view.center, zoom: view.zoom }
+      : { bounds: HOME_BOUNDS, fitBoundsOptions: fitOptions() }),
     maxBounds: MAX_BOUNDS,
     // maxBounds raises the effective floor well above this on any normal
     // window, because the constraint zooms in until the bounds fill the
@@ -657,12 +761,21 @@ async function main() {
     renderKeys();
     renderStats();
     renderTable();
+    reflectState();
     wireControls();
+    map.on("moveend", syncHash);
+    syncHash();
     wireHover();          // bound once, so theme switches don't stack handlers
     $("#loading").style.display = "none";
   });
 
   map.on("error", (e) => console.error("map error", e?.error || e));
+
+  // replaceState does not fire hashchange, so this only sees a hash the reader
+  // changed: a permalink pasted into an already-open tab, or history
+  // navigation. Re-reading it in place would mean re-syncing every control, so
+  // a reload is both shorter and more honest.
+  addEventListener("hashchange", () => location.reload());
 }
 
 main();

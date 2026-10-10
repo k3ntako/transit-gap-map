@@ -41,8 +41,8 @@ Two design principles follow:
 Everything here reads fields that are already in `tracts.geojson`.
 
 **Shipped 2026-10-10 — display floors with a settings panel, the station hover,
-the class named in words with its legend cell cross-highlighted, and the camera
-constraints.** Three findings worth keeping:
+the class named in words with its legend cell cross-highlighted, the camera
+constraints, and the permalink.** Four findings worth keeping:
 
 - `maxBounds` does not merely clamp the center. When the bounds are narrower
   than the viewport, MapLibre zooms *in* until they fill it, so bounds drawn
@@ -60,6 +60,12 @@ constraints.** Three findings worth keeping:
 - The opening view is now `fitBounds` on `HOME_BOUNDS` rather than a fixed
   center and zoom, so the city frames itself on any window and the recenter
   button has one definition to return to.
+- The permalink writes only what differs from the default, so a link reads as a
+  list of deliberate choices and a later control is one more key — there is no
+  format to version. It is written with `history.replaceState`, because
+  assigning `location.hash` pushes a history entry on every pan and turns the
+  back button into a scrub bar. A hash the *reader* changes reloads the page
+  rather than re-syncing every control in place.
 
 Still open:
 
@@ -67,8 +73,6 @@ Still open:
   one ordered ramp of 7–9 steps is *far* easier to read than any matrix, and it
   is the right home for a score. Keep the bivariate matrix as the secondary
   "explain why" view.
-- **Permalink state.** Encode layer, weights and thresholds in the URL hash so a
-  configuration is shareable. Cheap, and it makes every later feature citable.
 
 ### On 16 or 25 color classes
 
@@ -445,11 +449,11 @@ description, and the architecture makes it unusually cheap.
 ## Suggested order
 
 The Phase 1 UI batch shipped on 2026-10-10, and it did change what the map
-feels like. What is left of Phase 1 — the sequential score layer and the
-permalink — belongs with Phase 3, since neither means much until there is a
-score to put on a ramp and in a URL.
+feels like. The permalink followed, and the sequential score layer is the last
+of Phase 1: buildable on density and walk time alone, but it has to be named
+for what it measures until Phase 2 earns it the word "under-served".
 
-Next is step-free access, the biggest finding available for the least new
+Then step-free access, the biggest finding available for the least new
 machinery. Then Phase 2 (GTFS frequency), because it is what makes a score mean
 anything. Then the score. Then time-to-hub, which is a project rather than a
 feature.
