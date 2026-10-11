@@ -68,7 +68,7 @@ def load_stations(verbose: bool = True) -> gpd.GeoDataFrame:
     ).to_crs(C.CRS_PROJ)
 
     boros = gpd.read_file(C.P_BOROS).to_crs(C.CRS_PROJ)
-    area = boros.geometry.union_all().buffer(C.STATION_BUFFER_M)
+    area = boros.geometry.union_all().buffer(C.STATION_BUFFER_METERS)
 
     in_area = gdf.geometry.within(area)
     is_rail = gdf["mode"].isin(["lirr", "mnr"])

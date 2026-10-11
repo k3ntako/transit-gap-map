@@ -91,9 +91,13 @@ station. Stage 4 snaps only to those, which stops a sample point attaching to an
 isolated park path and being reported as having no transit access at all. Keeping
 only the largest component would drop ~48% of nodes.
 
-**Tracts are measured by a grid, not a centroid** — a ~75 m sample grid clipped
+**Tracts are measured by a grid, not a centroid** — a 25 m sample grid clipped
 to each polygon, reduced with the median, because NYC tracts are long and
-irregular and a centroid often lands in water or a park.
+irregular and a centroid often lands in water or a park. The spacing is
+converged, not chosen: the per-tract median moves 0.05 min between 25 m and a
+15 m reference run, so finer is measurement noise. `config.py` carries the
+numbers. Every meter-valued tunable is named `*_METERS`, spelled out, because
+`_M` beside `HALF_MILE` could be read as miles.
 
 **`palette.py` is the only place colors are defined.** Both the raster in stage 6
 and the browser read `palette.json`, so there is exactly one definition of every

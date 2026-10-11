@@ -75,9 +75,9 @@ def compute(force: bool = False, subway_only: bool = False):
         np.column_stack([st.geometry.x.to_numpy(), st.geometry.y.to_numpy()]), k=1)
     snode = sub_idx[loc]
 
-    far = offs > C.SNAP_WARN_M
+    far = offs > C.SNAP_WARN_METERS
     if far.any():
-        print(f"  WARNING {far.sum()} station(s) snapped >{C.SNAP_WARN_M} m from the "
+        print(f"  WARNING {far.sum()} station(s) snapped >{C.SNAP_WARN_METERS} m from the "
               f"walk network (max {offs.max():.0f} m):")
         for nm, d in zip(st.loc[far, "name"].head(8), offs[far][:8]):
             print(f"            {d:6.0f} m  {nm}")

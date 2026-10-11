@@ -19,20 +19,28 @@ CRS_GEO = "EPSG:4326"
 # --- Analysis parameters ----------------------------------------------------
 WALK_SPEED_MPS = 1.35          # ~3.0 mph, standard pedestrian planning speed
 WALK_THRESHOLDS_MIN = (5, 10, 15)
-HALF_MILE_M = 804.672          # for the published-benchmark cross-check
+HALF_MILE_METERS = 804.672     # for the published-benchmark cross-check
 
 # How far beyond the city line to extend the walk network and station search.
 # Without this, routing near the border is artificially truncated and a station
 # just outside NYC (Yonkers, Nassau) wrongly appears to serve nobody.
-STATION_BUFFER_M = 2500
+STATION_BUFFER_METERS = 2500
 
-TRACT_SAMPLE_SPACING_M = 75    # intra-tract sample grid
-SURFACE_RESOLUTION_M = 100     # continuous distance raster cell size
-SIMPLIFY_TOLERANCE_M = 15      # tract geometry simplification (projected meters)
+# Intra-tract sample grid. Measured convergence: the per-tract median walk
+# time converges linearly in this spacing, and the error against a 15 m
+# reference run is 0.211 min at 75 m, 0.118 at 50, 0.072 at 35 and 0.050 at
+# 25. Below ~35 m that is finer than the model deserves -- a single 1.35 m/s
+# walk speed for everyone -- so 25 m is the end of the useful range, not a
+# step toward a finer one. It costs 2.4 s of build time and takes the
+# smallest tracts from 21-34 samples to 212-292, which is the real gain:
+# a median over 21 points was the weakest measurement in the dataset.
+TRACT_SAMPLE_SPACING_METERS = 25
+SURFACE_RESOLUTION_METERS = 100  # continuous distance raster cell size
+SIMPLIFY_TOLERANCE_METERS = 15   # tract geometry simplification, projected
 COORD_PRECISION = 5            # output GeoJSON decimal places (~1 m)
 
-SNAP_WARN_M = 250              # warn if a station snaps further than this
-MAX_SNAP_M = 1500              # beyond this, treat a sample as unreachable
+SNAP_WARN_METERS = 250         # warn if a station snaps further than this
+MAX_SNAP_METERS = 1500         # beyond this, treat a sample as unreachable
 
 # Payload budgets, asserted in build.py so regressions can't slip through.
 BUDGET_TRACTS_MB = 2.0
@@ -115,10 +123,10 @@ def minutes(meters):
 MIN_COMPONENT_NODES = 200
 
 # The surface raster and walksheds take their value from the nearest network
-# node, so this cap is tighter than MAX_SNAP_M: without it a cell on the far
-# bank of a creek could inherit a node's distance from across the water.
-SURFACE_MAX_SNAP_M = 150
-WALKSHED_RESOLUTION_M = 50
+# node, so this cap is tighter than MAX_SNAP_METERS: without it a cell on the
+# far bank of a creek could inherit a node's distance from across the water.
+SURFACE_MAX_SNAP_METERS = 150
+WALKSHED_RESOLUTION_METERS = 50
 
 # --- HTTP cache -------------------------------------------------------------
 # Per-source freshness windows, in days. Within the window nothing touches the

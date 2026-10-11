@@ -79,7 +79,7 @@ def distance_field(resolution_m: float, dist, serviceable, land_merc):
     tree, idx = _node_tree(serviceable)
     off, loc = tree.query(np.column_stack([px, py]), k=1)
     vals = dist[idx[loc]] + off
-    vals[off > C.SURFACE_MAX_SNAP_M] = np.nan
+    vals[off > C.SURFACE_MAX_SNAP_METERS] = np.nan
 
     out = np.full(flat_x.shape, np.nan)
     out[inside] = vals
@@ -162,7 +162,7 @@ def rect_union(mask, xs, ys, step):
 def walksheds(dist, serviceable, land_merc):
     """One polygon per walk-time threshold, traced from the network distances."""
     grid, xs, ys, step = distance_field(
-        C.WALKSHED_RESOLUTION_M, dist, serviceable, land_merc)
+        C.WALKSHED_RESOLUTION_METERS, dist, serviceable, land_merc)
 
     feats = []
     for t in C.WALK_THRESHOLDS_MIN:
@@ -205,7 +205,7 @@ def run(force: bool = False):
     vmax = float(C.WALK_THRESHOLDS_MIN[-1] * 2)   # 30 min caps the ramp
     print(f"Surface raster (ramp caps at {vmax:.0f} min):")
     grid, xs, ys, step = distance_field(
-        C.SURFACE_RESOLUTION_M, dist, serviceable, land)
+        C.SURFACE_RESOLUTION_METERS, dist, serviceable, land)
 
     meta = {}
     for mode in ("light", "dark"):
@@ -228,7 +228,7 @@ def run(force: bool = False):
         "images": meta,
         "coordinates": [[round(a, 6), round(b, 6)] for a, b in corners],
         "vmax_min": vmax,
-        "resolution_m": C.SURFACE_RESOLUTION_M,
+        "resolution_m": C.SURFACE_RESOLUTION_METERS,
     }, indent=2))
     print("  saved   walk_surface.json")
 

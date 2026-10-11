@@ -145,7 +145,7 @@ def geography_distance(gdf, dist, serviceable, spacing):
         off, loc = tree.query(
             np.column_stack([points_gdf.geometry.x, points_gdf.geometry.y]), k=1)
         total = dist[keep[loc]] + off    # walk to the network, then along it
-        total[off > C.MAX_SNAP_M] = np.inf   # nothing walkable nearby
+        total[off > C.MAX_SNAP_METERS] = np.inf   # nothing walkable nearby
         return total
 
     samples = samples.assign(walk_m=measure(samples))
@@ -275,7 +275,7 @@ def straight_line_benchmark(df) -> float:
 
     m = (df["is_populated"] & np.isfinite(df["subway_walk_m"])).to_numpy()
     pop = df.loc[m, "pop"].to_numpy()
-    return float(pop[straight[m] <= C.HALF_MILE_M].sum() / pop.sum() * 100)
+    return float(pop[straight[m] <= C.HALF_MILE_METERS].sum() / pop.sum() * 100)
 
 
 def headline_stats(df, subway_walk_min) -> dict:
@@ -291,7 +291,7 @@ def headline_stats(df, subway_walk_min) -> dict:
     # Benchmark: the commonly cited figure is subway-only, within a half mile.
     sm = df["is_populated"] & np.isfinite(df["subway_walk_min"])
     spop = df.loc[sm, "pop"].to_numpy()
-    shalf = C.minutes(C.HALF_MILE_M)
+    shalf = C.minutes(C.HALF_MILE_METERS)
     half_mile_subway = float(
         spop[df.loc[sm, "subway_walk_min"].to_numpy() <= shalf].sum() / spop.sum() * 100)
 
@@ -344,11 +344,11 @@ def run(force: bool = False):
 
     print("Network distance (all rail modes):")
     dist_all, nearest_all, serv_all = compute_dist(force=False, subway_only=False)
-    d_all = geography_distance(gdf, dist_all, serv_all, C.TRACT_SAMPLE_SPACING_M)
+    d_all = geography_distance(gdf, dist_all, serv_all, C.TRACT_SAMPLE_SPACING_METERS)
 
     print("Network distance (subway + SIR only):")
     dist_sub, _n, serv_sub = compute_dist(force=False, subway_only=True)
-    d_sub = geography_distance(gdf, dist_sub, serv_sub, C.TRACT_SAMPLE_SPACING_M)
+    d_sub = geography_distance(gdf, dist_sub, serv_sub, C.TRACT_SAMPLE_SPACING_METERS)
 
     df = gdf.merge(d_all, on="geoid", how="left")
     df["subway_walk_m"] = d_sub["walk_m"].to_numpy()

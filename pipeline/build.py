@@ -70,7 +70,7 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
     # neighboring tracts do not pull apart into slivers the way independent
     # per-polygon simplification would make them.
     simplified = shapely.coverage_simplify(
-        g.geometry.values, tolerance=C.SIMPLIFY_TOLERANCE_M, simplify_boundary=True)
+        g.geometry.values, tolerance=C.SIMPLIFY_TOLERANCE_METERS, simplify_boundary=True)
     g = g.set_geometry(gpd.GeoSeries(simplified, crs=C.CRS_PROJ))
 
     invalid = ~g.geometry.is_valid
@@ -106,7 +106,7 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
     if mb > C.BUDGET_TRACTS_MB:
         raise SystemExit(
             f"{path.name} is {mb:.2f} MB, over the {C.BUDGET_TRACTS_MB} MB budget. "
-            f"Raise SIMPLIFY_TOLERANCE_M or drop fields.")
+            f"Raise SIMPLIFY_TOLERANCE_METERS or drop fields.")
     return mb, lookups
 
 
@@ -146,7 +146,7 @@ def build_stats(stats: dict, df, lookups: dict) -> None:
             "pedestrian network, not straight lines, computed with a single "
             "multi-source Dijkstra pass from every station at once. Each "
             f"{C.GEO_LEVEL} is measured as the median over a "
-            f"{C.TRACT_SAMPLE_SPACING_M} m grid of sample points inside its own "
+            f"{C.TRACT_SAMPLE_SPACING_METERS} m grid of sample points inside its own "
             "polygon. Density uses land area, with water excluded."),
     })
     path = C.WEB_DATA / "stats.json"

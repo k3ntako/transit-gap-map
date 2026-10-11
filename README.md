@@ -84,7 +84,7 @@ station. Samples snap only to those, which keeps a point from attaching to an
 isolated park path and reporting no transit access at all.
 
 **Tracts are measured by a grid, not a centroid.** Each tract's walk time is
-the median over a 75 m lattice of points inside its own polygon. A single
+the median over a 25 m lattice of points inside its own polygon. A single
 centroid misrepresents the long, irregular tracts common in Queens and Staten
 Island, and can land in water or a park. Tracts too small or slivered to catch
 a lattice point get a finer lattice of their own.
@@ -316,16 +316,16 @@ inhabited):
 
 | | |
 |---|---|
-| Within a 5-minute walk of a train | 23.5% |
-| Within 10 minutes | 64.3% |
+| Within a 5-minute walk of a train | 23.2% |
+| Within 10 minutes | 64.2% |
 | Within 15 minutes | 78.3% |
 | Mean walk time, population-weighted | 12.0 min |
-| Median / p90 | 7.6 min / 24.8 min |
+| Median / p90 | 7.6 min / 24.9 min |
 
 The dense-but-poorly-served list reads as a roll call of NYC's known transit
 deserts, which is the clearest sign the routing is behaving: **Canarsie**
-(28.8 min), **Flatlands** (27.4), **Co-op City** (25.0 min at 38,886 people/km²),
-**East Flushing**, **Coney Island–Sea Gate**.
+(28.8 min), **Flatlands** (27.8), **Co-op City** (25.2 min at 38,886 people/km²),
+**Coney Island–Sea Gate**, **East Flushing**.
 
 That list is picked by a hard rule — the top density third, then the longest
 walks — and the rule has a cliff in it. The **walk-access gap** layer ranks the

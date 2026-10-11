@@ -30,7 +30,7 @@ def study_area_bbox():
     outside NYC serve the blocks it genuinely serves.
     """
     boros = gpd.read_file(C.P_BOROS).to_crs(C.CRS_PROJ)
-    buffered = boros.geometry.union_all().buffer(C.STATION_BUFFER_M)
+    buffered = boros.geometry.union_all().buffer(C.STATION_BUFFER_METERS)
     west = gpd.GeoSeries([buffered], crs=C.CRS_PROJ).to_crs(C.CRS_GEO)
     minx, miny, maxx, maxy = west.total_bounds
     return [float(minx), float(miny), float(maxx), float(maxy)]
