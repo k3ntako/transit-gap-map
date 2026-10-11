@@ -6,9 +6,9 @@ PORT ?= 8000
 
 help:
 	@echo "make setup    create .venv (Python 3.14) and install dependencies"
-	@echo "make fetch    download stations, boundaries, census, OSM extract (~153 MB)"
+	@echo "make fetch    stations, boundaries, census, GTFS (~68 MB), OSM extract (~153 MB)"
 	@echo "make network  parse the .pbf into a cached walking graph (~4-5 min)"
-	@echo "make service  scheduled trains per hour per station, from GTFS"
+	@echo "make service  scheduled trains and buses per hour, from GTFS"
 	@echo "make distance multi-source Dijkstra: nearest station per graph node"
 	@echo "make palette  generate the validated color system (web/data/palette.json)"
 	@echo "make surface  walk-time raster + network walkshed polygons"

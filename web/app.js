@@ -55,6 +55,7 @@ const state = {
   surface: false,
   walksheds: true,
   stations: true,
+  busFtn: false,
   hovered: null,
   hoveredStation: null,
   densFloor: 0,
@@ -77,7 +78,7 @@ const query = (layer, point) =>
 
 // --- permalink --------------------------------------------------------------
 
-// #c=walk&dens=10000&pop=500&t=dark&surface=1&sheds=0&v=11.20/40.7050/-73.9500
+// #c=walk&dens=10000&pop=500&t=dark&surface=1&bus=1&sheds=0&v=11.20/40.7050/-73.9500
 //
 // Only what differs from the default is written, so the usual link stays short
 // and reads as a list of deliberate choices. Plain key=value with unknown keys
@@ -97,6 +98,7 @@ function applyHash() {
   };
 
   if (CHOROPLETHS.includes(q.get("c"))) state.choropleth = q.get("c");
+  if (q.has("bus")) state.busFtn = q.get("bus") === "1";
   const dens = num("dens", 0, 30000);
   if (dens != null) state.densFloor = dens;
   const pop = num("pop", 0, 3000);
@@ -133,6 +135,7 @@ function syncHash() {
     if (state.gapWeight !== 0.5) q.push(`w=${state.gapWeight}`);
     if (state.themePinned) q.push(`t=${state.theme}`);
     if (state.surface) q.push("surface=1");
+    if (state.busFtn) q.push("bus=1");
     if (!state.walksheds) q.push("sheds=0");
     if (!state.stations) q.push("stations=0");
     const c = map.getCenter();
@@ -363,16 +366,38 @@ function deferSurface() {
   whenIdle(() => addSurface());
 }
 
+function addBusFtn() {
+  if (!map.getLayer("tracts-fill")) return;
+  if (!map.getSource("busftn")) {
+    map.addSource("busftn", {
+      type: "geojson", data: "data/bus_ftn.geojson",
+    });
+  }
+  if (!map.getLayer("bus-ftn")) {
+    const ink = pal.ink[state.theme];
+    map.addLayer({
+      id: "bus-ftn", type: "circle", source: "busftn",
+      layout: { visibility: state.busFtn ? "visible" : "none" },
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 1.4, 14, 3.2],
+        "circle-color": ink.secondary,
+        "circle-opacity": 0.55,
+        "circle-stroke-width": 0,
+      },
+    }, "stations-hit");
+  }
+}
+
 function addLayers() {
   const st = pal.station[state.theme];
 
   // setStyle() tears the style down, but guard anyway so this is safe to call
   // more than once.
   const LAYERS = ["tracts-fill", "tracts-line", "tracts-hover", "surface-img",
-    "stations-hit", "stations-rail", "stations-subway",
+    "bus-ftn", "stations-hit", "stations-rail", "stations-subway",
     ...stats.thresholds_min.map((t) => `shed-${t}`)];
   LAYERS.forEach((l) => { if (map.getLayer(l)) map.removeLayer(l); });
-  ["tracts", "stations", "walksheds", "surface"].forEach((sr) => {
+  ["tracts", "stations", "walksheds", "surface", "busftn"].forEach((sr) => {
     if (map.getSource(sr)) map.removeSource(sr);
   });
 
@@ -435,6 +460,13 @@ function addLayers() {
       paint: { "line-color": sheds[i], "line-width": [2, 1.6, 1.2][i], "line-opacity": 0.95 },
     });
   });
+
+  // The frequent bus network. Deliberately the quietest mark on the map: it is
+  // context for the rail question, not a second answer to it, and 2,368 dots
+  // drawn boldly would read as more important than the 557 stations. Loaded
+  // lazily for the same reason the surface is -- it is off by default, so a
+  // reader who never asks for it should not pay 47 KB for it.
+  if (state.busFtn) addBusFtn();
 
   // Stations carry identity by SIZE and RING, not hue: extra hues here would
   // collide with the choropleth ramps underneath.
@@ -755,7 +787,13 @@ function renderKeys() {
         border-color:${st.stroke}"></span><span class="lab">Subway / SIR station</span></div>`
     + `<div class="keyline"><span class="dot" style="background:${st.stroke};
         border-color:${st.fill};width:12px;height:12px"></span>
-        <span class="lab">LIRR / Metro-North</span></div>`;
+        <span class="lab">LIRR / Metro-North</span></div>`
+    + (state.busFtn && stats.bus_ftn
+      ? `<div class="keyline"><span class="dot" style="background:${
+          pal.ink[state.theme].secondary};border-color:transparent;
+          width:6px;height:6px;opacity:0.55"></span>
+         <span class="lab">Frequent bus stop (${fmt(stats.bus_ftn.n_ftn)} of
+         ${fmt(stats.bus_ftn.n_stops)})</span></div>` : "");
 }
 
 // --- stats + table ----------------------------------------------------------
@@ -897,6 +935,17 @@ function wireControls() {
     });
   toggle("#t-surface", "surface", () => ["surface-img"], addSurface);
   toggle("#t-sheds", "walksheds", () => stats.thresholds_min.map((t) => `shed-${t}`));
+  // renderKeys too, because the key carries the stop count and the toggle is
+  // the only thing that makes that line appear. prepare() runs after state is
+  // assigned, so it sees the new value.
+  //
+  // No hover tooltip for these, deliberately. The dots are 1.4-3.2 px, so they
+  // would need a hit layer several times their size, and 2,368 of those spread
+  // over every commercial street would swallow tract hovers city-wide. The key
+  // says what they are; the layer is context for the rail question, not a
+  // second thing to interrogate.
+  toggle("#t-busftn", "busFtn", () => ["bus-ftn"],
+    () => { addBusFtn(); renderKeys(); });
   toggle("#t-stations", "stations",
     () => ["stations-subway", "stations-rail", "stations-hit"]);
 

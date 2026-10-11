@@ -59,12 +59,12 @@ downstream of the expensive parse.
 |---|---|---|
 | 1 | `fetch.py` | `data/raw/` — stations, boundaries, census, 3 GTFS feeds, 153 MB OSM extract |
 | 2 | `network.py` | `walk_graph.npz` — undirected CSR adjacency + node coords |
-| 3 | `service.py` | `station_service.parquet` — trains per hour per station, from GTFS |
+| 3 | `service.py` | `station_service.parquet` + `bus_stop_service.parquet` — trains and buses per hour, from GTFS |
 | 4 | `distance.py` | `node_distance.npz` — nearest-station distance per node |
 | 5 | `aggregate.py` | `tract_stats.parquet` — per-geography statistics |
 | 6 | `palette.py` | `web/data/palette.json` |
 | 7 | `surface.py` | walk-time raster PNGs + `walksheds.geojson` |
-| 8 | `build.py` | `tracts.geojson`, `stations.geojson`, `stats.json` |
+| 8 | `build.py` | `tracts.geojson`, `stations.geojson`, `bus_ftn.geojson`, `stats.json` |
 | — | `verify.py` | nothing; checks stage 4 |
 
 Stage 3 depends only on stage 1, not on the walk graph, so it can be re-run
@@ -111,6 +111,20 @@ that is the headway a rider experiences. Service levels are sampled on one
 representative Wednesday and Saturday inside the *intersection* of all three
 feeds' date ranges — they do not overlap by default, and a date outside one
 feed makes its stations read as closed.
+
+**The Frequent Transit Network is defined twice over, and both choices were
+measured.** The bus layer ships only stops where a *single route* holds a
+10-minute headway across `C.FTN_WINDOWS` — peak, midday and evening. Per
+route rather than per stop, because three routes an hour each going somewhere
+different is not twenty-minute service (the combined definition admits 1,736
+more stops); and all day rather than at the peak, because 8,027 of 12,942
+stops qualify on the AM peak alone — 62%, the "covers the whole city and says
+nothing" layer this was built to avoid. The all-day per-route test leaves
+2,368 stops, 18%, which has a shape. The six bus feeds are **not** partitioned
+by borough despite their names: they share one 307-route `routes.txt` and
+partition *trips* (zero `trip_id` overlaps), while stops do overlap and must
+be deduplicated after the union. `stop_times.txt` across the six is ~10M rows,
+so it is read in chunks and window-filtered inside the loop.
 
 **Tracts are measured by a grid, not a centroid** — a 25 m sample grid clipped
 to each polygon, reduced with the median, because NYC tracts are long and

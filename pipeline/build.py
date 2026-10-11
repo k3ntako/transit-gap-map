@@ -140,6 +140,49 @@ def build_stations() -> None:
     print(f"  saved   {path.name} ({path.stat().st_size / 1024:.0f} KB, {len(gdf)} stations)")
 
 
+def build_bus_ftn() -> dict:
+    """The Frequent Transit Network as points, and only those points.
+
+    All 12,942 bus stops would be a layer covering every street in the city.
+    The 2,368 that hold a 10-minute headway all day are a network with a
+    shape, which is the only version worth drawing. `C.FTN_WINDOWS` carries
+    the argument.
+    """
+    bus = pd.read_parquet(C.P_BUS_STOPS)
+    ftn = bus.loc[bus["is_ftn"]].copy()
+    gdf = gpd.GeoDataFrame(
+        pd.DataFrame({
+            "name": ftn["stop_name"].astype(str).str.title(),
+            "route": ftn["best_route"].astype(str),
+            "tph": ftn["best_tph"].round(1),
+            "headway": ftn["best_headway_min"].round(1),
+            "nroutes": ftn["n_routes"].astype("int16"),
+        }),
+        geometry=gpd.points_from_xy(ftn["stop_lon"], ftn["stop_lat"]),
+        crs=C.CRS_GEO)
+    path = C.WEB_DATA / "bus_ftn.geojson"
+    gdf.to_file(path, driver="GeoJSON", coordinate_precision=C.COORD_PRECISION)
+    kb = path.stat().st_size / 1024
+    wire_kb = C.wire_kb(path)
+    print(f"  saved   {path.name} ({kb:.0f} KB on disk, {wire_kb:.0f} KB "
+          f"gzipped, {len(gdf)} of {len(bus)} bus stops)")
+    if wire_kb > C.BUDGET_BUS_FTN_WIRE_KB:
+        raise SystemExit(
+            f"{path.name} is {wire_kb:.0f} KB gzipped, over the "
+            f"{C.BUDGET_BUS_FTN_WIRE_KB:.0f} KB budget. This layer exists only "
+            f"because it is a selective one: check FTN_MAX_HEADWAY_MINUTES and "
+            f"FTN_WINDOWS before raising the budget, because a bus-stop layer "
+            f"that covers the city is the thing this was built to avoid.")
+    return {
+        "n_stops": int(len(bus)),
+        "n_ftn": int(len(gdf)),
+        "max_headway_min": C.FTN_MAX_HEADWAY_MINUTES,
+        "windows": list(C.FTN_WINDOWS),
+        "n_ftn_peak_only": int((bus["peak_tph"]
+                                >= 60.0 / C.FTN_MAX_HEADWAY_MINUTES).sum()),
+    }
+
+
 def build_stats(stats: dict, df, lookups: dict) -> None:
     sheds = C.WEB_DATA / "walksheds.geojson"
     if sheds.exists():
@@ -185,6 +228,7 @@ def main(argv=None) -> int:
     print("\nWeb payloads:")
     _mb, lookups = build_geographies(df)
     build_stations()
+    stats["bus_ftn"] = build_bus_ftn()
     build_stats(stats, df, lookups)
     print("\nStage 8 complete.")
     return 0

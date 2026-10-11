@@ -291,6 +291,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Fetch all raw inputs.")
     ap.add_argument("--force", action="store_true", help="ignore the cache")
     ap.add_argument("--skip-pbf", action="store_true", help="skip the 153 MB OSM extract")
+    ap.add_argument("--skip-bus", action="store_true", help="skip the 62 MB bus feeds")
     args = ap.parse_args(argv)
 
     geoms_url = C.NYC_TRACTS_GEOJSON if C.GEO_LEVEL == "tract" else C.NYC_BG_GEOJSON
@@ -305,6 +306,12 @@ def main(argv=None) -> int:
         print("Schedules:")
         for mode, url in C.GTFS_FEEDS.items():
             download(url, C.P_GTFS[mode], args.force, kind="gtfs")
+        if args.skip_bus:
+            print("Bus schedules:\n  skipped (--skip-bus)")
+        else:
+            print("Bus schedules (62 MB across six feeds):")
+            for mode, url in C.GTFS_BUS_FEEDS.items():
+                download(url, C.P_GTFS_BUS[mode], args.force, kind="gtfs")
         print("Population:")
         fetch_census(args.force)
         if args.skip_pbf:

@@ -162,12 +162,45 @@ GTFS_FEEDS = {
     "mnr": "https://rrgtfsfeeds.s3.amazonaws.com/gtfsmnr.zip",
 }
 
+# Bus feeds, 62 MB across six archives. The names look like boroughs and are
+# not: measured, `gtfs_q` carries Brooklyn routes and Bronx stops, and all five
+# NYCT feeds ship the identical 307-route `routes.txt`. What is actually
+# partitioned is trips -- zero trip_id appears in two feeds -- so the six union
+# cleanly and stops have to be deduplicated by `stop_id` because they do
+# overlap (239 between `gtfs_b` and `gtfs_busco`).
+GTFS_BUS_FEEDS = {
+    k: f"https://rrgtfsfeeds.s3.amazonaws.com/gtfs_{k}.zip"
+    for k in ("b", "m", "q", "bx", "si", "busco")
+}
+
+# The Frequent Transit Network, with two decisions that both turned out to
+# matter more than the threshold itself.
+#
+# Per *route*, not per stop. Three routes an hour each, all going somewhere
+# different, is not twenty-minute service, and summing them at the stop would
+# claim it was. Measured: the combined-frequency definition admits 979 more
+# stops than the per-route one.
+#
+# And across *every* window, not just the peak. Measuring 8-9am alone admitted
+# 8,027 of 12,876 stops -- 62% -- which is the "covers the whole city and tells
+# you nothing" layer this was supposed to avoid. Almost every NYC bus route is
+# frequent at rush hour; the thing a rider can actually rely on is a route that
+# is still frequent at noon and at 8pm, which is what "turn up and go" means
+# and what the planning term has always meant.
+FTN_MAX_HEADWAY_MINUTES = 10.0
+FTN_WINDOWS = ("am_peak", "midday", "evening")
+
+# Bus stops are the one layer that could cover the whole city and say nothing:
+# there are roughly 15,000 of them. Only the frequent ones ship, and this
+# budget is what keeps that promise honest.
+BUDGET_BUS_FTN_WIRE_KB = 120.0
+
 ATTRIBUTION = {
     "stations": "MTA / NY State Open Data (data.ny.gov)",
     "boundaries": "NYC Dept. of City Planning (NYC Open Data)",
     "population": f"US Census Bureau, {CENSUS_DATASET}",
     "network": "OpenStreetMap contributors (ODbL), via BBBike extract",
-    "schedule": "MTA GTFS feeds (subway, LIRR, Metro-North)",
+    "schedule": "MTA GTFS feeds (subway, LIRR, Metro-North, bus)",
 }
 
 # AGPL-3.0 section 13 requires a deployed instance to "prominently offer all
@@ -185,12 +218,14 @@ P_PBF = RAW / "NewYork.osm.pbf"
 P_CENSUS = RAW / f"census_{GEO_LEVEL}_pop.csv"
 
 P_GTFS = {k: RAW / f"gtfs_{k}.zip" for k in GTFS_FEEDS}
+P_GTFS_BUS = {k: RAW / f"gtfs_bus_{k}.zip" for k in GTFS_BUS_FEEDS}
 
 P_GRAPH = PROCESSED / "walk_graph.npz"
 P_STATIONS = PROCESSED / "stations.parquet"
 P_NODE_DIST = PROCESSED / "node_distance.npz"
 P_GEO_STATS = PROCESSED / f"{GEO_LEVEL}_stats.parquet"
 P_SERVICE = PROCESSED / "station_service.parquet"
+P_BUS_STOPS = PROCESSED / "bus_stop_service.parquet"
 
 
 def minutes(meters):

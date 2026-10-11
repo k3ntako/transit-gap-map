@@ -395,9 +395,155 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     print("Station service levels:")
     compute(args.force)
+    print("\nBus stop frequency:")
+    bus_stops(args.force)
     print("\nStage 3 complete.")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# --- buses ------------------------------------------------------------------
+
+def _bus_departures(zf: zipfile.ZipFile, services: set[str],
+                    hours: set[int]) -> pd.DataFrame:
+    """Boardable bus departures in `hours`: stop, route, direction, hour.
+
+    Read in chunks and filtered inside the loop. The six feeds hold roughly ten
+    million stop times between them, and materializing that before filtering is
+    how a MacBook Air starts swapping. Keeping only the three windows the FTN
+    needs throws away about 87% of every chunk.
+    """
+    trips: pd.DataFrame = _read(zf, "trips.txt")
+    running: pd.DataFrame = trips.loc[trips["service_id"].isin(list(services))]
+    route_of = dict(zip(running["trip_id"].tolist(), running["route_id"].tolist()))
+    dir_of = dict(zip(running["trip_id"].tolist(), running["direction_id"].tolist()))
+    wanted = set(route_of)
+
+    out = []
+    with zf.open("stop_times.txt") as fh:
+        reader = pd.read_csv(
+            fh, dtype=str, chunksize=500_000,
+            usecols=["trip_id", "stop_id", "departure_time", "pickup_type"])
+        for chunk in reader:
+            c: pd.DataFrame = chunk
+            hh = c["departure_time"].str.slice(0, 2).astype("Int64") % 24
+            hour = pd.Series(hh, index=c.index)
+            keep = (hour.isin(list(hours))
+                    & c["trip_id"].isin(list(wanted))
+                    & (c["pickup_type"].fillna("0") != "1"))
+            if not keep.any():
+                continue
+            k: pd.DataFrame = c.loc[keep]
+            tid = k["trip_id"].tolist()
+            out.append(pd.DataFrame({
+                "stop_id": k["stop_id"].tolist(),
+                "route_id": [route_of[i] for i in tid],
+                "direction_id": [dir_of.get(i, "0") for i in tid],
+                "hour": hour.loc[keep].astype(int).tolist(),
+            }))
+    if not out:
+        return pd.DataFrame({"stop_id": [], "route_id": [], "direction_id": [],
+                             "hour": []})
+    return pd.concat(out, ignore_index=True)
+
+
+def bus_stops(force: bool = False) -> pd.DataFrame:
+    """Every bus stop in the city with its AM-peak frequency, per route.
+
+    Per route, not per stop, because that is what the Frequent Transit Network
+    means: a route a rider can turn up for. Three routes an hour each, all
+    going somewhere different, is not twenty-minute service, and summing them
+    into one number at the stop would claim it was. `best_tph` is therefore the
+    best single route at the stop; `all_tph` is the sum, kept beside it so the
+    difference between the two definitions stays visible rather than
+    becoming an argument.
+    """
+    if C.P_BUS_STOPS.exists() and not force:
+        print(f"  cached  {C.P_BUS_STOPS.name}")
+        return pd.read_parquet(C.P_BUS_STOPS)
+
+    zfs = {k: zipfile.ZipFile(p) for k, p in C.P_GTFS_BUS.items()}
+    windows = {k: feed_window(z) for k, z in zfs.items()}
+    windows.update({m: feed_window(zipfile.ZipFile(p))
+                    for m, p in C.P_GTFS.items()})
+    weekday, _sat = pick_dates(windows)
+    hours = {h for w in C.FTN_WINDOWS for h in range(*C.SERVICE_WINDOWS[w])}
+    print(f"  sampled {weekday} ({weekday:%A}), hours "
+          f"{sorted(hours)}, across {len(zfs)} bus feeds")
+
+    deps, stops, names = [], [], {}
+    for k, zf in zfs.items():
+        svc = active_services(zf, weekday)
+        d = _bus_departures(zf, svc, hours)
+        deps.append(d)
+        s: pd.DataFrame = _read(zf, "stops.txt")
+        stops.append(s.loc[:, ["stop_id", "stop_name", "stop_lat", "stop_lon"]])
+        rt: pd.DataFrame = _read(zf, "routes.txt")
+        names.update(dict(zip(rt["route_id"].tolist(),
+                              rt["route_short_name"].fillna("").tolist())))
+        print(f"  {k:7} {len(svc):3} service(s), {len(d):7,} peak departures "
+              f"at {d['stop_id'].nunique():5} stops")
+
+    dep = pd.concat(deps, ignore_index=True)
+    # Stops repeat across feeds -- they are partitioned by trip, not by
+    # geography -- so deduplicate on stop_id after the union, not before.
+    allstops = pd.concat(stops, ignore_index=True).drop_duplicates("stop_id")
+    print(f"  union   {len(dep):,} departures at {dep['stop_id'].nunique():,} "
+          f"stops, {len(allstops):,} stops in the feeds")
+
+    # Trains per hour per direction, per window, per (stop, route). The FTN
+    # takes the *worst* window, so a route has to hold the headway all day.
+    need = 60.0 / C.FTN_MAX_HEADWAY_MINUTES
+    per_window = {}
+    for w in C.FTN_WINDOWS:
+        lo, hi = C.SERVICE_WINDOWS[w]
+        d = dep.loc[(dep["hour"] >= lo) & (dep["hour"] < hi)]
+        pr = (d.groupby(["stop_id", "route_id"])
+              .agg(n=("direction_id", "size"), dirs=("direction_id", "nunique")))
+        per_window[w] = pr["n"] / (hi - lo) / pr["dirs"]
+
+    tph = pd.DataFrame(per_window)
+    # A window with no departures is no service in it, not missing data, so it
+    # fills with 0 and disqualifies the route. That is the whole point of the
+    # all-day test.
+    tph = tph.fillna(0.0)
+    tph["worst"] = tph[list(C.FTN_WINDOWS)].min(axis=1)
+
+    g = tph.groupby(level="stop_id")
+    out = pd.DataFrame({
+        "best_tph": g["worst"].max(),
+        "peak_tph": g["am_peak"].max(),
+        "all_tph": g["worst"].sum(),
+        "n_routes": g.size(),
+        "best_route": g["worst"].idxmax().map(lambda ix: names.get(ix[1], ix[1])),
+    })
+    out["best_headway_min"] = np.where(out["best_tph"] > 0,
+                                       60.0 / out["best_tph"], np.inf)
+    out = out.join(allstops.set_index("stop_id"), how="left")
+    out = out.loc[out["stop_lat"].notna()]
+    out["stop_lat"] = out["stop_lat"].astype(float)
+    out["stop_lon"] = out["stop_lon"].astype(float)
+    out["is_ftn"] = out["best_tph"] >= need
+
+    peak_only = out["peak_tph"] >= need
+    combined = out["all_tph"] >= need
+    n = len(out)
+    print(f"  FTN     {int(out['is_ftn'].sum()):,} of {n:,} stops have a route "
+          f"holding <={C.FTN_MAX_HEADWAY_MINUTES:.0f} min across "
+          f"{', '.join(C.FTN_WINDOWS)} ({100 * out['is_ftn'].mean():.1f}%)")
+    print(f"          {int(peak_only.sum()):,} ({100 * peak_only.mean():.0f}%) "
+          f"qualify on the AM peak alone -- the all-day test is what stops this "
+          f"layer covering the city")
+    print(f"          {int(combined.sum()):,} on combined frequency instead of "
+          f"per route ({int(combined.sum()) - int(out['is_ftn'].sum()):+,})")
+    top = out.nlargest(5, columns="best_tph")
+    for _sid, r in top.iterrows():
+        print(f"          {r['best_tph']:5.1f} tph all day  "
+              f"{str(r['best_route']):>5}  {str(r['stop_name'])[:38]}")
+
+    out.to_parquet(C.P_BUS_STOPS)
+    print(f"  saved   {C.P_BUS_STOPS.name} ({len(out)} stops)")
+    return out
