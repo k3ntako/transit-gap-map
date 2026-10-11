@@ -20,7 +20,8 @@ city — 557 in total.
 ```bash
 make setup                 # .venv on Python 3.14 + dependencies
 cp .env.example .env       # then paste a free Census key into it
-make all                   # fetch -> network -> distance -> palette -> surface -> build -> verify
+make all                   # fetch -> network -> service -> distance ->
+                           #   palette -> surface -> build -> verify
 make serve                 # http://localhost:8000
 ```
 
@@ -56,14 +57,15 @@ instead of being treated as sitting exactly on it.
 
 | Stage | Module | What it does |
 |---|---|---|
-| 1 | `pipeline/fetch.py` | Download stations, boundaries, census, OSM extract |
+| 1 | `pipeline/fetch.py` | Download stations, boundaries, census, GTFS, OSM extract |
 | 2 | `pipeline/network.py` | `.pbf` → cached undirected walking graph |
-| 3 | `pipeline/distance.py` | Multi-source Dijkstra → distance per graph node |
-| 4 | `pipeline/aggregate.py` | Node distances → per-tract statistics |
-| 5 | `pipeline/palette.py` | Generate and audit the color system |
-| 6 | `pipeline/surface.py` | Walk-time raster + network walkshed polygons |
-| 7 | `pipeline/build.py` | Emit `web/data/` payloads |
-| — | `pipeline/verify.py` | Spot checks and the barrier test |
+| 3 | `pipeline/service.py` | GTFS → trains per hour per station, frequent bus stops |
+| 4 | `pipeline/distance.py` | Multi-source Dijkstra → walk and walk+wait per node |
+| 5 | `pipeline/aggregate.py` | Node distances → per-tract statistics and the score |
+| 6 | `pipeline/palette.py` | Generate and audit the color system |
+| 7 | `pipeline/surface.py` | Walk-time raster + network walkshed polygons |
+| 8 | `pipeline/build.py` | Emit `web/data/` payloads |
+| — | `pipeline/verify.py` | Barrier test, spot checks, and the alignment gate |
 
 Everything under `web/data/` is generated and gitignored, so a fresh clone must
 run `make all` before `make serve` — the map reports that explicitly rather than
@@ -248,7 +250,7 @@ A 4x4 matrix was measured for comparison and scores 10.0 on its weakest pair,
 so more classes would need a wider lightness range or a lower gate.
 `bivariate_field()` takes `levels` if you want to re-check that.
 
-The **walk-access gap** layer is the real answer to that resolution question:
+The **under-service score** layer is the real answer to that resolution question:
 one ordered ramp carries 7 steps where a matrix could not carry 16, because the
 reader only has to see the order rather than identify a cell. It is violet —
 slot 7 of the documented palette — and not a shade of either data ramp, since
@@ -328,26 +330,68 @@ deserts, which is the clearest sign the routing is behaving: **Canarsie**
 **Coney Island–Sea Gate**, **East Flushing**.
 
 That list is picked by a hard rule — the top density third, then the longest
-walks — and the rule has a cliff in it. The **walk-access gap** layer ranks the
-same two variables continuously instead: density and walk time each as a
-percentile rank, multiplied, so a tract needs both to score high. **Nine tracts
-score worse than the worst tract in the table above**, led by a Canarsie tract
-at 21,783 people/km² and a **33.1-minute** walk, which misses the list only by
-sitting a hair under the density cut-off.
+walks — and the rule has a cliff in it. The **under-service score** measures
+the thing directly instead: `population × max(walk − 10, 0)`, or **excess
+person-minutes**, where ten minutes is the standard below which there is no gap
+to measure. Citywide that comes to **39.1 million excess person-minutes per
+one-way trip**, with **3.05 million New Yorkers** past the standard.
+
+The score was chosen by measurement, not by argument. `pipeline/verify.py` ranks
+ten candidate formulations by how many of their worst 25 tracts fall inside the
+eight corridors the MTA and its partners have actually proposed, against the 26%
+baseline a score with no predictive value would hit:
+
+| score | worst 25 | worst 50 | worst 100 |
+|---|---|---|---|
+| **`pop × excess walk`** (shipped) | **80%** | 58% | 43% |
+| `need × excess walk` | 76% | 60% | 48% |
+| `pop × excess access` (with wait) | 76% | 52% | 41% |
+| `carfree hh × excess walk` | 56% | 50% | 47% |
+| percentile-rank product (previous) | 20% | 26% | 23% |
+| baseline (random) | 26% | 26% | 26% |
+
+Two of those rows are worth staring at. **Counting the wait makes the score
+worse**, which is coherent rather than embarrassing: a frequency problem is
+solved by running more trains on existing track, not by building a line, so
+access cost is the better measure of a rider's morning and the worse predictor
+of where an agency builds. And **the equity variables make it worse too**, in
+every form tested. They ship and can be weighted in the UI — the MTA
+characterizes its own Equity Areas by exactly the zero-vehicle variable — but
+the default weight is zero and the measurement is why. The build fails if the
+shipped score drops below a 40% floor.
+
+Because a line serves a corridor rather than a tract, the score is reported
+beside its **contiguity**: connected components over land adjacency. The largest
+block is **430 contiguous tracts holding 1,313,894 people**, running from
+Canarsie through Flatlands to St. Albans — a finding no per-tract ranking can
+produce. 24 of the 58 blocks are a single isolated tract, which is a complaint
+rather than a project. And across the nine candidate scores that clear the
+floor, **12 tracts stay in the worst 50 under every one** — all Staten Island
+North and West Shore, all inside that borough's 105-tract block, and both of
+those corridors have BRT proposals.
 
 ## Caveats
 
 - Walk times assume **1.35 m/s** (~3.0 mph) on a flat network. Grades are not
   modeled, which understates the effort of a climb like Grymes Hill.
-- Staten Island looks poorly served because **this analysis counts trains
-  only**. Much of the borough depends on buses and the ferry.
-- All stations count equally. A two-train local stop is treated the same as a
-  hub, so the map measures *physical access*, not service quality.
-- The **walk-access gap** score combines density and walk time, and nothing
-  else. It is deliberately not called an under-service score: service quality
-  is not in it, so a 30-minute headway still counts the same as Times Square.
-  It is also an *ordering* — a tract's score is a position among the 2,243
-  inhabited tracts, not a quantity to quote.
+- Staten Island looks poorly served because **the access measures count trains
+  only**. Much of the borough depends on buses and the ferry. The frequent-bus
+  layer shows where useful bus service exists — 2,368 of 12,942 stops have a
+  route holding a 10-minute headway through peak, midday and evening — but
+  buses are not in any distance or score calculation.
+- Station **frequency** is measured and shipped, but the walk layers still
+  count every station equally. The "Walk + wait for a train" layer is the one
+  that charges for a 30-minute headway; the plain walk figures above do not,
+  which is why they stay comparable to published ones.
+- The **under-service score** is excess person-minutes and nothing else — no
+  wait, no equity term, both measured as making it worse against agency plans.
+  It is a quantity rather than an ordering, so it can be quoted, but only in
+  its own units: person-minutes of walk beyond the standard, one way.
+- **Commuter rail is counted as if it were a subway swipe.** It is not: LIRR
+  and Metro-North charge a separate zone-based fare. 897,941 New Yorkers
+  (10.5%) have one as their nearest train, and discounting them moves the
+  citywide 10-minute share by only 1.9 points while costing those tracts a
+  median 20.1 minutes each way.
 - ACS tract populations are estimates with margins of error; `pop_moe` is
   fetched alongside. Switch `config.CENSUS_DATASET` to `2020/dec/pl` with
   `P1_001N` for exact decennial counts.
