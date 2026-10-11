@@ -204,8 +204,16 @@ const floorMin = () => stats.score?.floor_minutes ?? 10;
 //
 // `(i + 1) / n` with later writes winning means ties take the highest position,
 // so a rank reads as "the share of tracts at or below this one".
+//
+// A missing value gets *no* rank rather than sorting as if it were zero. Eleven
+// tracts have no car-free-household estimate and four no poverty estimate, and
+// ranking those as the least in need in the city is a fabrication. They fall
+// through to NEUTRAL_RANK instead, in the JS score and the paint expression
+// alike.
 function rankInto(feats, src, dst) {
-  const vals = feats.map((f) => f.properties[src]).sort((a, b) => a - b);
+  const vals = feats.map((f) => f.properties[src])
+    .filter((v) => v != null && isFinite(v))
+    .sort((a, b) => a - b);
   const rank = new Map();
   vals.forEach((v, i) => rank.set(v, (i + 1) / vals.length));
   for (const f of feats) f.properties[dst] = rank.get(f.properties[src]);
@@ -218,8 +226,12 @@ function rankInto(feats, src, dst) {
 function rankTracts() {
   const scored = tracts.features.filter(
     (f) => f.properties.pop > 0 && f.properties.walk != null);
+  // `rd` is now read only as the marker for "this tract has a score" -- the
+  // density and walk-time ranks were the old rank-product score, which the
+  // alignment test measured at 26% and replaced. The walk rank went with it;
+  // the density one stays because the presence test is cheap and already
+  // spelled out in the paint expression.
   rankInto(scored, "dens", "rd");
-  rankInto(scored, "walk", "rw");
   rankInto(scored, "nveh", "rnv");
   rankInto(scored, "pov", "rpv");
   // Excess minutes beyond the standard, and the score at full population
@@ -230,6 +242,11 @@ function rankTracts() {
     const p = f.properties;
     p.exc = Math.max((p.walk ?? 0) - fl, 0);
   }
+  // Seal the properties. `addSource` serializes this object to the worker, so
+  // a property written any later is invisible to every paint expression and
+  // fails silently -- which is exactly how the gap layer painted the whole
+  // city black. Modules are strict, so a late write now throws on the spot.
+  for (const f of tracts.features) Object.freeze(f.properties);
   return scored.length;
 }
 
@@ -249,13 +266,29 @@ function rankTracts() {
 // population term, put 27 in -- the smallest a 43-person tract -- which is why
 // `w` scales the need terms *into* a population weight rather than replacing
 // it.
-const needBlend = (p, w) => {
-  if (!w) return 1;
-  const terms = [p.rnv, p.rpv].filter((v) => v != null && isFinite(v));
-  if (!terms.length) return 1;
-  const mean = terms.reduce((a, b) => a + b, 0) / terms.length;
-  return 1 - w + w * 2 * mean;   // w=0 -> 1; mean=0.5 -> 1 at any w
-};
+//
+// A tract with no estimate for a term takes the middle of the distribution,
+// which is the one value that leaves its score unchanged at every weight. That
+// is also what lets the blend be written as a paint expression: the formula no
+// longer depends on *which* terms a feature happens to have.
+const NEUTRAL_RANK = 0.5;
+const rankOr = (v) => (v != null && isFinite(v) ? v : NEUTRAL_RANK);
+
+// w=0 -> 1; both ranks neutral -> 1 at any w. `w * 2 * mean` of two terms is
+// `w * (a + b)`, which is the form needExpr() mirrors.
+const needBlend = (p, w) =>
+  w ? 1 - w + w * (rankOr(p.rnv) + rankOr(p.rpv)) : 1;
+
+// The same arithmetic as a MapLibre expression. `["number", v, fallback]` is an
+// assertion that falls through on a null or absent property, so this is
+// `rankOr` -- which is why rankInto leaves a missing rank unset rather than
+// ranking it zero. Keeping the two definitions the same shape is the point:
+// the tooltip, the table and the fill have to agree.
+const needExpr = (w) => w
+  ? ["+", 1 - w, ["*", w, ["+",
+      ["number", ["get", "rnv"], NEUTRAL_RANK],
+      ["number", ["get", "rpv"], NEUTRAL_RANK]]]]
+  : 1;
 
 const gapScore = (p, w) => (p.pop ?? 0) * (p.exc ?? 0) * needBlend(p, w);
 
@@ -276,12 +309,7 @@ let gapCache = { w: null };
 function gapCompute(w) {
   if (gapCache.w === w) return gapCache;
 
-  // `nb` has to live on the feature for the paint expression to read it, and
-  // it depends on w, so it is rewritten here -- once per weight change, not
-  // once per tract per frame.
   const scored = tracts.features.filter((f) => f.properties.rd != null);
-  for (const f of scored) f.properties.nb = needBlend(f.properties, w);
-
   const all = scored.map((f) => gapScore(f.properties, w));
   const over = all.filter((v) => v > 0).sort((a, b) => a - b);
   const breaks = [1e-9];          // anything above zero leaves band 0
@@ -316,10 +344,18 @@ function gapColor() {
   const ramp = gapRamp();
   const w = state.gapWeight;
   // The score evaluates in the paint expression, so a weight change is one
-  // setPaintProperty. `needBlend`'s mean-of-available-terms cannot be written
-  // as an expression without knowing which terms are null per feature, so the
-  // blend is read from `nb`, written alongside the ranks whenever w changes.
-  const score = ["*", ["get", "pop"], ["get", "exc"], ["get", "nb"]];
+  // setPaintProperty over properties the source already holds.
+  //
+  // It read a precomputed `nb` property instead, until that was measured: the
+  // GeoJSON is serialized to the worker when `addSource` is called, so a
+  // property written onto `tracts.features` after that point never reaches the
+  // source. `nb` was written on the first `gapCompute`, which happens inside
+  // `addLayers()` -- one call too late. `["get", "nb"]` therefore returned
+  // null, `*` threw on every feature, and MapLibre fell back to the
+  // `fill-color` default, which is black: the whole city painted one color and
+  // the slider moved only the legend. Anything the paint expression reads must
+  // either ship in the payload or be written before `addSource`.
+  const score = ["*", ["get", "pop"], ["get", "exc"], needExpr(w)];
   const steps = ["step", score, ramp[0]];
   gapCompute(w).breaks.forEach((b, i) => steps.push(b, ramp[i + 1]));
   // No rank means unpopulated, or no station reachable on foot: no score, so it
@@ -709,7 +745,7 @@ function wireHover() {
           + ` person-minutes</strong><br>${fmt(p.pop)} residents × `
           + `${fmt(p.exc, 1)} min past ${fmt(fl, 0)}`
           + (state.gapWeight
-            ? ` × ${fmt(p.nb, 2)} equity weight` : "")
+            ? ` × ${fmt(needBlend(p, state.gapWeight), 2)} equity weight` : "")
           + `<br>worse than ${Math.round(100 * gapPercentile(s))}% of tracts`
           + `</div>`;
       }

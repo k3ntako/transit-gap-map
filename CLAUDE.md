@@ -150,6 +150,20 @@ and entirely generated, so a fresh clone must `make all` before `make serve`.
 Anything a user might want to re-weight should recompute in the browser from
 per-tract fields rather than round-tripping through the pipeline.
 
+**`map.addSource` serializes the GeoJSON object, so a property written after it
+never exists.** `rankTracts()` writes the derived fields the paint expressions
+read (`rd`, `rnv`, `rpv`, `exc`) onto `tracts.features` and then freezes every
+properties object, because the failure mode is silent and total: the
+under-service layer read an `nb` property written on the first `gapCompute()`,
+which runs inside `addLayers()` — one call after `addSource` — so `["get",
+"nb"]` returned null, `*` threw on all 2,243 populated tracts, and MapLibre
+fell back to the `fill-color` default, which is **black**. The city painted one
+color and the slider moved only the legend, which is computed in JS. A
+reweighting control must therefore be arithmetic over properties the source
+already holds: `needExpr()` is `needBlend()` written as an expression, and the
+two were checked to agree to 0.0 on every tract at five weights before shipping.
+The freeze turns a repeat of this into an immediate throw.
+
 **Payload budgets are asserted, not advisory, and they are measured gzipped.**
 `BUDGET_TRACTS_WIRE_KB = 350` raises a `SystemExit` in `build.py` and
 `BUDGET_WALKSHEDS_WIRE_KB = 150` does the same in `surface.py`, both against
