@@ -229,16 +229,51 @@ time-to-somewhere separates those.
 
 **Approach — a frequency-based static transit graph, not a full RAPTOR.**
 
-- Nodes: GTFS stops. Ride edges: median scheduled runtime between consecutive
-  stops on each route pattern. Transfer edges: walk time between nearby stops
-  plus the expected wait at the boarding stop. Access edges: the existing walk
-  graph, so every one of the 1.84M pedestrian nodes connects in.
+**Sized 2026-10-11 against the feeds now on disk, and it is small.** This was
+the phase's main unknown and it is no longer one:
+
+| | count |
+|---|---|
+| Stops, all nine feeds, deduplicated on `stop_id` | 14,608 |
+| Ride edges (unique consecutive-stop pairs, one weekday) | 18,235 |
+| Route patterns (distinct stop sequences per route) | 2,216 |
+| Transfer pairs within 150 m / 250 m / 400 m / 600 m | 26,770 / 57,518 / 124,700 / 254,575 |
+| Walk graph already handled, for comparison | 1.84M nodes / 2.14M edges |
+
+Even at a 600 m transfer radius the transit layer adds about 13% to the edge
+count of a graph the pipeline already does a Dijkstra over in 0.2 s. Ten hubs
+is ten passes. The feasibility claim below is now a measurement, not a hope.
+
+- **Nodes must be `(stop, route, direction)`, not stops.** This is a
+  correctness fix, not an optimization, and it is the thing most likely to be
+  got wrong. With one node per stop, every route serving that stop shares it,
+  so a Dijkstra can change vehicles **at no cost** — transfers become free and
+  the graph quietly claims a connectivity the city does not have, which is the
+  precise opposite of what this phase exists to measure. Route-expanding is
+  what forces a change of vehicle through a transfer edge that carries the
+  wait. Measured cost: 14,608 stops become **25,164** route-expanded nodes, a
+  1.7× multiplier, because the median stop serves exactly one route and the
+  p90 serves three. It is nearly free; it is only expensive to retrofit.
+- Ride edges: median scheduled runtime between consecutive stops on each route
+  pattern — 18,235 of them, so this is a group-by on `stop_times`, not a
+  model. Transfer edges: walk time between nearby stops plus the expected wait
+  at the boarding stop, which `station_service.parquet` already computes per
+  station and `bus_stop_service.parquet` per bus stop. Access edges: snap each
+  of the 14,608 stops to the walk graph exactly as `distance.py` snaps the 557
+  stations, and the existing 1.84M-node walk graph supplies everything else —
+  so access is 14,608 edges, not millions.
+- **The transfer radius is a real parameter and wants the same treatment the
+  sample spacing got.** 150 m to 600 m is a factor of ten in transfer edges, and
+  it directly controls how connected the network looks. Converge it, do not
+  pick it.
 - Then **one Dijkstra from the hub** over this graph gives time-to-hub for every
   node in the city, and `pipeline/aggregate.py`'s median-over-sample-points
   machinery converts that to per-tract values unchanged. This reuses the entire
   existing architecture rather than bolting a routing server onto it.
 - Express service falls out for free: express patterns have faster ride edges,
-  so an express stop scores better without any special-casing.
+  so an express stop scores better without any special-casing — **provided the
+  nodes are route-expanded.** Without that, express and local share a node and
+  the express advantage disappears into an averaged edge.
 - **Honest limitation:** a static graph with expected waits approximates a
   typical weekday peak. It cannot represent departure-time effects (just-missed
   connections, timed transfers). Say so in the methodology rather than implying
@@ -247,10 +282,16 @@ time-to-somewhere separates those.
 - Hubs to offer: Times Sq–42 St, Grand Central, Atlantic Av–Barclays Ctr,
   Fulton St, Jackson Hts–Roosevelt Av, 125 St. Pre-compute one surface per hub
   (cheap — one Dijkstra each) and let the user switch, rather than routing live.
+  **But see the ridership ranks below before fixing this list** — 125 St does
+  not survive its own test, and three of these are split across several
+  complexes in the ridership data.
 - **Jobs accessibility** is the generalization of "a hub": LEHD LODES8 WAC
-  (verified reachable) gives jobs per block, so *jobs reachable within 45
-  minutes* is the standard accessibility measure and needs no arbitrary choice of
-  destination. Worth doing once the transit graph exists.
+  gives jobs per block, so *jobs reachable within 45 minutes* is the standard
+  accessibility measure and needs no arbitrary choice of destination. Worth
+  doing once the transit graph exists. **Probed 2026-10-11: reachable, HTTP
+  200, 2.7 MB gzipped** — `ny_wac_S000_JT00_2022.csv.gz`. This file said in one
+  place that it was verified and in another that it was unprobed; it is
+  verified.
 
 ### Secondary hubs, and the orbital problem
 
@@ -266,12 +307,51 @@ origins as *well served*, because each is a short ride from Midtown.
   is seconds, not a redesign. Publish per-hub times *and* the minimum across
   hubs — "time to your nearest center" is the polycentric question, and it is
   the one a resident of Jamaica or Fordham actually has.
-- **Pick the hub list from data, not from feel.** Candidates: Downtown
-  Brooklyn, Jamaica, Flushing, Long Island City, Fordham, St. George, 149th
-  St–Grand Concourse. The ridership join is the arbiter — a proposed hub that
-  is not among the busiest stations in the city is the wrong hub — which makes
-  *Ridership and crowding* a dependency of this bullet rather than a parallel
-  nice-to-have.
+- **Pick the hub list from data, not from feel — but not from ridership.**
+  This bullet used to say the ridership join was the arbiter: "a proposed hub
+  that is not among the busiest stations in the city is the wrong hub." That
+  rule was tested on 2026-10-11, with a server-side aggregation over October
+  2025 ridership, and **it fails on its own candidates.** Ranks among 428
+  complexes:
+
+  | candidate | rank | riders (Oct 2025) |
+  |---|---|---|
+  | Flushing–Main St | 12 | 1,226,218 |
+  | Atlantic Av–Barclays Ctr | 21 | 988,683 |
+  | Jay St–MetroTech (Downtown Bklyn) | 25 | 808,268 |
+  | Jamaica Center–Parsons/Archer | 37 | 610,072 |
+  | Court Sq–23 St (LIC) | 38 | 601,801 |
+  | 125 St (A,C,B,D) — *listed as a primary hub above* | 47 | 554,199 |
+  | 149 St–Grand Concourse | 146 | 243,003 |
+  | Fordham Rd (4) | 175 | 193,939 |
+  | St George (SIR) | 193 | 172,574 |
+
+  The rule would reject Fordham, St George and 149th Street — three of the
+  seven secondary candidates — and would reject 125 St from the primary list.
+  **And the reason it fails is structural, not a threshold problem: the rule is
+  circular.** The subway is radial, so the busiest stations are the radial ones;
+  the top 20 are almost entirely Manhattan. Using ridership to choose
+  *secondary* hubs selects for the radial bias that the secondary-hub idea
+  exists to correct. St George is the clearest case — it is unambiguously
+  Staten Island's hub and it ranks 193rd, because only ~500,000 people live
+  there. Ridership is partly a measure of catchment population, which is one of
+  the things this map is trying to explain rather than assume.
+
+  **Two fixes, and the second is the real one.**
+
+  First, a mechanical one: ridership keys on `station_complex_id`, and a *place*
+  can be several complexes. 125 St appears four times (ranks 47, 50, 112, 164);
+  summed it is ~1.59M, which would place it around 8th rather than 47th.
+  Fordham, Jamaica, Flushing Av and Atlantic Av are likewise split. Any
+  ranking has to group complexes by place first, or it answers a different
+  question than the one asked.
+
+  Second, the right arbiter for a secondary hub is **jobs, not riders** — LEHD
+  LODES WAC, now verified reachable. A center is where the work is, whether or
+  not the subway already serves it well; ridership can only confirm a hub the
+  network already feeds. Ridership keeps a role, but a narrower one: as a
+  sanity check that a jobs-derived hub is actually reachable today, and as the
+  input to crowding.
 - **The layer that makes the radial bias visible is a ratio, not a time.**
   Transit time divided by the straight-line time at a reference speed — a
   *detour factor*. This project already has the pattern: `pipeline/verify.py`
@@ -282,12 +362,16 @@ origins as *well served*, because each is a short ride from Midtown.
 - **The metric that dissolves the hub question entirely** is cumulative
   opportunity: *jobs reachable within 45 minutes*. It needs no chosen center,
   it is the standard measure in the accessibility literature, and it needs LEHD
-  LODES workplace-area job counts by tract, which are published and not yet
-  probed here. Cost is the catch — one Dijkstra per origin rather than per hub,
-  so roughly 2,300 passes over the stop graph. That is an offline batch of
-  minutes, not an interactive feature, and it only becomes affordable once the
-  transit graph exists. **Do the hub list first; treat this as the version that
-  earns a paper.**
+  LODES workplace-area job counts — **probed 2026-10-11, HTTP 200, 2.7 MB.**
+  Cost is the catch, and it is smaller than this bullet used to assume: one
+  Dijkstra per origin rather than per hub, so roughly 2,300 passes. But a pass
+  over the 25,164-node route-expanded transit graph is nothing like a pass over
+  the 1.84M-node walk graph, and the two can be separated — route between stops
+  on the small graph, then attach the 2,325 tract sample sets through the walk
+  graph once. **The honest version of this estimate should be measured before
+  it is used to defer the work**, because the measurement that killed the fear
+  about the graph's size may kill this one too. Still: do the hub list first,
+  because it is the thing that tells you whether the transit graph is right.
 - **The payoff is a different headline.** "X% of New Yorkers are within a
   10-minute walk of a train" says nothing about whether the train goes anywhere
   useful. Time-to-nearest-center and the detour factor are the first metrics in
@@ -313,6 +397,14 @@ users with opposite needs.
   1 May 2022** and runs roughly every ten minutes in the daytime from Jackson
   Heights and Woodside. EWR is outside the city but genuinely used by NYC
   residents, via NJ Transit plus its own AirTrain.
+- **Those four figures are the only un-sourced numbers left in this file and
+  they are all perishable.** The $8.75 AirTrain fare, the Q70 being free, the
+  halt date and the ten-minute headway were written from memory in an earlier
+  session and never cited. Fares change; "free since 2022" is the kind of claim
+  that is true until a budget cycle says otherwise. Before any of this is
+  modeled, each wants a dated citation — and the Q70 headway should come from
+  `gtfs_q`, which is already on disk and already parsed, rather than from
+  recollection. Everything else in this phase is now measured; these are not.
 - **The modeling is small and already designed for.** These are a handful of
   hand-coded edges on the Phase 4 transit graph — a headway and a fare on each
   — plus a terminal node per airport. The fare premium reuses the commuter-rail
