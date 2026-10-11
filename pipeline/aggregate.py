@@ -345,9 +345,39 @@ def headline_stats(df, subway_walk_min) -> dict:
     # Benchmark: the commonly cited figure is subway-only, within a half mile.
     sm = df["is_populated"] & np.isfinite(df["subway_walk_min"])
     spop = df.loc[sm, "pop"].to_numpy()
+    swalk = df.loc[sm, "subway_walk_min"].to_numpy()
     shalf = C.minutes(C.HALF_MILE_METERS)
-    half_mile_subway = float(
-        spop[df.loc[sm, "subway_walk_min"].to_numpy() <= shalf].sum() / spop.sum() * 100)
+    half_mile_subway = float(spop[swalk <= shalf].sum() / spop.sum() * 100)
+
+    # The same thresholds counting subway + SIR only. This is the honest
+    # sensitivity test on the headline, not a second benchmark: LIRR and
+    # Metro-North charge a separate, zone-based fare that an unlimited
+    # MetroCard does not cover, so every figure above quietly treats a
+    # commuter-rail ticket as equivalent to a subway swipe. The gap between
+    # the two sets is the size of that assumption.
+    within_subway = {str(t): float(spop[swalk <= t].sum() / spop.sum() * 100)
+                     for t in C.WALK_THRESHOLDS_MINUTES}
+
+    # And who the assumption is actually about.
+    rail_near = df["near_station_mode"].isin(("lirr", "mnr")) & m
+    rpop = float(df.loc[rail_near, "pop"].sum())
+    rail_dep = {
+        "population": int(rpop),
+        "pct_of_population": round(100 * rpop / total, 1),
+        "n_geographies": int(rail_near.sum()),
+        # For these tracts, what discounting commuter rail would cost them.
+        "median_walk_min": round(float(df.loc[rail_near, "walk_min"].median()), 1),
+        "median_subway_walk_min": round(
+            float(df.loc[rail_near, "subway_walk_min"].median()), 1),
+        "by_borough": (df[rail_near].groupby("boroname")["pop"].sum()
+                       .round(0).astype(int).to_dict()),
+        # The median of the per-tract differences, not the difference of the
+        # two medians above -- those are 20.1 and 26.4 minutes respectively,
+        # and only the first is the thing the sentence claims.
+        "median_penalty_min": round(float(
+            (df.loc[rail_near, "subway_walk_min"]
+             - df.loc[rail_near, "walk_min"]).median()), 1),
+    }
 
     by_boro = (df[m].groupby("boroname")
                .apply(lambda g: pd.Series({
@@ -371,6 +401,8 @@ def headline_stats(df, subway_walk_min) -> dict:
         "median_access_min": round(float(np.median(acc)), 2),
         "mean_wait_min": round(float(np.average(
             df.loc[am, "wait_min"].to_numpy(), weights=apop)), 2),
+        "pct_within_min_subway": {k: round(v, 1) for k, v in within_subway.items()},
+        "commuter_rail_dependence": rail_dep,
         "pct_within_half_mile_subway_only": round(half_mile_subway, 1),
         "pct_within_half_mile_subway_straight": round(straight, 1),
         "half_mile_detour_penalty": round(straight - half_mile_subway, 1),
@@ -388,6 +420,27 @@ def headline_stats(df, subway_walk_min) -> dict:
               f"   ({v - within[t]:+5.1f} points vs walking alone)")
     print(f"    mean access cost   : {stats['mean_access_min']:.1f} min"
           f"   (of which {stats['mean_wait_min']:.1f} min is waiting)")
+    print("  Counting subway + SIR only (commuter rail charges its own fare):")
+    for t, v in within_subway.items():
+        print(f"    within {t:>2} min walk : {v:5.1f}%"
+              f"   ({v - within[t]:+5.1f} points vs all rail modes)")
+    print(f"  Commuter-rail dependence: {rail_dep['population']:,} people "
+          f"({rail_dep['pct_of_population']:.1f}%) in "
+          f"{rail_dep['n_geographies']} {C.GEO_LEVEL}s have an LIRR or "
+          f"Metro-North station as their nearest train")
+    print(f"    median walk to it          : "
+          f"{rail_dep['median_walk_min']:5.1f} min")
+    print(f"    median walk to a subway    : "
+          f"{rail_dep['median_subway_walk_min']:5.1f} min")
+    print(f"    median per-tract penalty   : "
+          f"{rail_dep['median_penalty_min']:5.1f} min if it does not count")
+    # Both framings are true and they point opposite ways, so neither should
+    # be quoted alone: the citywide share barely moves because these tracts
+    # were mostly outside the 10-minute band either way, while for the people
+    # in them the penalty is twenty minutes each way.
+    for b, v in sorted(rail_dep["by_borough"].items(),
+                       key=lambda kv: -kv[1]):
+        print(f"    {b:14} {v:8,}")
     print(f"  Within a half mile of a subway/SIR station:")
     print(f"    straight-line      : {straight:5.1f}%")
     print(f"    walking network    : {half_mile_subway:5.1f}%"

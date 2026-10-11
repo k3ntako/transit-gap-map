@@ -565,6 +565,17 @@ function wireHover() {
           : mode === "sir" ? "SIR" : "Subway";
         html += `<div class="tnote">Nearest: <strong>${esc(stn)}</strong>`
           + (routes ? ` (${esc(routes)})` : "") + ` · ${label}</div>`;
+        // Every access figure on this map counts a commuter-rail ticket as
+        // equivalent to a subway swipe. It is not: LIRR and Metro-North charge
+        // a separate zone-based fare no unlimited MetroCard covers. For the
+        // 10.5% of New Yorkers whose nearest train is one of these, saying so
+        // is the difference between a measurement and a claim.
+        if (mode === "lirr" || mode === "mnr") {
+          const sw = p.swalk;
+          html += `<div class="tnote">Separate fare — not covered by a subway`
+            + ` swipe.` + (sw != null
+              ? ` Nearest subway is ${fmt(sw, 1)} min.` : "") + `</div>`;
+        }
       }
       // The access measure often prefers a further station with more trains.
       // Naming it only when it differs keeps the common case quiet and makes
@@ -769,6 +780,8 @@ function renderStats() {
     ["Within 10 min, incl. wait", `${fmt(a["10"], 0)}%`],
     ["Mean wait for a train", `${fmt(stats.mean_wait_min, 1)} min`],
   );
+  const sub = stats.pct_within_min_subway;
+  if (sub) rows.push(["Within 10 min, subway only", `${fmt(sub["10"], 0)}%`]);
   $("#statlist").innerHTML = rows.map(([k, v]) =>
     `<div class="statrow"><span class="k">${k}</span><span class="v">${v}</span></div>`).join("");
 
@@ -780,6 +793,21 @@ function renderStats() {
      versus ${fmt(stats.pct_within_half_mile_subway_straight, 0)}% as the crow flies.
      Straight-line distance overstates access by
      ${fmt(stats.half_mile_detour_penalty, 0)} points.`;
+
+  // Both framings of the commuter-rail assumption, together, because each one
+  // alone is misleading: the citywide share barely moves, since these tracts
+  // were mostly outside the 10-minute band anyway, while the people in them
+  // would walk twenty minutes further each way without it.
+  const r = stats.commuter_rail_dependence;
+  const el = $("#railnote");
+  if (el && r) el.innerHTML =
+    `For <strong>${fmt(r.population)}</strong> New Yorkers
+     (${fmt(r.pct_of_population, 1)}%) the nearest train is the LIRR or
+     Metro-North, which charge a separate fare. Discounting them moves the
+     citywide 10-minute share by only
+     ${fmt(Math.abs(stats.pct_within_min["10"] - stats.pct_within_min_subway["10"]), 1)}
+     points — but costs those tracts a median
+     <strong>${fmt(r.median_penalty_min, 1)} minutes</strong> each way.`;
 }
 
 function renderTable() {
