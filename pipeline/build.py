@@ -1,4 +1,4 @@
-"""Stage 7: emit the compact payloads the web map loads.
+"""Stage 8: emit the compact payloads the web map loads.
 
 Run:  python -m pipeline.build
 """
@@ -173,7 +173,7 @@ def main(argv=None) -> int:
     _mb, lookups = build_geographies(df)
     build_stations()
     build_stats(stats, df, lookups)
-    print("\nStage 7 complete.")
+    print("\nStage 8 complete.")
     return 0
 
 

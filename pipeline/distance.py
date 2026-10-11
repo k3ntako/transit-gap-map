@@ -1,4 +1,4 @@
-"""Stage 3: network walking distance from every graph node to the nearest station.
+"""Stage 4: network walking distance from every graph node to the nearest station.
 
 One multi-source Dijkstra pass answers the whole city at once. Each station gets
 a virtual source node joined to its snapped graph node by the snap offset, so a
@@ -8,7 +8,7 @@ station sitting off the mapped network pays for that gap -- and the returned
 NYC's pedestrian network is genuinely disconnected (Staten Island has no
 walkable link to the other boroughs), so this stage works per component rather
 than assuming one network, and publishes a `serviceable` mask: the nodes that
-sit in a component actually containing a station. Stage 4 snaps only to those,
+sit in a component actually containing a station. Stage 5 snaps only to those,
 which keeps a sample point from attaching to an isolated park path and being
 reported as having no transit access at all.
 
@@ -43,7 +43,7 @@ def compute(force: bool = False, subway_only: bool = False):
 
     `subway_only` restricts sources to subway + SIR, which is what published
     "share of New Yorkers within a half mile of the subway" figures measure,
-    so it gives an apples-to-apples benchmark in stage 4.
+    so it gives an apples-to-apples benchmark in stage 5.
 
     Returns (dist_m, nearest_station_idx, serviceable_mask).
     """
@@ -137,7 +137,7 @@ def main(argv=None) -> int:
     compute(args.force, subway_only=False)
     print("\nSubway + SIR only (for the published-benchmark cross-check):")
     compute(args.force, subway_only=True)
-    print("\nStage 3 complete.")
+    print("\nStage 4 complete.")
     return 0
 
 

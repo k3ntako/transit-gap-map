@@ -17,7 +17,7 @@ check whether an idea is already there (often with an argument against it).
 
 ```bash
 make setup        # .venv (Python 3.14) + requirements; then cp .env.example .env
-make all          # fetch -> network -> distance -> palette -> surface -> build -> verify
+make all          # fetch -> network -> service -> distance -> palette -> surface -> build -> verify
 make serve        # static server on :8000 (PORT=xxxx to change)
 make verify       # the correctness gate
 make clean        # wipe data/processed and web/data
@@ -30,9 +30,9 @@ Single stage, which is the normal development loop:
 ```
 
 `--force` means "recompute, ignore the cached intermediate" and exists on
-`fetch`, `network`, `distance`, `aggregate`, `surface` and `build`. Without it a
-stage reuses `data/processed/`, so an edit to stage 3 will *not* show up
-downstream unless the later stages are forced.
+`fetch`, `network`, `service`, `distance`, `aggregate`, `surface` and `build`.
+Without it a stage reuses `data/processed/`, so an edit to stage 4 will *not*
+show up downstream unless the later stages are forced.
 
 Type checking (pyright is **not** installed in the venv; use npx):
 
@@ -50,21 +50,25 @@ it is a sufficient signal for dead code and not a necessary one.
 
 ## Architecture
 
-Seven stages, each a module under `pipeline/` runnable on its own, each writing
+Eight stages, each a module under `pipeline/` runnable on its own, each writing
 a cached artifact that the next one reads. The cache boundaries are the design:
-stage 2 takes ~4-5 minutes and stages 3-7 take seconds, so iteration happens
+stage 2 takes ~4-5 minutes and stages 3-8 take seconds, so iteration happens
 downstream of the expensive parse.
 
 | Stage | Module | Writes |
 |---|---|---|
-| 1 | `fetch.py` | `data/raw/` — stations, boundaries, census, 153 MB OSM extract |
+| 1 | `fetch.py` | `data/raw/` — stations, boundaries, census, 3 GTFS feeds, 153 MB OSM extract |
 | 2 | `network.py` | `walk_graph.npz` — undirected CSR adjacency + node coords |
-| 3 | `distance.py` | `node_distance.npz` — nearest-station distance per node |
-| 4 | `aggregate.py` | `tract_stats.parquet` — per-geography statistics |
-| 5 | `palette.py` | `web/data/palette.json` |
-| 6 | `surface.py` | walk-time raster PNGs + `walksheds.geojson` |
-| 7 | `build.py` | `tracts.geojson`, `stations.geojson`, `stats.json` |
-| — | `verify.py` | nothing; checks stage 3 |
+| 3 | `service.py` | `station_service.parquet` — trains per hour per station, from GTFS |
+| 4 | `distance.py` | `node_distance.npz` — nearest-station distance per node |
+| 5 | `aggregate.py` | `tract_stats.parquet` — per-geography statistics |
+| 6 | `palette.py` | `web/data/palette.json` |
+| 7 | `surface.py` | walk-time raster PNGs + `walksheds.geojson` |
+| 8 | `build.py` | `tracts.geojson`, `stations.geojson`, `stats.json` |
+| — | `verify.py` | nothing; checks stage 4 |
+
+Stage 3 depends only on stage 1, not on the walk graph, so it can be re-run
+without touching the expensive parse.
 
 `config.py` is the single source of truth for every path, CRS, threshold, URL
 and tunable. Nothing else should hardcode any of those. `ROOT` is derived from
@@ -85,11 +89,28 @@ the hook for future wait penalties (see Phase 2 in `ROADMAP.md`) — add to the
 source cost, don't restructure the pass.
 
 **The pedestrian network is genuinely disconnected.** Staten Island has no
-walkable link to the other boroughs, so stage 3 works per connected component
+walkable link to the other boroughs, so stage 4 works per connected component
 and publishes a `serviceable` mask: nodes in a component that actually contains a
-station. Stage 4 snaps only to those, which stops a sample point attaching to an
+station. Stage 5 snaps only to those, which stops a sample point attaching to an
 isolated park path and being reported as having no transit access at all. Keeping
 only the largest component would drop ~48% of nodes.
+
+**GTFS joins on keys, and three details decide whether the numbers mean
+anything.** `service.py` attaches scheduled trains per hour to each station.
+The joins are exact — the subway table's `gtfs_stop_id` is a GTFS parent
+station (496/496) and the commuter-rail table's `code` is the GTFS `stop_code`
+(40/40 LIRR, 21/21 Metro-North) — so no name matching exists anywhere in the
+stage. What does need care: `stop_times` references *platforms*, so a subway
+station must be resolved through `parent_station` or every frequency in the
+city is halved; service-day hours run to 28, so hours are taken **mod 24**,
+which is what unions the 3am trains recorded as hour 27 with those recorded as
+hour 3; and the commuter-rail feeds mark drop-off-only stops with
+`pickup_type=1`, which are not service from a boarding rider's point of view.
+Frequency is always **per direction** (total ÷ directions with service), since
+that is the headway a rider experiences. Service levels are sampled on one
+representative Wednesday and Saturday inside the *intersection* of all three
+feeds' date ranges — they do not overlap by default, and a date outside one
+feed makes its stations read as closed.
 
 **Tracts are measured by a grid, not a centroid** — a 25 m sample grid clipped
 to each polygon, reduced with the median, because NYC tracts are long and
@@ -99,7 +120,7 @@ converged, not chosen: the per-tract median moves 0.05 min between 25 m and a
 numbers. Every meter-valued tunable is named `*_METERS`, spelled out, because
 `_M` beside `HALF_MILE` could be read as miles.
 
-**`palette.py` is the only place colors are defined.** Both the raster in stage 6
+**`palette.py` is the only place colors are defined.** Both the raster in stage 7
 and the browser read `palette.json`, so there is exactly one definition of every
 color. The bivariate matrix is an **OKLCH field** (`FIELD` + `bivariate_field()`),
 not a four-corner bilinear blend — that was tried and provably cannot put the
@@ -154,7 +175,7 @@ both surface PNGs and `palette.json` reproduce exactly. The outputs are
 deterministic, so anything less is a weaker claim than the repo already makes in
 its own commit messages.
 
-Stage 4 prints three more cross-checks, and these **warn rather than fail** —
+Stage 5 prints three more cross-checks, and these **warn rather than fail** —
 read the output, don't assume a zero exit means they passed: unmatched DCP
 geoids (filled with 0 population), a total-population band of 8.0-9.5M, and the
 half-mile subway share against published figures (62.2% network vs 71.6%

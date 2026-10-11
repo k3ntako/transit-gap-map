@@ -2,18 +2,19 @@
 PY := .venv/bin/python
 PORT ?= 8000
 
-.PHONY: help setup fetch network distance aggregate palette surface build verify all serve clean lock
+.PHONY: help setup fetch network service distance aggregate palette surface build verify all serve clean lock
 
 help:
 	@echo "make setup    create .venv (Python 3.14) and install dependencies"
 	@echo "make fetch    download stations, boundaries, census, OSM extract (~153 MB)"
 	@echo "make network  parse the .pbf into a cached walking graph (~4-5 min)"
+	@echo "make service  scheduled trains per hour per station, from GTFS"
 	@echo "make distance multi-source Dijkstra: nearest station per graph node"
 	@echo "make palette  generate the validated color system (web/data/palette.json)"
 	@echo "make surface  walk-time raster + network walkshed polygons"
 	@echo "make build    aggregate to tracts and write web/data/ (runs the above)"
 	@echo "make verify   spot checks and the barrier test"
-	@echo "make all      fetch -> network -> distance -> palette -> surface -> build -> verify"
+	@echo "make all      fetch -> network -> service -> distance -> palette -> surface -> build -> verify"
 	@echo "make serve    serve the map at http://localhost:$(PORT)"
 
 setup:
@@ -33,7 +34,12 @@ fetch:
 network:
 	$(PY) -m pipeline.network
 
-distance:
+# Needs only the station tables and the GTFS feeds, not the walk graph.
+service: fetch
+	$(PY) -m pipeline.service
+
+# The frequency-weighted pass reads station_service.parquet, so service first.
+distance: service
 	$(PY) -m pipeline.distance
 
 aggregate: fetch
@@ -47,14 +53,14 @@ surface: palette
 	$(PY) -m pipeline.surface
 
 # Depends on fetch so a missing input downloads itself rather than
-# surfacing as a FileNotFoundError deep in stage 4.
+# surfacing as a FileNotFoundError deep in stage 5.
 build: fetch
 	$(PY) -m pipeline.build
 
 verify:
 	$(PY) -m pipeline.verify
 
-all: fetch network distance palette surface build verify
+all: fetch network service distance palette surface build verify
 
 serve:
 	@echo "http://localhost:$(PORT)/"

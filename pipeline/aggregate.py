@@ -1,4 +1,4 @@
-"""Stage 4: turn per-node network distances into per-geography statistics.
+"""Stage 5: turn per-node network distances into per-geography statistics.
 
 Each census geography gets its walk distance from a grid of sample points
 clipped to its own polygon, reduced with the median. A single centroid would
@@ -381,7 +381,7 @@ def main(argv=None) -> int:
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args(argv)
     run(args.force)
-    print("\nStage 4 complete.")
+    print("\nStage 5 complete.")
     return 0
 
 

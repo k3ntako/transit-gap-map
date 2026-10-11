@@ -1,6 +1,6 @@
-"""Stage 5: color system for the map, written to web/data/palette.json.
+"""Stage 6: color system for the map, written to web/data/palette.json.
 
-Both the raster surface (stage 5) and the web map read that file, so there is
+Both the raster surface (stage 7) and the web map read that file, so there is
 exactly one definition of every color.
 
 Follows the dataviz skill's reference palette:

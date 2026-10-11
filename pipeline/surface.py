@@ -1,4 +1,4 @@
-"""Stage 6: continuous walk-time raster + network walkshed polygons.
+"""Stage 7: continuous walk-time raster + network walkshed polygons.
 
 The raster is built uniform in Web Mercator (EPSG:3857), because that is the
 space a MapLibre `image` source interpolates between its four corners -- a grid
@@ -260,7 +260,7 @@ def main(argv=None) -> int:
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args(argv)
     run(args.force)
-    print("\nStage 6 complete.")
+    print("\nStage 7 complete.")
     return 0
 
 

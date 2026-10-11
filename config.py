@@ -43,6 +43,42 @@ COORD_PRECISION = 5            # output GeoJSON decimal places (~1 m)
 SNAP_WARN_METERS = 250         # warn if a station snaps further than this
 MAX_SNAP_METERS = 1500         # beyond this, treat a sample as unreachable
 
+# --- Service quality (GTFS) -------------------------------------------------
+# Hour windows, in service-day hours, counted as [start, end). Hours are taken
+# modulo 24 before matching, which is what makes the night window work: GTFS
+# records a trip departing at 3am under the *previous* service day as hour 27,
+# so the subway feed's departures run 0 through 28. Taking hour % 24 unions
+# hour 3 with hour 27 and is exactly the set of trains a rider standing on the
+# platform at 3am could board. For the 8am window it is a no-op -- no feed
+# records hour 32.
+SERVICE_WINDOWS = {
+    "am_peak": (8, 9),     # the headline number; the design hour in planning practice
+    "midday": (12, 13),
+    "evening": (20, 21),
+    "night": (3, 4),       # the subway runs 24/7 and most of the rest does not
+}
+SERVICE_SATURDAY_WINDOW = (14, 15)
+
+# Expected wait, given a headway, is headway/2 only for turn-up-and-go service.
+# Past roughly a 30-minute headway nobody arrives at random -- they read a
+# timetable -- so the cost stops being time on a platform and becomes schedule
+# inconvenience, which this model does not claim to measure. The cap is half of
+# that 30-minute headway: the point where the approximation stops being true is
+# the point where it stops being applied.
+WAIT_CAP_MINUTES = 15.0
+
+# Which window's headway becomes the access penalty. AM peak is the design hour
+# and the best-served hour, so this is the *conservative* choice: it penalizes a
+# station as little as the schedule allows anywhere in the day.
+WAIT_WINDOW = "am_peak"
+
+# A station with no scheduled trains at all in WAIT_WINDOW is dropped from the
+# frequency-weighted source set rather than given the cap. Belmont Park runs
+# only on race days and Greenport a handful of trips; treating either as "a
+# 15-minute wait away" would be a worse lie than treating it as closed, which
+# at 8am on a Wednesday it is. The pure-walk pass still counts it, so nothing
+# the published walk figures measure is affected.
+
 # Payload budgets, asserted at the end of the stage that writes each file so
 # regressions can't slip through.
 #
@@ -103,11 +139,22 @@ NYC_BOROUGHS_GEOJSON = (
 # file, and avoids Overpass, which is unreliable from some networks.
 OSM_PBF_URL = "https://download.bbbike.org/osm/bbbike/NewYork/NewYork.osm.pbf"
 
+# Scheduled-service feeds. The subway station table carries `gtfs_stop_id`
+# directly and the commuter-rail table's `code` is the GTFS `stop_code`, so all
+# three joins are key joins -- measured at 496/496 subway parents, 40/40 LIRR
+# and 21/21 Metro-North. No name matching anywhere.
+GTFS_FEEDS = {
+    "subway": "https://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip",
+    "lirr": "https://rrgtfsfeeds.s3.amazonaws.com/gtfslirr.zip",
+    "mnr": "https://rrgtfsfeeds.s3.amazonaws.com/gtfsmnr.zip",
+}
+
 ATTRIBUTION = {
     "stations": "MTA / NY State Open Data (data.ny.gov)",
     "boundaries": "NYC Dept. of City Planning (NYC Open Data)",
     "population": f"US Census Bureau, {CENSUS_DATASET}",
     "network": "OpenStreetMap contributors (ODbL), via BBBike extract",
+    "schedule": "MTA GTFS feeds (subway, LIRR, Metro-North)",
 }
 
 # AGPL-3.0 section 13 requires a deployed instance to "prominently offer all
@@ -124,10 +171,13 @@ P_BOROS = RAW / "nyc_boroughs.geojson"
 P_PBF = RAW / "NewYork.osm.pbf"
 P_CENSUS = RAW / f"census_{GEO_LEVEL}_pop.csv"
 
+P_GTFS = {k: RAW / f"gtfs_{k}.zip" for k in GTFS_FEEDS}
+
 P_GRAPH = PROCESSED / "walk_graph.npz"
 P_STATIONS = PROCESSED / "stations.parquet"
 P_NODE_DIST = PROCESSED / "node_distance.npz"
 P_GEO_STATS = PROCESSED / f"{GEO_LEVEL}_stats.parquet"
+P_SERVICE = PROCESSED / "station_service.parquet"
 
 
 def minutes(meters):
@@ -168,6 +218,7 @@ CACHE_TTL_DAYS = {
     "boundaries": 30,
     "census": 30,
     "osm": 30,
+    "gtfs": 7,
 }
 CACHE_META = RAW / ".http_cache.json"
 

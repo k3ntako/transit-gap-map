@@ -302,6 +302,9 @@ def main(argv=None) -> int:
         print("Boundaries:")
         download(geoms_url, C.P_GEOMS, args.force, kind="boundaries")
         download(C.NYC_BOROUGHS_GEOJSON, C.P_BOROS, args.force, kind="boundaries")
+        print("Schedules:")
+        for mode, url in C.GTFS_FEEDS.items():
+            download(url, C.P_GTFS[mode], args.force, kind="gtfs")
         print("Population:")
         fetch_census(args.force)
         if args.skip_pbf:

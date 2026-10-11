@@ -2,7 +2,7 @@
 
 Deliberately avoids OSMnx's Overpass download path (unreliable on some
 networks) and any routing server. Output is a plain CSR adjacency plus node
-coordinates, which stages 3-5 reload in under a second.
+coordinates, which stages 4-6 reload in under a second.
 
 Run:  python -m pipeline.network [--force]
 """
@@ -92,7 +92,7 @@ def build(force: bool = False) -> None:
     # Every component is KEPT. NYC's pedestrian network is genuinely
     # disconnected: Staten Island has no walkable link to the other boroughs
     # (the Verrazzano carries no footpath), so "largest component" would delete
-    # ~500k residents and all 21 Staten Island Railway stations. Stage 3
+    # ~500k residents and all 21 Staten Island Railway stations. Stage 4
     # restricts snapping to components that actually contain a station, which
     # handles both the real islands and the thousands of stray footpath
     # fragments without discarding anyone.

@@ -78,7 +78,7 @@ only the largest connected component — the obvious thing to do — silently dr
 **48% of nodes**, including all of Staten Island and its 21 SIR stations, because
 the Verrazzano-Narrows Bridge carries no footpath. There are 5,931 components;
 three of them hold 96% of the nodes: the four bridge-connected boroughs, New
-Jersey, and Staten Island. So every component is kept, and stage 3 instead
+Jersey, and Staten Island. So every component is kept, and stage 4 instead
 publishes a *serviceable* mask — nodes in a component that actually contains a
 station. Samples snap only to those, which keeps a point from attaching to an
 isolated park path and reporting no transit access at all.
