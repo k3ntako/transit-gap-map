@@ -140,14 +140,18 @@ per-tract fields rather than round-tripping through the pipeline.
 `BUDGET_TRACTS_WIRE_KB = 350` raises a `SystemExit` in `build.py` and
 `BUDGET_WALKSHEDS_WIRE_KB = 150` does the same in `surface.py`, both against
 `config.wire_kb()` — gzip level 6, which is what a CDN serves. The raw size is
-still printed and still ignored: it was the budget until a measurement showed a
-new numeric field costs 28 KB raw and 0.3 KB gzipped, so the old 2 MB disk
-budget would have failed the build over growth the reader feels as 2 KB. The
-surface PNG budget stays raw and warns rather than raising, because a PNG is
-already compressed. Raising a budget is a deliberate decision to state, not a
-way past a failing build. `build.py` also interns five repeated string columns
-into `stats.json` lookups, which is what buys the geometry fidelity — a new
-string field should usually join `INTERNED`.
+printed and ignored because the wire size is what a reader downloads, not
+because the two diverge: measured at 24.4 KB raw and 5.1 KB gzipped per new
+numeric field, they move together at a constant ~5×. (An earlier comment
+claimed 0.3 KB gzipped; that was a measurement error, corrected in
+`config.py`.) Headroom is finite — 305 KB against 350 is about nine more
+fields. **A new float field must join the rounding tuple in `build.py`**:
+unrounded float64 costs 15 KB gzipped instead of 5, and four such fields ate
+most of the budget in one commit. The surface PNG budget stays raw and warns
+rather than raising, because a PNG is already compressed. Raising a budget is a
+deliberate decision to state, not a way past a failing build. `build.py` also
+interns six repeated string columns into `stats.json` lookups, which is what
+buys the geometry fidelity — a new string field should usually join `INTERNED`.
 
 ### Fetch-stage conventions worth not breaking
 

@@ -31,6 +31,8 @@ FIELDS = {
     "near_station": "st", "near_station_routes": "sroutes",
     "near_station_mode": "smode", "walk_min_lo": "wlo", "walk_min_hi": "whi",
     "no_walk_access": "noacc",
+    "access_min": "acc", "wait_min": "wait",
+    "served_station": "sst", "served_tph": "stph",
 }
 
 # These columns hold a small number of long, highly repeated strings -- NTA
@@ -38,7 +40,7 @@ FIELDS = {
 # Storing an integer index per feature and the string table once in stats.json
 # cuts roughly 200 KB from the payload, which buys back the geometry fidelity
 # that hitting the budget by simplification alone would have cost.
-INTERNED = ("boro", "nta", "st", "sroutes", "smode")
+INTERNED = ("boro", "nta", "st", "sroutes", "smode", "sst")
 
 SCHEMA_DOC = {
     "geoid": "11-digit census GEOID",
@@ -57,6 +59,11 @@ SCHEMA_DOC = {
     "wlo": "shortest walk time among the tract's sample points",
     "whi": "longest walk time among the tract's sample points",
     "noacc": "true where no station is reachable on foot at all (ferry-only islands)",
+    "acc": "median access cost: walk time plus the expected wait, minutes",
+    "wait": "the wait part of acc, minutes (acc - walk, floored at 0)",
+    "sst": "name of the station the access-cost measure picks, which for 224 "
+           "tracts is not the nearest one",
+    "stph": "trains per hour per direction at that station, weekday 8-9am",
 }
 
 
@@ -81,7 +88,12 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
     g = g.to_crs(C.CRS_GEO)
 
     out = g[["geometry"] + list(FIELDS)].rename(columns=FIELDS)
-    for col in ("walk", "swalk", "wlo", "whi"):
+    # One decimal everywhere. Shipping these at float64 precision -- which is
+    # what happens if a new numeric field is simply not added to this tuple --
+    # cost 61 KB gzipped for four fields, 200x the 0.3 KB a rounded field costs
+    # and most of the way through the payload budget. The map renders to one
+    # decimal; 10.81292377475531 is 15 digits of nothing.
+    for col in ("walk", "swalk", "wlo", "whi", "acc", "wait", "stph"):
         out[col] = out[col].replace([np.inf, -np.inf], np.nan).round(1)
     out["dens"] = out["dens"].replace([np.inf, -np.inf], np.nan).round(0)
     out["pop"] = out["pop"].round(0).astype("int64")
@@ -109,9 +121,10 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
         raise SystemExit(
             f"{path.name} is {wire_kb:.0f} KB gzipped, over the "
             f"{C.BUDGET_TRACTS_WIRE_KB:.0f} KB budget. A new numeric field costs "
-            f"~0.3 KB here, so this is almost certainly geometry: raise "
-            f"SIMPLIFY_TOLERANCE_METERS, or check that a new string column "
-            f"joined INTERNED rather than shipping {len(out)} copies of itself.")
+            f"~5 KB here and an unrounded one ~15 KB, so check the rounding "
+            f"tuple above first; past that, raise SIMPLIFY_TOLERANCE_METERS, or "
+            f"check that a new string column joined INTERNED rather than "
+            f"shipping {len(out)} copies of itself.")
     return mb, lookups
 
 

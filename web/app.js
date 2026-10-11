@@ -36,6 +36,7 @@ const fitOptions = (duration = 0) => innerWidth >= 1200
 // is ambiguous about whether it means best or worst.
 const CLS_DENSITY = ["lowest third", "middle third", "highest third"];
 const CLS_WALK = ["shortest third", "middle third", "longest third"];
+const CLS_ACCESS = ["cheapest third", "middle third", "costliest third"];
 
 // Tracts under a display floor fade to this instead of being filtered out. A
 // choropleth with holes in it reads as missing data, not as excluded.
@@ -82,7 +83,7 @@ const query = (layer, point) =>
 // and reads as a list of deliberate choices. Plain key=value with unknown keys
 // ignored, which means a later control is one more key and there is no format
 // to version. `v` is zoom/lat/lon, the order OSM and Mapbox hashes use.
-const CHOROPLETHS = ["bivariate", "gap", "density", "walk", "none"];
+const CHOROPLETHS = ["bivariate", "gap", "density", "walk", "access", "none"];
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 // Reads the hash into `state` and returns the camera it asked for, if any.
@@ -268,10 +269,30 @@ function fillColor() {
       0, c[0], 1, c[1], 2, c[2], 3, c[3], 4, c[4],
       5, c[5], 6, c[6], 7, c[7], 8, c[8], unpop()];
   }
+  if (state.choropleth === "access") {
+    // Banded in the paint expression from `acc` and the shipped breakpoints,
+    // because a second class column would cost 5 KB to say what `acc` already
+    // says. `step` needs a numeric input, so the null case -- unpopulated, or
+    // no station reachable on foot -- is handled before it.
+    const ramp = walkCls();
+    const b = stats.breaks.access_min;
+    return ["case",
+      ["==", ["get", "acc"], null], unpop(),
+      ["<", ["get", "dc"], 0], unpop(),
+      ["step", ["get", "acc"], ramp[0], b[0], ramp[1], b[1], ramp[2]]];
+  }
   const [key, ramp] = state.choropleth === "density"
     ? ["dc", densCls()] : ["wc", walkCls()];
   return ["match", ["get", key], 0, ramp[0], 1, ramp[1], 2, ramp[2], unpop()];
 }
+
+// Which access tercile a tract sits in, for the tooltip and the legend
+// outline. Mirrors the `step` above; there is no `ac` field to read.
+const accessClass = (p) => {
+  if (p.acc == null || p.dc < 0) return -1;
+  const b = stats.breaks.access_min;
+  return p.acc < b[0] ? 0 : p.acc < b[1] ? 1 : 2;
+};
 
 // The floors are a display filter, not a change to the data: a faded tract is
 // still in the tooltip and still in every published statistic.
@@ -531,11 +552,29 @@ function wireHover() {
       html += row("Walk to station", `${fmt(p.walk, 1)} min`);
       if (p.wlo != null && p.whi != null)
         html += row("Range in tract", `${fmt(p.wlo, 1)}–${fmt(p.whi, 1)} min`);
+      // Always shown, not only on the access layer. The wait is a property of
+      // the tract, not of whichever fill happens to be selected, and hiding it
+      // behind a layer choice is how a reader ends up quoting the walk figure
+      // as if it were the trip.
+      if (p.acc != null) {
+        html += row("+ wait for a train", `${fmt(p.wait, 1)} min`);
+        html += row("Access cost", `${fmt(p.acc, 1)} min`);
+      }
       if (stn) {
         const label = mode === "lirr" ? "LIRR" : mode === "mnr" ? "Metro-North"
           : mode === "sir" ? "SIR" : "Subway";
         html += `<div class="tnote">Nearest: <strong>${esc(stn)}</strong>`
           + (routes ? ` (${esc(routes)})` : "") + ` · ${label}</div>`;
+      }
+      // The access measure often prefers a further station with more trains.
+      // Naming it only when it differs keeps the common case quiet and makes
+      // the interesting case self-explanatory.
+      const served = L.sst ? (L.sst[p.sst] || "") : "";
+      if (served && served !== stn) {
+        html += `<div class="tnote">Fastest overall: <strong>`
+          + `${esc(served)}</strong>`
+          + (p.stph != null ? ` · ${fmt(p.stph, 1)} trains/hr` : "")
+          + `</div>`;
       }
     }
     // Says what the fill means, so the color does not have to be matched
@@ -547,6 +586,9 @@ function wireHover() {
         + `${Math.round(100 * gapPercentile(s))}%</strong> of tracts<br>`
         + `density ${Math.round(100 * p.rd)}th percentile · `
         + `walk ${Math.round(100 * p.rw)}th percentile</div>`;
+    } else if (state.choropleth === "access" && accessClass(p) >= 0) {
+      html += `<div class="tclass">Access cost `
+        + `<strong>${CLS_ACCESS[accessClass(p)]}</strong> of tracts</div>`;
     } else if (p.dc >= 0 && p.wc >= 0) {
       html += `<div class="tclass">Density <strong>${CLS_DENSITY[p.dc]}</strong>`
         + ` · Walk <strong>${CLS_WALK[p.wc]}</strong></div>`;
@@ -607,7 +649,8 @@ function highlightLegend(p) {
   const key = bivariate ? p.bi
     : state.choropleth === "density" ? p.dc
       : state.choropleth === "walk" ? p.wc
-        : state.choropleth === "gap" ? gapBand(p) : -1;
+        : state.choropleth === "access" ? accessClass(p)
+          : state.choropleth === "gap" ? gapBand(p) : -1;
   if (key == null || key < 0) return;
   const cell = $(`#legendbody i[${bivariate ? "data-bi" : "data-cls"}="${key}"]`);
   if (cell) cell.classList.add("on");
@@ -667,8 +710,9 @@ function renderLegend() {
   }
 
   const isDens = state.choropleth === "density";
+  const isAcc = state.choropleth === "access";
   const ramp = isDens ? densCls() : walkCls();
-  const brk = isDens ? b.density : b.walk_min;
+  const brk = isDens ? b.density : isAcc ? b.access_min : b.walk_min;
   const unit = isDens ? " /km²" : " min";
   const dec = isDens ? 0 : 1;
   const labels = [
@@ -680,7 +724,12 @@ function renderLegend() {
     `<div class="ramprow"><i data-cls="${i}" style="background:${hex}"></i>
      <span class="lab">${labels[i]}</span></div>`).join("")
     + `<div class="ramprow"><i style="background:${unpop()}"></i>
-       <span class="lab">no residents</span></div>`;
+       <span class="lab">no residents</span></div>`
+    + (isAcc ? `<div class="sub" style="margin-top:9px">Walking time
+       <strong>plus the expected wait</strong> at the station the trip would
+       actually use — half the scheduled 8–9am headway, capped at 15 min. Not
+       comparable to published "within N minutes" figures, which are all
+       walk-only.</div>` : "");
 }
 
 function renderKeys() {
@@ -706,12 +755,20 @@ function renderStats() {
   $("#hero-u").innerHTML =
     `of New Yorkers live within a<br><strong>10-minute walk</strong> of a train station`;
 
+  const a = stats.pct_within_min_access;
   const rows = [
     ["Within 5 min", `${fmt(w["5"], 0)}%`],
     ["Within 10 min", `${fmt(w["10"], 0)}%`],
     ["Within 15 min", `${fmt(w["15"], 0)}%`],
     ["Mean walk time", `${fmt(stats.mean_walk_min, 1)} min`],
   ];
+  // Counting the wait is what the hero number leaves out, and the gap between
+  // the two is large enough that stating only the first would be misleading:
+  // the 10-minute share falls from 64% to 46% once a train has to turn up.
+  if (a) rows.push(
+    ["Within 10 min, incl. wait", `${fmt(a["10"], 0)}%`],
+    ["Mean wait for a train", `${fmt(stats.mean_wait_min, 1)} min`],
+  );
   $("#statlist").innerHTML = rows.map(([k, v]) =>
     `<div class="statrow"><span class="k">${k}</span><span class="v">${v}</span></div>`).join("");
 

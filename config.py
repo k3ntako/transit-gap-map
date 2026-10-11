@@ -83,17 +83,30 @@ WAIT_WINDOW = "am_peak"
 # regressions can't slip through.
 #
 # The GeoJSON budgets are **gzipped** sizes, because that is what a reader
-# downloads: tracts.geojson is 1.70 MB on disk and 284 KB on the wire. Measured
+# downloads: tracts.geojson is 1.86 MB on disk and 305 KB on the wire. Measured
 # at compression level 6, which is what a CDN actually serves -- level 9 is only
-# 2% smaller, so the number does not flatter itself. Budgeting the raw size
-# instead meant policing a number nobody experiences: a new numeric field costs
-# 28 KB raw but 0.3 KB gzipped, so seven new fields would have failed the build
-# over a growth the reader feels as 2 KB, and the fix would have been to weaken
-# the guard. What these numbers do catch, immediately, is the three things that
+# 2% smaller, so the number does not flatter itself.
+#
+# The reason is simply that the wire number is the one a reader experiences, so
+# it is the one worth stating and policing. An earlier version of this comment
+# claimed more than that -- that a new numeric field costs 28 KB raw but only
+# 0.3 KB gzipped, so a disk budget would fail the build over growth nobody
+# feels. **That measurement was wrong.** Re-measured properly when Phase 2 added
+# four fields: 24.4 KB raw and 5.1 KB gzipped each, and the added bytes compress
+# at 4.8x against the whole file's 5.1x. Field data compresses like everything
+# else, not for free -- even a verbatim duplicate of an existing column costs
+# 7.4 KB, because gzip's window cannot see across 2,325 interleaved features. So
+# raw and wire move together and either basis would fire at about the same time;
+# the wire one is just the honest unit.
+#
+# The headroom is real but finite: 305 KB against 350 is about nine more fields,
+# not ninety. What these numbers catch immediately is the three things that
 # genuinely blow the payload up -- finer geometry, a string column that forgot
-# to join INTERNED, and switching GEO_LEVEL to block groups.
-BUDGET_TRACTS_WIRE_KB = 350.0      # now 284 KB
-BUDGET_WALKSHEDS_WIRE_KB = 150.0   # now 108 KB
+# to join INTERNED, and switching GEO_LEVEL to block groups. And note that a new
+# float field must be added to the rounding tuple in build.py: unrounded float64
+# costs 15 KB gzipped per field instead of 5.
+BUDGET_TRACTS_WIRE_KB = 350.0      # now 305 KB
+BUDGET_WALKSHEDS_WIRE_KB = 150.0   # now 111 KB
 
 # The surface raster is budgeted raw: a PNG is already compressed, so gzip
 # cannot move it (132,016 bytes from 132,428 -- 0.3%).

@@ -187,24 +187,27 @@ def geography_distance(gdf, dist, serviceable, spacing):
     return out
 
 
-def attach_nearest_station(df, dist, nearest, serviceable):
-    """Name the station serving each geography, for the map's hover tooltip.
+def _station_at_reps(df, nearest, serviceable):
+    """The station index each geography's representative point resolves to.
 
-    Taken at the representative point rather than by a vote across the sample
-    grid: it should answer "which station would I use from here", and a single
-    interior point is both the cheaper and the more interpretable answer.
+    Shared by both attach_* functions, which were each building their own
+    KD-tree over the same node coordinates. Taken at the representative point
+    rather than by a vote across the sample grid: it should answer "which
+    station would I use from here", and a single interior point is both the
+    cheaper and the more interpretable answer.
     """
-    import pandas as _pd
-
-    st = _pd.read_parquet(C.P_STATIONS)
     g = load_graph(C.P_GRAPH)
-    x, y = g.x, g.y
     keep = np.flatnonzero(serviceable)
-    tree = cKDTree(np.column_stack([x[keep], y[keep]]))
-
+    tree = cKDTree(np.column_stack([g.x[keep], g.y[keep]]))
     reps = df.geometry.representative_point()
     _off, loc = tree.query(np.column_stack([reps.x, reps.y]), k=1)
-    sidx = nearest[keep[loc]]
+    return nearest[keep[loc]]
+
+
+def attach_nearest_station(df, dist, nearest, serviceable):
+    """Name the station nearest to each geography, for the hover tooltip."""
+    st = pd.read_parquet(C.P_STATIONS)
+    sidx = _station_at_reps(df, nearest, serviceable)
 
     ok = (sidx >= 0) & np.isfinite(df["walk_m"].to_numpy())
     pick = np.clip(sidx, 0, len(st) - 1)
@@ -223,6 +226,40 @@ def attach_nearest_station(df, dist, nearest, serviceable):
     return df
 
 
+def attach_served_station(df, nearest, serviceable):
+    """Which station the access-cost pass chooses, and its frequency.
+
+    Worth carrying separately from `near_station` because the two disagree for
+    a quarter of the city's walk nodes: the frequency-weighted pass often
+    prefers a further station with more trains, and "the station you would
+    actually use" is a different answer from "the closest one". Showing both is
+    what makes the wait term legible rather than mysterious.
+    """
+    st = pd.read_parquet(C.P_STATIONS)
+    svc = pd.read_parquet(C.P_SERVICE)
+    sidx = _station_at_reps(df, nearest, serviceable)
+
+    # The weighted pass drops stations with no service in the window, so its
+    # station indices address a *shorter* table than stations.parquet. Names
+    # come back through station_key, which is stable across both.
+    usable = st["station_key"].isin(
+        svc.index[svc["wait_min"].notna()].tolist()).to_numpy()
+    sub = st.loc[usable].reset_index(drop=True)
+
+    ok = (sidx >= 0) & np.isfinite(df["access_min"].to_numpy())
+    pick = np.clip(sidx, 0, len(sub) - 1)
+    keys = sub["station_key"].to_numpy()[pick]
+    tph = svc[f"tph_{C.WAIT_WINDOW}"].reindex(keys).to_numpy()
+
+    df["served_station"] = np.where(ok, sub["name"].to_numpy()[pick], "")
+    df["served_tph"] = np.where(ok, tph, np.nan)
+    changed = int((ok & (df["served_station"].to_numpy()
+                         != df["near_station"].to_numpy())).sum())
+    print(f"  access-cost station named for {int(ok.sum())}/{len(df)} "
+          f"{C.GEO_LEVEL}s; {changed} differ from the nearest station")
+    return df
+
+
 # --- classification ---------------------------------------------------------
 
 def add_classes(df: pd.DataFrame) -> dict:
@@ -238,6 +275,12 @@ def add_classes(df: pd.DataFrame) -> dict:
 
     d_breaks = [float(dens.quantile(q)) for q in (1 / 3, 2 / 3)]
     w_breaks = [float(walk.quantile(q)) for q in (1 / 3, 2 / 3)]
+    # Access terciles ship as breakpoints only, with no per-tract class column
+    # to go with them: `acc` is already in the payload, so the browser can band
+    # it with a `step` expression for free rather than paying 5 KB for a second
+    # copy of information it can derive.
+    acc = df.loc[df["is_populated"] & np.isfinite(df["access_min"]), "access_min"]
+    a_breaks = [float(acc.quantile(q)) for q in (1 / 3, 2 / 3)]
 
     df["density_class"] = np.digitize(df["density_km2"], d_breaks).clip(0, 2)
     df["walk_class"] = np.digitize(df["walk_min"], w_breaks).clip(0, 2)
@@ -247,7 +290,8 @@ def add_classes(df: pd.DataFrame) -> dict:
 
     print(f"  density terciles (per km2): {d_breaks[0]:,.0f} / {d_breaks[1]:,.0f}")
     print(f"  walk-time terciles (min):   {w_breaks[0]:.1f} / {w_breaks[1]:.1f}")
-    return {"density": d_breaks, "walk_min": w_breaks}
+    print(f"  access-cost terciles (min): {a_breaks[0]:.1f} / {a_breaks[1]:.1f}")
+    return {"density": d_breaks, "walk_min": w_breaks, "access_min": a_breaks}
 
 
 def straight_line_benchmark(df) -> float:
@@ -288,6 +332,16 @@ def headline_stats(df, subway_walk_min) -> dict:
     within = {str(t): float(pop[walk <= t].sum() / total * 100)
               for t in C.WALK_THRESHOLDS_MINUTES}
 
+    # The same thresholds against walk + wait. Published "within N minutes"
+    # figures are always walk-only, so these are not comparable to anything
+    # external -- which is the point: the gap between the two pairs is what
+    # frequency costs, in the only unit a reader already understands.
+    am = df["is_populated"] & np.isfinite(df["access_min"])
+    apop = df.loc[am, "pop"].to_numpy()
+    acc = df.loc[am, "access_min"].to_numpy()
+    within_access = {str(t): float(apop[acc <= t].sum() / apop.sum() * 100)
+                     for t in C.WALK_THRESHOLDS_MINUTES}
+
     # Benchmark: the commonly cited figure is subway-only, within a half mile.
     sm = df["is_populated"] & np.isfinite(df["subway_walk_min"])
     spop = df.loc[sm, "pop"].to_numpy()
@@ -310,8 +364,13 @@ def headline_stats(df, subway_walk_min) -> dict:
         "n_geographies": int(len(df)),
         "n_populated": int(df["is_populated"].sum()),
         "pct_within_min": {k: round(v, 1) for k, v in within.items()},
+        "pct_within_min_access": {k: round(v, 1) for k, v in within_access.items()},
         "mean_walk_min": round(float(np.average(walk, weights=pop)), 2),
         "median_walk_min": round(float(np.median(walk)), 2),
+        "mean_access_min": round(float(np.average(acc, weights=apop)), 2),
+        "median_access_min": round(float(np.median(acc)), 2),
+        "mean_wait_min": round(float(np.average(
+            df.loc[am, "wait_min"].to_numpy(), weights=apop)), 2),
         "pct_within_half_mile_subway_only": round(half_mile_subway, 1),
         "pct_within_half_mile_subway_straight": round(straight, 1),
         "half_mile_detour_penalty": round(straight - half_mile_subway, 1),
@@ -323,6 +382,12 @@ def headline_stats(df, subway_walk_min) -> dict:
     for t, v in within.items():
         print(f"    within {t:>2} min walk : {v:5.1f}%")
     print(f"    mean walk time     : {stats['mean_walk_min']:.1f} min")
+    print("  Population-weighted access cost (walk + expected wait):")
+    for t, v in within_access.items():
+        print(f"    within {t:>2} min       : {v:5.1f}%"
+              f"   ({v - within[t]:+5.1f} points vs walking alone)")
+    print(f"    mean access cost   : {stats['mean_access_min']:.1f} min"
+          f"   (of which {stats['mean_wait_min']:.1f} min is waiting)")
     print(f"  Within a half mile of a subway/SIR station:")
     print(f"    straight-line      : {straight:5.1f}%")
     print(f"    walking network    : {half_mile_subway:5.1f}%"
@@ -350,11 +415,26 @@ def run(force: bool = False):
     dist_sub, _n, serv_sub = compute_dist(force=False, subway_only=True)
     d_sub = geography_distance(gdf, dist_sub, serv_sub, C.TRACT_SAMPLE_SPACING_METERS)
 
+    print("Access cost (walk + expected wait):")
+    dist_acc, nearest_acc, serv_acc = compute_dist(
+        force=False, subway_only=False, weighted=True)
+    d_acc = geography_distance(gdf, dist_acc, serv_acc,
+                               C.TRACT_SAMPLE_SPACING_METERS)
+
     df = gdf.merge(d_all, on="geoid", how="left")
     df["subway_walk_m"] = d_sub["walk_m"].to_numpy()
+    df["access_m"] = d_acc["walk_m"].to_numpy()
     df["walk_min"] = C.minutes(df["walk_m"])
     df["subway_walk_min"] = C.minutes(df["subway_walk_m"])
+    df["access_min"] = C.minutes(df["access_m"])
+    # The two medians are taken over the same sample grid but reduced
+    # independently, so this is the difference of medians and not the median of
+    # differences -- and it can go slightly negative where the weighted pass
+    # sends a tract's samples to a different station. Clipped at zero because a
+    # negative wait is not a thing a reader should ever be shown.
+    df["wait_min"] = (df["access_min"] - df["walk_min"]).clip(lower=0)
     df = attach_nearest_station(df, dist_all, nearest_all, serv_all)
+    df = attach_served_station(df, nearest_acc, serv_acc)
 
     print("Classification:")
     breaks = add_classes(df)
