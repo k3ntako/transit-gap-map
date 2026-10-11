@@ -88,6 +88,78 @@ only `web/`. None of it depends on a phase below.
   above, and it suggests the caveats want to be a `<details>` of their own
   rather than three paragraphs in a row.
 
+## Draw the network, not just the stations
+
+Both items here come from feeds already fetched and parsed, but neither is a
+"small thing" in the sense above: each needs a new payload out of `build.py`
+rather than a field already in `tracts.geojson`. Raised 2026-10-11 and sized
+the same day.
+
+- **Ship the rail lines.** The map draws stations as dots, so a reader has to
+  supply the network from memory. **Every one of the nine feeds carries a
+  `shapes.txt`** — real route geometry, not an approximation — and the subway
+  feed also carries `route_color` (the official line colors, `0062CF` for the
+  8 Avenue services and so on) and `route_long_name`. Measured cost, one
+  representative shape per route, simplified at `C.SIMPLIFY_TOLERANCE_METERS`
+  and rounded to `C.COORD_PRECISION`, the same treatment the tracts get:
+
+  | | lines | points | raw | wire |
+  |---|---|---|---|---|
+  | one per route, full detail | 47 | 48,057 | 982.4 KB | 220.4 KB |
+  | **one per route, simplified 15 m** | **47** | **2,840** | **65.2 KB** | **15.2 KB** |
+  | both directions, simplified 15 m | 94 | 5,665 | 130.1 KB | 20.6 KB |
+
+  **15.2 KB on the wire for every subway, LIRR and Metro-North line.** It is
+  its own payload, so it does not touch `BUDGET_TRACTS_WIRE_KB`; it wants its
+  own budget constant beside the others. The two directions overlay each other
+  on screen, so one line per route is the version to ship — the third row is
+  there only to show that the choice costs 5 KB. Simplification is doing real
+  work: 982 KB to 65 KB with no visible change at map zooms.
+
+  **The reason to do this early is that it changes what the map argues, not
+  just how it looks.** A reader currently sees dots and a gap and has to know
+  the network to see why. With the lines drawn, the 430-tract contiguous band
+  from Canarsie through Flatlands to St. Albans visibly sits in a *hole* in the
+  network, and the 915 tracts past the standard stop reading as scattered
+  polygons and start reading as the space between the lines. Same finding, made
+  legible. Highest value per kilobyte left in this file.
+
+- **An express-bus layer, which is not the FTN layer.** Measured 2026-10-11:
+  **79 express routes, 1,855 stops, 671 of them served by express only** —
+  `SIM1`–`SIM35`, `QM1`–`QM68`, `BxM1`–`BxM18`, `BM1`–`BM5`, `X27`/`X28`/`X37`/
+  `X38`. Three things have to be decided before this is built, and two of them
+  are reasons it is *not* a quick win:
+
+  - **`route_type` cannot find them.** Every express route is `route_type=3`,
+    identical to a local. The only discriminators are the `route_id` prefix and
+    "Express" in `route_long_name`, so identifying them is a **string test on a
+    route name** — the kind of thing `service.py` otherwise refuses, since it
+    joins on keys everywhere else. If this ships, that soft spot goes in the
+    methodology, not just in a comment.
+  - **The FTN definition excludes them, correctly, so it needs a new one.** Of
+    the 1,501 express-served stops in `bus_stop_service.parquet` only 206 are
+    `is_ftn`, and those qualify on a *local* route sharing the stop; the 318
+    express-only stops have a median best headway of **infinity**, because no
+    route there holds 10 minutes across peak, midday and evening. An express
+    bus is a scheduled peak-direction commuter run, not turn-up-and-go, so the
+    layer needs a peak-direction frequency test that `C.FTN_WINDOWS` does not
+    express.
+  - **The fare premium cannot be sourced from this repo.** There is **no
+    `fare_attributes.txt` in any of the nine feeds** (checked 2026-10-11). The
+    existing commuter-rail disclosure is qualitative — "a separate fare, not
+    covered by a subway MetroCard" — and the express note must stay qualitative
+    too unless someone supplies a dated citation. No dollar figure from memory;
+    see Phase 9 for how that goes.
+
+  **Why it is worth building anyway, and what it argues.** Express buses are
+  the city's own admission of where rail does not go: the SIM routes exist
+  because Staten Island has one railway. Drawn on top of the gap map, an
+  express layer annotates the worst tracts with *the city already runs a
+  premium peak-only bus from here to Manhattan* — which is evidence for the
+  gap, not against it, and is the same argument as the Phase 4 decision to keep
+  buses out of the score. Build it after the rail lines, which give it
+  something to sit on top of.
+
 ## Publishing the map
 
 Not a phase, and not blocked by one. `web/` is three source files reading
@@ -589,13 +661,79 @@ citywide layer.
 
 ## Phase 6 — access cost, done properly
 
-- **Step-free access.** 2,120 subway entrances exist; **116 are step-free**
-  (102 elevators, 10 ramps, 4 combinations). Recomputing the entire map with the
-  station set filtered to ADA-accessible stations produces a dramatically
-  different and genuinely under-reported picture — and it costs almost nothing,
-  because it is the same pipeline with a filtered source set. The station table
-  already carries `ada`, `ada_northbound`, `ada_southbound`. High impact,
-  low effort.
+- **Step-free access — a lens and a station ranking, explicitly not a term in
+  the score.** 2,120 subway entrances exist; **116 are step-free** (102
+  elevators, 10 ramps, 4 combinations). At station level, measured 2026-10-11
+  from `stations.parquet`:
+
+  | mode | stations | step-free |
+  |---|---|---|
+  | subway | 475 | 168 |
+  | SIR | 21 | 6 |
+  | LIRR | 40 | 33 |
+  | Metro-North | 21 | 12 |
+  | **all** | **557** | **219 (39.3%)** |
+
+  Recomputing the map with the source set filtered to those 219 is nearly free
+  — the same pipeline with a filtered station set, a third variant flag on
+  `distance.py` beside `subway_only` and `weighted`.
+
+  **Decided 2026-10-11: this does not enter the under-service score, and the
+  reason is that it answers a different question.** The score ranks *tracts*
+  and its intervention is new service. Step-free access ranks *stations* and
+  its intervention is an elevator — a different object, a different budget
+  line, a different decision-maker. Folding it into one number would make a
+  tract score worse because its station lacks an elevator, which argues for a
+  new train line as the fix for a missing elevator. It is also the one input
+  here that is deliberately being *changed* while the map is being built, so
+  anything load-bearing built on it decays. Two outputs instead:
+
+  1. **A toggle: the city as a step-free rider sees it.** Note that this cannot
+     be a browser re-weight like the equity slider — filtering the station set
+     changes the *Dijkstra*, not an arithmetic blend, so the browser cannot
+     derive it. It is a second per-tract field computed in the pipeline, which
+     is exactly the pattern `acc` (walk plus expected wait) already follows
+     beside `walk`. About 5 KB gzipped against roughly nine fields of headroom.
+  2. **An elevator-priority station table**, which is the output this data is
+     actually good for. Measured 2026-10-11, population whose *nearest* station
+     is not step-free: **5,143,021 of 8,516,202 — 60.4%.** Then per station:
+
+     ```
+      73,521  14 tracts  125 St (subway)
+      62,197  17 tracts  Woodhaven Blvd (subway)
+      62,162  20 tracts  18 Av (subway)
+      61,413  14 tracts  77 St (subway)
+      60,433  20 tracts  111 St (subway)
+      59,370  16 tracts  Grasmere (sir)
+      59,323  18 tracts  Fort Hamilton Pkwy (subway)
+      57,736   7 tracts  103 St (subway)
+      54,527  23 tracts  Hollis (lirr)
+      52,633  14 tracts  Halsey St (subway)
+     ```
+
+     **And the distribution is flat, which is the finding.** 252 stations are
+     some tract's nearest, and the top 15 account for only **17%** of the
+     affected population. There is no short list of elevators that fixes this.
+     A "top 10 stations for elevators" headline would therefore be misleading;
+     the honest claim is that the gap is broad, which is harder to say and more
+     useful.
+
+  **Three constraints on how it is published.** The flag means a step-free
+  route was *built*, not that it works today — MTA publishes live elevator
+  outages and a static map cannot represent "out until April", so the label is
+  "step-free by design as of ⟨fetch date⟩" and the date comes from the fetch
+  timestamp rather than from prose. The `ada_northbound` / `ada_southbound`
+  columns are not decoration: some stations are step-free in one direction
+  only, and a single boolean per station flatters the picture when the finer
+  data is already on the table. And **the two numbers above are different
+  findings, not one**: 60.4% is "your nearest station excludes you", which is
+  not "how much further a step-free rider must travel" — that needs the
+  filtered Dijkstra, because their real nearest step-free station may be a mile
+  away. It is the reason both the toggle and the table have a job.
+
+  **Not asserted here:** the size or schedule of MTA's accessibility
+  commitment. There is no citation for it in this repo, and Phase 9 records
+  what happens to figures written from memory.
 - **Entrance-level snapping.** The pipeline currently snaps 496 station *points*;
   the entrances dataset (`i9wp-a4ja`, 2,120 rows, 2,072 entry-allowed, with
   `entrance_latitude`/`longitude` and `gtfs_stop_id`) gives the real doors. For
@@ -1008,11 +1146,22 @@ measurement gates the build. That changes what "next" means: every item below
 can now be judged by whether it moves the alignment number, and two of them
 have already been measured as moving it the wrong way.
 
-**Step-free access is first** — the biggest finding available for the least new
-machinery, and the one axis of access cost that is still entirely unmeasured.
-The subway-entrance table is fetched and verified (2,120 rows, 116 step-free),
-the swap is a source-set filter on the Dijkstra, and the result needs no new
-model.
+**The rail lines are first** — revised 2026-10-11, displacing step-free
+access. 15.2 KB on the wire, geometry already parsed in every feed, no new
+source and no new model, and it is the only item in this file that changes what
+the map *argues* rather than what it measures: the contiguous band stops
+reading as scattered polygons and starts reading as the space between the
+lines. A reader cannot currently see that without already knowing the network.
+
+**Then step-free access**, still the biggest finding available for the least
+new machinery — the subway-entrance table is fetched and verified (2,120 rows,
+116 step-free), the swap is a source-set filter on the Dijkstra, and the result
+needs no new model. But build it as the *lens plus station table* that Phase 6
+now specifies, not as a term in the score: 60.4% of the city's population has a
+nearest station that excludes them, and the per-station version of that is the
+output the data is good for. Note the deflating part before quoting any of it —
+the distribution is flat, 252 stations deep, and no short list of elevators
+fixes it.
 
 **Then ridership and crowding**, because it is the last piece of the
 service-quality axis and because *Secondary hubs* in Phase 4 depends on it: a
