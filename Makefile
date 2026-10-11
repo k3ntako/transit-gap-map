@@ -2,7 +2,8 @@
 PY := .venv/bin/python
 PORT ?= 8000
 
-.PHONY: help setup fetch network service distance aggregate palette surface build verify all serve clean lock
+.PHONY: help setup fetch network service distance transit access aggregate \
+        palette surface build verify all serve clean lock
 
 help:
 	@echo "make setup    create .venv (Python 3.14) and install dependencies"
@@ -10,11 +11,14 @@ help:
 	@echo "make network  parse the .pbf into a cached walking graph (~4-5 min)"
 	@echo "make service  scheduled trains and buses per hour, from GTFS"
 	@echo "make distance multi-source Dijkstra: nearest station per graph node"
+	@echo "make transit  rail transit graph: station-to-station travel time"
+	@echo "make access   jobs reachable in 45 min, hubs, detour factor"
 	@echo "make palette  generate the validated color system (web/data/palette.json)"
 	@echo "make surface  walk-time raster + network walkshed polygons"
 	@echo "make build    aggregate to tracts and write web/data/ (runs the above)"
 	@echo "make verify   spot checks and the barrier test"
-	@echo "make all      fetch -> network -> service -> distance -> palette -> surface -> build -> verify"
+	@echo "make all      fetch -> network -> service -> distance -> transit"
+	@echo "              -> access -> palette -> surface -> build -> verify"
 	@echo "make serve    serve the map at http://localhost:$(PORT)"
 
 setup:
@@ -42,7 +46,18 @@ service: fetch
 distance: service
 	$(PY) -m pipeline.distance
 
-aggregate: fetch
+# Rail only, and independent of the walk graph: this reads the three rail
+# GTFS feeds and nothing else, so it re-runs in seconds while stage 2 is the
+# expensive one.
+transit: fetch
+	$(PY) -m pipeline.transit
+
+# The travel-time matrix joins the walk graph to the rail graph, so it needs
+# both -- plus the LODES jobs file that `fetch` brings down.
+access: distance transit
+	$(PY) -m pipeline.accessibility
+
+aggregate: access
 	$(PY) -m pipeline.aggregate
 
 palette:
@@ -54,13 +69,13 @@ surface: palette
 
 # Depends on fetch so a missing input downloads itself rather than
 # surfacing as a FileNotFoundError deep in stage 5.
-build: fetch
+build: access
 	$(PY) -m pipeline.build
 
 verify:
 	$(PY) -m pipeline.verify
 
-all: fetch network service distance palette surface build verify
+all: fetch network service distance transit access palette surface build verify
 
 serve:
 	@echo "http://localhost:$(PORT)/"

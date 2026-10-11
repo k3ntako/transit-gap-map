@@ -39,6 +39,18 @@ FIELDS = {
     # derivable column is 5 KB spent to save a multiplication.
     "no_vehicle_pct": "nveh", "poverty_pct": "pov",
     "cluster_tracts": "clu", "cluster_pop": "clupop",
+    # Phase 4, in the three tightest encodings that still say something.
+    # `jobs_share` ships in place of the raw reachable count because a
+    # percentage with one decimal is 4.3 KB where a seven-digit count is 4.8,
+    # and the absolute figure is the share times the city total, which
+    # stats.json carries. The per-hub times are not here at all -- eight more
+    # columns would be 100 KB against 45 of budget -- they go in hubs.json.
+    #
+    # The tract's *own* job count was shipped in a first pass and removed:
+    # four fields cost 51 KB in this file against 19 KB measured standalone,
+    # because gzip's window cannot span 2,325 interleaved features, and the
+    # reachable number is the finding while the local one is only context.
+    "jobs_share": "j45", "hub_min": "hub", "detour": "det",
 }
 
 # These columns hold a small number of long, highly repeated strings -- NTA
@@ -75,6 +87,12 @@ SCHEMA_DOC = {
     "clu": "tracts in this tract's contiguous block beyond the 10-minute "
            "standard, 0 if it is inside the standard",
     "clupop": "population of that block",
+    "j45": "percent of the city's jobs reachable in 45 minutes by rail and "
+           "on foot; multiply by accessibility.jobs_total for a count",
+    "hub": "minutes to the nearest of the eight job centers, by rail, to the "
+           "nearest minute; null where no rail path reaches one",
+    "det": "detour factor: transit time over straight-line time at the "
+           "measured citywide median speed, so 1.0 is a typical trip",
 }
 
 
@@ -107,6 +125,17 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
     for col in ("walk", "swalk", "wlo", "whi", "acc", "wait", "stph",
                 "nveh", "pov"):
         out[col] = out[col].replace([np.inf, -np.inf], np.nan).round(1)
+    # Two decimals, because the detour factor's whole spread is 0.79 to 1.26 --
+    # rounding it to one would quantize the layer into four values. Three
+    # decimals costs 8.0 KB against 4.6 and shows nothing.
+    out["det"] = out["det"].replace([np.inf, -np.inf], np.nan).round(2)
+    # Whole minutes to a hub: 4.5 KB at one decimal against 2.9 at none, for a
+    # number nobody reads to the tenth of a minute over a 40-minute trip.
+    out["hub"] = out["hub"].replace([np.inf, -np.inf], np.nan).round(0)
+    # float64 before rounding: the column arrives as float32, where 100 * 0.758
+    # is 75.800003 and `.round(1)` leaves it that way -- seven digits per
+    # feature of pure float noise, which the budget pays for.
+    out["j45"] = (100.0 * out["j45"].astype("float64")).round(1)
     for col in ("clu", "clupop"):
         out[col] = out[col].fillna(0).astype("int32")
     out["dens"] = out["dens"].replace([np.inf, -np.inf], np.nan).round(0)
@@ -197,6 +226,46 @@ def build_bus_ftn() -> dict:
     }
 
 
+def build_hubs(df, stats: dict) -> dict:
+    """Per-hub travel times, in their own payload.
+
+    Eight more columns in tracts.geojson would be about 40 KB gzipped against
+    45 KB of remaining budget, and they are only read when a reader switches
+    hubs. So they ship as parallel arrays aligned to an explicit `geoids`
+    list -- explicit because aligning by feature order to another file is the
+    kind of coupling that breaks silently the first time a tract is dropped.
+    """
+    cols = stats.pop("hub_columns", [])
+    hubs = stats.get("accessibility", {}).get("hubs", [])
+    if not cols or not hubs:
+        return {}
+    payload = {
+        "budget_min": C.JOBS_BUDGET_MINUTES,
+        "walk_min": C.HUB_WALK_MINUTES,
+        "hubs": [{k: h[k] for k in ("name", "mode", "borough", "lat", "lon",
+                                    "jobs_near")} for h in hubs],
+        "geoids": df["geoid"].astype(str).tolist(),
+        # One array per hub, minutes, one decimal, null where no rail path
+        # reaches it. Rounded here for the same reason every other float in
+        # this stage is: unrounded float64 is 15 digits of nothing.
+        "minutes": [[None if not np.isfinite(v) else round(float(v), 1)
+                     for v in df[c].to_numpy()] for c in cols],
+    }
+    path = C.WEB_DATA / "hubs.json"
+    path.write_text(json.dumps(payload, separators=(",", ":")))
+    wire = C.wire_kb(path)
+    print(f"  saved   {path.name} ({path.stat().st_size / 1024:.0f} KB on "
+          f"disk, {wire:.0f} KB gzipped, {len(cols)} hubs x "
+          f"{len(payload['geoids'])} {C.GEO_LEVEL}s)")
+    if wire > C.BUDGET_HUBS_WIRE_KB:
+        raise SystemExit(
+            f"{path.name} is {wire:.0f} KB gzipped, over the "
+            f"{C.BUDGET_HUBS_WIRE_KB:.0f} KB budget. This grows linearly in "
+            f"C.N_HUBS, so cut hubs before raising the budget -- a hub "
+            f"switcher with twenty entries is not a switcher.")
+    return {"n_hubs": len(cols), "wire_kb": round(wire, 1)}
+
+
 def build_stats(stats: dict, df, lookups: dict) -> None:
     sheds = C.WEB_DATA / "walksheds.geojson"
     if sheds.exists():
@@ -257,6 +326,7 @@ def main(argv=None) -> int:
     _mb, lookups = build_geographies(df)
     build_stations()
     stats["bus_ftn"] = build_bus_ftn()
+    stats["hubs_payload"] = build_hubs(df, stats)
     build_stats(stats, df, lookups)
     print("\nStage 8 complete.")
     return 0

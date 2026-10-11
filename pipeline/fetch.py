@@ -291,6 +291,57 @@ def fetch_census(force: bool = False) -> Path:
     return dest
 
 
+# --- Jobs (LEHD LODES) ------------------------------------------------------
+
+def jobs_by_geography(force: bool = False) -> Path:
+    """Workplace jobs per census geography, from the LODES WAC file.
+
+    LODES keys every row on the 15-digit census *block* where the job is, so
+    the tract GEOID is a string slice and no crosswalk file is involved. Only
+    the five county FIPS codes are kept, which drops the rest of New York
+    State -- 94% of the file -- before anything is summed.
+
+    This is the destination side of the accessibility metric: not a hub we
+    picked, but every geography in the city weighted by the jobs actually in
+    it. The consequence to state is that jobs *outside* the five boroughs are
+    not counted, so a Nassau-bound commuter from eastern Queens contributes
+    nothing. The published figure is therefore "jobs in New York City
+    reachable in 45 minutes", which is the question the map is about.
+    """
+    if _is_fresh(C.P_JOBS, force, _ttl("jobs")) and C.P_JOBS.exists():
+        print(f"  cached  {C.P_JOBS.name} (no request made)")
+        return C.P_JOBS
+
+    src = download(C.LODES_WAC_URL, C.P_LODES, force, kind="jobs")
+
+    import pandas as pd
+    wanted = {C.STATE_FIPS + c for c in C.COUNTY_FIPS}
+    rows = pd.read_csv(src, compression="gzip", usecols=["w_geocode", "C000"],
+                       dtype={"w_geocode": str})
+    n_state = len(rows)
+    rows = rows.loc[rows["w_geocode"].str.slice(0, 5).isin(wanted)]
+    n_blocks = len(rows)
+
+    glen = 11 if C.GEO_LEVEL == "tract" else 12
+    rows = rows.assign(geoid=rows["w_geocode"].str.slice(0, glen))
+    jobs = (rows.groupby("geoid", as_index=False)["C000"].sum()
+            .rename(columns={"C000": "jobs"}))
+    jobs["jobs"] = jobs["jobs"].astype("int64")
+    jobs.to_parquet(C.P_JOBS, index=False)
+
+    total = int(jobs["jobs"].sum())
+    print(f"  jobs    {n_blocks:,} NYC blocks of {n_state:,} statewide -> "
+          f"{len(jobs):,} {C.GEO_LEVEL}s, {total:,} jobs")
+    # NYC private + public employment runs around 4.7M in this period. A total
+    # far outside that band means the segment, the year or the county filter
+    # moved, which would quietly rescale every accessibility number downstream.
+    if not 3_500_000 <= total <= 5_500_000:
+        print(f"  WARNING {total:,} jobs is outside the expected 3.5-5.5M band "
+              f"for NYC; check LODES_YEAR and the WAC segment")
+    print(f"  saved   {C.P_JOBS.name}")
+    return C.P_JOBS
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Fetch all raw inputs.")
     ap.add_argument("--force", action="store_true", help="ignore the cache")
@@ -318,6 +369,8 @@ def main(argv=None) -> int:
                 download(url, C.P_GTFS_BUS[mode], args.force, kind="gtfs")
         print("Population:")
         fetch_census(args.force)
+        print("Jobs (LEHD LODES8 WAC, ~2.7 MB gzipped):")
+        jobs_by_geography(args.force)
         if args.skip_pbf:
             print("Walk network:\n  skipped (--skip-pbf)")
         else:

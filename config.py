@@ -208,6 +208,20 @@ GTFS_FEEDS = {
     "mnr": "https://rrgtfsfeeds.s3.amazonaws.com/gtfsmnr.zip",
 }
 
+# Workplace-area job counts: LEHD LODES8, WAC segment S000 (all jobs), job
+# type JT00 (all jobs). Keyed on the 15-digit census *block* of the
+# workplace, so the first 11 characters are the tract GEOID -- which is why no
+# crosswalk file is needed. 2022 is the latest year published for New York.
+#
+# This is the one new data source Phase 4 needs. It is what makes the
+# accessibility metric destination-free: instead of naming a hub, every tract
+# in the city is a destination weighted by the jobs actually in it.
+LODES_YEAR = 2022
+LODES_WAC_URL = (
+    f"https://lehd.ces.census.gov/data/lodes/LODES8/ny/wac/"
+    f"ny_wac_S000_JT00_{LODES_YEAR}.csv.gz"
+)
+
 # Bus feeds, 62 MB across six archives. The names look like boroughs and are
 # not: measured, `gtfs_q` carries Brooklyn routes and Bronx stops, and all five
 # NYCT feeds ship the identical 307-route `routes.txt`. What is actually
@@ -241,12 +255,108 @@ FTN_WINDOWS = ("am_peak", "midday", "evening")
 # budget is what keeps that promise honest.
 BUDGET_BUS_FTN_WIRE_KB = 120.0
 
+# --- Phase 4: travel time over the rail network -----------------------------
+# The transit graph is **rail only** -- subway, SIR, LIRR, Metro-North -- and
+# buses are in neither it nor the score. The reason is about what the map
+# claims rather than what data exists: bus service is what the city provides
+# *instead of* rail in precisely the places this map exists to find, so
+# letting a bus close the gap would hide the finding by construction. Buses
+# keep the role they already have, the FTN layer drawn on top of the score.
+# ROADMAP.md Phase 4 carries the full argument.
+#
+# Nodes are (station, route, direction), not stations. This is a correctness
+# fix, not an optimization: with one node per station every route serving it
+# shares that node, so a shortest path can change vehicles at no cost and the
+# graph quietly claims a connectivity the city does not have -- the precise
+# opposite of what this measures. Route-expanding forces a change of vehicle
+# through an edge that carries the wait.
+TRANSIT_WINDOW = WAIT_WINDOW       # which hour's headways set the boarding wait
+
+# The cumulative-opportunity budget. Forty-five minutes is the usual
+# commute-tolerance threshold in the accessibility literature, and it is a
+# far weaker choice than naming a destination: measured here, the map's shape
+# rescales rather than reorders between 30 and 60 minutes.
+JOBS_BUDGET_MINUTES = 45.0
+
+# How far a rider will walk to reach a train, and the same budget on the far
+# end. **There is deliberately no separate cap: the total budget is the only
+# budget.** A 30-minute walk and a 15-minute ride is a real 45-minute trip,
+# and the first version of this capped the walk at 15 minutes, which told
+# 625 tracts -- 27% of the city, and precisely the under-served ones this map
+# exists to find -- that they had no rail access at all. That is a truncation
+# manufacturing the project's own thesis, which is the one bias worth being
+# paranoid about here.
+#
+# The cap is unnecessary as well as harmful, because the budget is
+# self-limiting: a 40-minute walk to a station leaves five minutes of riding
+# and reaches almost nothing, so long access walks drop out of the result on
+# their own rather than by fiat.
+TRANSIT_ACCESS_MINUTES = JOBS_BUDGET_MINUTES
+
+# In-station change time where no feed declares one. The subway feed declares
+# 463 same-parent transfers whose median is exactly 180 s, so this is that
+# median rather than a guess -- it is what MTA itself publishes for the
+# stations it bothers to describe, applied to the ones it does not (every LIRR
+# and Metro-North stop: both feeds declare same-stop transfers only, and as
+# trip-to-trip timed transfers that a static graph cannot use).
+TRANSFER_PENALTY_MINUTES = 3.0
+
+# Rail-to-commuter-rail interchanges that no feed declares -- Jamaica,
+# Atlantic Terminal, Woodside and a handful more. A radius is needed only for
+# these, because transfers.txt is authoritative everywhere else. It is a
+# short, hand-checkable list at 400 m, which is why the radius stopped being
+# a tunable worth converging: at 150 m the rail graph has 807 candidate pairs
+# and at 600 m it has 3,211, but the declared file settles all but a dozen.
+INTERCHANGE_MAX_METERS = 400.0
+
+# Jobs within a short walk of a station, which is how the hub list is picked.
+# Jobs rather than ridership, because ridership is circular -- the subway is
+# radial, so the busiest stations are the radial ones, and using them to pick
+# *secondary* hubs selects for exactly the bias secondary hubs exist to
+# correct. ROADMAP.md Phase 4 has the ranks that broke the ridership rule.
+HUB_WALK_MINUTES = 10.0
+
+# One hub per borough first, then the rest by how many jobs they add that no
+# hub already reaches. The borough rule is the presentational half and it has
+# to be stated rather than discovered, because New York's jobs are so
+# Manhattan-concentrated that an unconstrained jobs ranking returns six
+# Manhattan platforms -- measured: Bryant Park, 5 Av/53 St, 28 St, Fulton St,
+# Grand Central and Union Square, whose 10-minute walk circles barely overlap.
+# That list is a correct answer to "where are the jobs" and a useless answer
+# to "how far is your nearest center", which is the question hubs exist for.
+#
+# ROADMAP.md records that the hub list is a presentation choice rather than a
+# modeling commitment; this is where the choice is made. Eight leaves three
+# slots for the centers the marginal rule finds on its own after each borough
+# has one.
+N_HUBS = 8
+
+# The detour factor is transit time over straight-line time at a reference
+# speed, so the reference is what 1.0 means. **Measured, not assumed:** the
+# median 3-15 km rail trip in New York covers its straight line at 9.2 km/h,
+# against a roughly 30 km/h in-vehicle subway speed -- the gap being the wait,
+# the stops and the detour itself. Anchoring on the measured value makes the
+# field read as "how much worse than a typical New York rail trip", which is
+# what a reader comparing tracts wants; the absolute 9.2 km/h goes into
+# stats.json as a finding in its own right rather than being hidden in a
+# denominator. accessibility.py warns if the measurement drifts off this.
+DETOUR_REFERENCE_SPEED_KMH = 9.0
+DETOUR_MAX_KM = 15.0           # pairs further apart are not lateral trips
+# And a floor, because the ratio explodes on short pairs: at 1 km the
+# boarding wait alone is most of the trip, so every pair that close reads as
+# a bad detour whatever the network does. Three kilometers is where the ride
+# starts to dominate the wait.
+DETOUR_MIN_KM = 3.0
+
+BUDGET_HUBS_WIRE_KB = 60.0
+
 ATTRIBUTION = {
     "stations": "MTA / NY State Open Data (data.ny.gov)",
     "boundaries": "NYC Dept. of City Planning (NYC Open Data)",
     "population": f"US Census Bureau, {CENSUS_DATASET}",
     "network": "OpenStreetMap contributors (ODbL), via BBBike extract",
     "schedule": "MTA GTFS feeds (subway, LIRR, Metro-North, bus)",
+    "jobs": f"US Census Bureau, LEHD LODES8 WAC {LODES_YEAR}",
 }
 
 # AGPL-3.0 section 13 requires a deployed instance to "prominently offer all
@@ -272,6 +382,12 @@ P_NODE_DIST = PROCESSED / "node_distance.npz"
 P_GEO_STATS = PROCESSED / f"{GEO_LEVEL}_stats.parquet"
 P_SERVICE = PROCESSED / "station_service.parquet"
 P_BUS_STOPS = PROCESSED / "bus_stop_service.parquet"
+P_LODES = RAW / f"lodes_wac_ny_{LODES_YEAR}.csv.gz"
+P_JOBS = PROCESSED / f"jobs_{GEO_LEVEL}.parquet"
+P_TRANSIT_STATIONS = PROCESSED / "transit_graph.parquet"
+P_RIDE_TIME = PROCESSED / "rail_station_time.npz"
+P_TRACT_TIME = PROCESSED / f"{GEO_LEVEL}_transit_time.npz"
+P_ACCESS = PROCESSED / f"{GEO_LEVEL}_accessibility.parquet"
 
 
 def minutes(meters):
@@ -313,6 +429,7 @@ CACHE_TTL_DAYS = {
     "census": 30,
     "osm": 30,
     "gtfs": 7,
+    "jobs": 365,        # LODES is annual and 2022 is final
 }
 CACHE_META = RAW / ".http_cache.json"
 

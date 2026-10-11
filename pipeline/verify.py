@@ -54,6 +54,46 @@ BARRIERS = [
 
 BANDS = {"at_station": (0, 400), "near": (0, 900), "far": (1200, 60000)}
 
+# --- the transit graph ------------------------------------------------------
+# Station-to-station times, checked as wide bands against what the published
+# schedules actually do. The bands are deliberately loose -- they are not a
+# claim to schedule-exact routing, which `pipeline/transit.py` explicitly does
+# not make -- but each one is tight enough to fail a specific way of breaking
+# the graph, which is the same standard the barrier probes are held to:
+#
+#   * Times Sq -> Grand Central across complexes fails below 5 minutes, which
+#     is what a graph with free transfers reports: the shuttle ride alone is
+#     three minutes, and the other four are the declared walk through the
+#     complex plus the wait.
+#   * Bay Ridge -> Times Sq fails below 35, which is roughly what straight-line
+#     distance at subway speed would give. It is a 50-minute local ride.
+#   * Jamaica -> Penn on the LIRR fails below 15, which is what dropping the
+#     boarding wait would give on a 19-minute scheduled run.
+#
+# (from_key, to_key, lo, hi, label)
+TRANSIT_PROBES = [
+    ("sub-R45", "sub-127", 35, 65, "Bay Ridge-95 St -> Times Sq (R local)"),
+    ("sub-127", "sub-723", 5, 15, "Times Sq -> Grand Central (one complex "
+                                  "to another)"),
+    ("sub-701", "sub-725", 22, 45, "Flushing-Main St -> Times Sq (7)"),
+    ("sub-A41", "sub-127", 14, 32, "Jay St-MetroTech -> Times Sq"),
+    ("rail-LIRR-JAM", "rail-LIRR-NYK", 15, 35, "Jamaica -> Penn (LIRR)"),
+    ("rail-MNR-1FO", "rail-MNR-0NY", 18, 45, "Fordham -> Grand Central (MNR)"),
+]
+
+# The Staten Island Railway has no rail connection to the rest of the system
+# and the ferry is not rail, so this pair must come back unreachable. It is
+# asserted rather than merely noted because it is the single most surprising
+# number the accessibility layer produces -- Staten Island reaching 18,000 of
+# the city's 4.47M jobs -- and a reader is owed the guarantee that it is the
+# stated consequence of a rail-only graph rather than a bug. Adding a ferry
+# edge later should fail this test and make someone decide.
+RAIL_ISLAND = ("sub-S31", "sub-235", "St George -> Atlantic Av")
+
+# A graph that quietly lost its transfer edges still routes within each line
+# and would drop far below this.
+REACHABLE_PAIR_BAND = (0.85, 0.95)
+
 
 def _setup():
     dist, nearest, serviceable = compute_dist(force=False, subway_only=False)
@@ -128,6 +168,8 @@ def main() -> int:
     if np.median(snet) > 60:
         failures.append(f"stations median self-distance {np.median(snet):.0f} m is too high")
 
+    failures += transit_checks()
+
     # External validity. The only check in this project that compares the map
     # against something outside it, which is why a score change must not be
     # able to lower it quietly.
@@ -159,6 +201,70 @@ def main() -> int:
         return 1
     print("All distance checks passed.")
     return 0
+
+
+def transit_checks() -> list:
+    """The rail graph, checked the way the walk graph is: by what breaks it."""
+    try:
+        from pipeline.transit import compute as compute_transit, interchanges
+        tg = compute_transit(force=False)
+    except FileNotFoundError:
+        print("\n  skipped the transit checks: no cached rail graph. "
+              "Run `make transit` first.")
+        return []
+
+    idx = {k: i for i, k in enumerate(tg.stations["station_key"])}
+    ride = tg.ride
+    bad = []
+    print(f"\n\nSpot checks -- station-to-station time over the rail graph "
+          f"({tg.date})\n")
+    print(f"  {'trip':52} {'minutes':>8}  verdict")
+    for a, b, lo, hi, label in TRANSIT_PROBES:
+        i, j = idx.get(a), idx.get(b)
+        if i is None or j is None:
+            bad.append(f"{label}: {a} or {b} is not in the graph")
+            print(f"  {label[:52]:52} {'-':>8}  FAIL (station missing)")
+            continue
+        v = float(ride[i, j])
+        ok = lo <= v <= hi
+        print(f"  {label[:52]:52} {v:8.1f}  {'PASS' if ok else 'FAIL'} "
+              f"(expected {lo}-{hi})")
+        if not ok:
+            bad.append(f"{label}: {v:.1f} min outside the {lo}-{hi} band")
+
+    a, b, label = RAIL_ISLAND
+    i, j = idx.get(a), idx.get(b)
+    isolated = i is not None and j is not None and not np.isfinite(ride[i, j])
+    print(f"  {label[:52]:52} {'inf' if isolated else ride[i, j]:>8}  "
+          f"{'PASS' if isolated else 'FAIL'} (expected unreachable)")
+    if not isolated:
+        bad.append(f"{label}: expected no rail path, got one. If a ferry or "
+                   f"light-rail edge was added deliberately, update "
+                   f"RAIL_ISLAND and say so in ROADMAP.md.")
+
+    share = float(np.isfinite(ride).mean())
+    lo, hi = REACHABLE_PAIR_BAND
+    ok = lo <= share <= hi
+    print(f"\n  {100 * share:.1f}% of the {len(idx):,}^2 station pairs are "
+          f"reachable  {'PASS' if ok else 'FAIL'} "
+          f"(expected {100 * lo:.0f}-{100 * hi:.0f}%)")
+    if not ok:
+        bad.append(f"only {100 * share:.1f}% of station pairs are reachable, "
+                   f"outside the {100 * lo:.0f}-{100 * hi:.0f}% band -- check "
+                   f"whether the transfer edges survived")
+
+    # The one part of the transfer model that is a radius rather than a
+    # declaration, so the one part that has to be read by a person.
+    ic = interchanges()
+    print(f"\n  {len(ic)} cross-feed interchanges inferred by proximity "
+          f"(<= {C.INTERCHANGE_MAX_METERS:.0f} m). Every other transfer in "
+          f"the\n  graph is declared in a feed's transfers.txt. Read this "
+          f"list; it is the hand-check:")
+    for _, r in ic.iterrows():
+        print(f"    {r['meters']:5.0f} m  {r['from_name'][:26]:26} "
+              f"({r['from_mode']:6}) <-> {r['to_name'][:26]:26} "
+              f"({r['to_mode']})")
+    return bad
 
 
 # --- external validity: do we agree with the agencies? ----------------------
@@ -242,6 +348,40 @@ def candidate_scores(df: pd.DataFrame) -> dict:
         "carfree hh x excess walk": d.get("hh_no_vehicle", 0) * excess_walk,
         "poor people x excess walk": d.get("pov_below", 0) * excess_walk,
         "carfree hh x excess acc": d.get("hh_no_vehicle", 0) * excess_acc,
+        # Phase 4. The prediction was put on record in ROADMAP.md before any
+        # of these was computed: jobs accessibility will *lower* alignment,
+        # for the same reason the wait penalty did -- it measures the quality
+        # of a rider's morning, while the agencies' corridors track where
+        # people are and where the network is not. These ship as layers at
+        # zero default weight unless the table below says otherwise.
+        #
+        # `jobs_short` is the share of the city's jobs a tract cannot reach in
+        # C.JOBS_BUDGET_MINUTES, so pop x jobs_short is "people x opportunity
+        # out of reach" and stays in interpretable units, the way excess
+        # person-minutes does. hub minutes are capped at the worst finite
+        # value rather than dropped, because the 79 tracts with no rail path
+        # to any job center are the worst cases, not missing data.
+        **_phase4(d),
+    }
+
+
+def _phase4(d: pd.DataFrame) -> dict:
+    """Candidate scores built on jobs accessibility, hubs and the detour."""
+    if "jobs_share" not in d.columns:
+        return {}
+    need = need_index(d)
+    jobs_short = (1.0 - d["jobs_share"].fillna(0)).clip(lower=0)
+    hub = d["hub_min"].to_numpy(dtype=float)
+    worst = np.nanmax(np.where(np.isfinite(hub), hub, np.nan))
+    hub = np.where(np.isfinite(hub), hub, worst)
+    detour = d["detour"].fillna(d["detour"].median()).to_numpy()
+    return {
+        "pop x jobs out of reach": d["pop"] * jobs_short,
+        "need x jobs out of reach": need * jobs_short,
+        "pop x need x jobs oor": d["pop"] * need * jobs_short,
+        "pop x hub minutes": d["pop"] * hub,
+        "pop x excess hub min": d["pop"] * np.clip(hub - 30.0, 0, None),
+        "pop x detour": d["pop"] * detour,
     }
 
 

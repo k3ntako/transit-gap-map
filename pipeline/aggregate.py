@@ -684,6 +684,18 @@ def run(force: bool = False):
     df = attach_nearest_station(df, dist_all, nearest_all, serv_all)
     df = attach_served_station(df, nearest_acc, serv_acc)
 
+    # Phase 4. Imported here rather than at module scope because
+    # accessibility.py reuses this module's geography loader and sample grid,
+    # so a top-level import would be a cycle. Everything it needs is cached by
+    # the time this runs, and its own cache means the normal build reads one
+    # parquet rather than recomputing a 2,325-square travel-time matrix.
+    print("Accessibility (jobs reachable, hubs, detour):")
+    from pipeline.accessibility import compute as compute_access
+    acc, acc_stats = compute_access(force=force)
+    hub_cols = [c for c in acc.columns if c.startswith("hub_")
+                and c != "hub_min"]
+    df = df.merge(acc, on="geoid", how="left")
+
     print("Under-service score:")
     score_stats = add_score(df)
     cluster_stats = add_clusters(gdf, df)
@@ -694,6 +706,9 @@ def run(force: bool = False):
     stats["breaks"] = breaks
     stats["score"] = score_stats
     stats["clusters"] = cluster_stats
+    if acc_stats:
+        stats["accessibility"] = acc_stats
+    stats["hub_columns"] = hub_cols
 
     # Highest-density geographies with the worst access -- the headline finding.
     deserts = (df[df["is_populated"] & (df["density_class"] == 2)]
