@@ -227,22 +227,58 @@ is a short walk from an LIRR stop that costs $10 and runs hourly; Bay Ridge is a
 short walk from the R, which is a 50-minute local ride to Midtown. Only
 time-to-somewhere separates those.
 
-**Approach — a frequency-based static transit graph, not a full RAPTOR.**
+**Approach — a frequency-based static transit graph over rail only, not a full
+RAPTOR.**
 
-**Sized 2026-10-11 against the feeds now on disk, and it is small.** This was
-the phase's main unknown and it is no longer one:
+**Decided 2026-10-11: buses are in neither the graph nor the score.** The
+reasoning is about what the map claims, not about what data is available. A
+tract with a case for rail does not lose it because a bus already runs there —
+bus service is what the city provides *instead of* rail in precisely the places
+this map exists to find, so letting it close the gap would hide the finding by
+construction. And this map does not have the final say on anything: it is one
+way to see where new service would be defensible and plausible, and the
+decision belongs to people with more than two variables. Buses keep the role
+they already have — the frequent-bus-network layer ships and draws *on top of*
+the score, so a reader sees what runs today beside what is missing. That is the
+honest form of the same information: context, not a credit against the score.
 
-| | count |
-|---|---|
-| Stops, all nine feeds, deduplicated on `stop_id` | 14,608 |
-| Ride edges (unique consecutive-stop pairs, one weekday) | 18,235 |
-| Route patterns (distinct stop sequences per route) | 2,216 |
-| Transfer pairs within 150 m / 250 m / 400 m / 600 m | 26,770 / 57,518 / 124,700 / 254,575 |
-| Walk graph already handled, for comparison | 1.84M nodes / 2.14M edges |
+The consequence to own is that Staten Island and eastern Queens will read as
+deeply under-served, because in rail terms they are. Under the framing above
+that is the result rather than an artifact — but it is the reason the bus layer
+belongs on by default wherever the score is shown, and the reason the
+methodology has to say "rail" in every sentence where it would be tempting to
+say "transit".
 
-Even at a 600 m transfer radius the transit layer adds about 13% to the edge
-count of a graph the pipeline already does a Dijkstra over in 0.2 s. Ten hubs
-is ten passes. The feasibility claim below is now a measurement, not a hope.
+**Rail-only is also an order of magnitude smaller. Sized 2026-10-11 against the
+feeds on disk, one weekday:**
+
+| | all nine feeds | rail only |
+|---|---|---|
+| Stops | 14,608 | **1,165** |
+| Ride edges (unique consecutive-stop pairs) | 18,235 | **1,949** |
+| Route patterns (distinct stop sequences per route) | 2,216 | **842** |
+| `(stop, route, direction)` nodes | 25,164 | **2,712** |
+| Transfer pairs at 150 / 250 / 400 / 600 m | 26,770 / 57,518 / 124,700 / 254,575 | **807 / 1,057 / 1,592 / 3,211** |
+| Walk graph already handled, for comparison | 1.84M nodes / 2.14M edges | — |
+
+The node row is the one to read, and it is the only row measured the same way
+in both columns — trips filtered to one weekday's active services, then
+route-expanded. **25,164 nodes become 2,712, a factor of 9.3.** The stop counts
+are not strictly comparable: 14,608 is distinct `stop_id` across all nine
+feeds, while 1,165 is rail stops with service that day.
+
+**And the routing cost turns out not to be a cost at all.** Built for real —
+median scheduled runtime on each `(stop, route, direction)` edge, 2,712 nodes
+and 3,165 directed ride edges — an **all-pairs Dijkstra over the entire rail
+network takes 7 ms.** Not per hub: all 2,712 sources at once. The walk leg is
+the larger half and is also small: one single-source pass over the 1.84M-node
+walk graph is 64 ms unbounded and **3 ms bounded to a 15-minute walk budget**
+(`limit=1215` m, ~3,100 nodes reached), so the full access/egress matrix for all
+1,165 rail stops is **4 seconds**, or 1.2 minutes left unbounded. Every "too
+expensive to compute per origin" estimate in this phase was wrong by three
+orders of magnitude — including the one below that used it to defer the work.
+Nothing in Phase 4 is gated on compute. What it is gated on is the wait model,
+the transfer radius and one new data source.
 
 - **Nodes must be `(stop, route, direction)`, not stops.** This is a
   correctness fix, not an optimization, and it is the thing most likely to be
@@ -251,21 +287,32 @@ is ten passes. The feasibility claim below is now a measurement, not a hope.
   the graph quietly claims a connectivity the city does not have, which is the
   precise opposite of what this phase exists to measure. Route-expanding is
   what forces a change of vehicle through a transfer edge that carries the
-  wait. Measured cost: 14,608 stops become **25,164** route-expanded nodes, a
-  1.7× multiplier, because the median stop serves exactly one route and the
-  p90 serves three. It is nearly free; it is only expensive to retrofit.
+  wait. Measured cost on rail: 1,165 stops become **2,712** route-expanded
+  nodes, a 2.3× multiplier — the median rail stop serves two routes, the p90
+  four and the busiest eleven. It is nearly free; it is only expensive to
+  retrofit.
 - Ride edges: median scheduled runtime between consecutive stops on each route
-  pattern — 18,235 of them, so this is a group-by on `stop_times`, not a
-  model. Transfer edges: walk time between nearby stops plus the expected wait
-  at the boarding stop, which `station_service.parquet` already computes per
-  station and `bus_stop_service.parquet` per bus stop. Access edges: snap each
-  of the 14,608 stops to the walk graph exactly as `distance.py` snaps the 557
-  stations, and the existing 1.84M-node walk graph supplies everything else —
-  so access is 14,608 edges, not millions.
-- **The transfer radius is a real parameter and wants the same treatment the
-  sample spacing got.** 150 m to 600 m is a factor of ten in transfer edges, and
-  it directly controls how connected the network looks. Converge it, do not
-  pick it.
+  pattern — 1,949 of them, so this is a group-by on `stop_times`, not a model.
+  Transfer edges: in-station or walking time between stops plus the expected
+  wait at the boarding stop, which `station_service.parquet` already computes
+  per station. (`bus_stop_service.parquet` keeps its existing job, the FTN
+  layer, and is not an input here.) Access edges: snap each of the 1,165 stops
+  to the walk graph exactly as `distance.py` snaps the 557 stations, and the
+  existing 1.84M-node walk graph supplies everything else — so access is 1,165
+  edges, not millions.
+- **The transfer radius mostly stops being a parameter, because the rail feeds
+  declare their own transfers.** Checked 2026-10-11: all three ship a
+  `transfers.txt`. The subway's has **150 between-station transfers with
+  `min_transfer_time` set** — median 180 s, max 420 s — plus 463 same-parent
+  entries giving the in-complex change time; LIRR and Metro-North declare
+  same-stop only. So the authoritative subway interchange set is a file, not a
+  guess, and the radius is needed only for the rail-to-commuter-rail
+  interchanges no feed declares (Jamaica, Atlantic Terminal, Woodside, Fordham
+  and a handful more). That is a dozen places to hand-check rather than a
+  tunable to converge — which is just as well, since the radius still moves the
+  rail transfer-pair count by a factor of four from 150 m to 600 m (807 to
+  3,211). Prefer the declared time wherever one exists; fall back to walk time
+  plus wait, and say which was used.
 - Then **one Dijkstra from the hub** over this graph gives time-to-hub for every
   node in the city, and `pipeline/aggregate.py`'s median-over-sample-points
   machinery converts that to per-tract values unchanged. This reuses the entire
@@ -279,19 +326,40 @@ is ten passes. The feasibility claim below is now a measurement, not a hope.
   connections, timed transfers). Say so in the methodology rather than implying
   schedule-exact routing. If that becomes the binding constraint, a proper RAPTOR
   over `stop_times` is the upgrade — tractable in numpy, but a project of its own.
-- Hubs to offer: Times Sq–42 St, Grand Central, Atlantic Av–Barclays Ctr,
-  Fulton St, Jackson Hts–Roosevelt Av, 125 St. Pre-compute one surface per hub
-  (cheap — one Dijkstra each) and let the user switch, rather than routing live.
-  **But see the ridership ranks below before fixing this list** — 125 St does
-  not survive its own test, and three of these are split across several
-  complexes in the ridership data.
-- **Jobs accessibility** is the generalization of "a hub": LEHD LODES8 WAC
-  gives jobs per block, so *jobs reachable within 45 minutes* is the standard
-  accessibility measure and needs no arbitrary choice of destination. Worth
-  doing once the transit graph exists. **Probed 2026-10-11: reachable, HTTP
-  200, 2.7 MB gzipped** — `ny_wac_S000_JT00_2022.csv.gz`. This file said in one
-  place that it was verified and in another that it was unprobed; it is
-  verified.
+- **Decided 2026-10-11: jobs-within-45-minutes is built first, and the hub
+  list comes after it.** The roadmap used to say the opposite — hubs first,
+  because the hub surfaces are what tell you whether the transit graph is
+  right. That argument fell when hub *selection* turned out to be circular (see
+  below): ridership picks radial hubs, which is the bias the secondary-hub idea
+  exists to correct, so the hub list cannot be settled before there is a
+  destination-free measure to settle it with. Jobs accessibility is that
+  measure, it is the standard one in the literature, and it is also the
+  arbiter for the hub list. Doing it first makes the hub list a **presentation
+  choice** — which few places to name for a reader who thinks in places — rather
+  than a modeling commitment. **`ny_wac_S000_JT00_2022.csv.gz`, LEHD LODES8 WAC,
+  probed 2026-10-11: HTTP 200, 2.7 MB gzipped.** (This file previously said in
+  one place that it was verified and in another that it was unprobed; it is
+  verified.) The validation that hubs were going to provide comes instead from
+  the graph itself: a handful of known trips with known times — Bay Ridge to
+  Midtown, Flushing to Kew Gardens, St George to Downtown Brooklyn — checked
+  against the published schedule, in the same spirit as `verify.py`'s barrier
+  probes.
+- **Hubs, once jobs exist:** Times Sq–42 St, Grand Central, Atlantic
+  Av–Barclays Ctr, Fulton St, Jackson Hts–Roosevelt Av, 125 St. Pre-compute one
+  surface per hub (now measured at well under a millisecond each) and let the
+  user switch, rather than routing live. **Read the ridership ranks below
+  before fixing this list** — 125 St does not survive its own test, and three
+  of these are split across several complexes in the ridership data.
+- **Decided 2026-10-11: neither time-to-hub nor jobs accessibility touches the
+  shipped score until it earns a row in the alignment table.** They ship as
+  their own layers and their own tooltip lines, like the wait penalty and the
+  equity variables before them. The prediction on record, so it can be wrong in
+  public: jobs accessibility will *lower* alignment, for the same reason the
+  wait penalty did — it measures the quality of a rider's morning, while the
+  agencies' proposed corridors track where people are and where the network
+  isn't. If it raises alignment instead, that is the most interesting result in
+  the project and the score should change. Either way the order is measure,
+  then adopt — never the reverse.
 
 ### Secondary hubs, and the orbital problem
 
@@ -359,66 +427,60 @@ origins as *well served*, because each is a short ride from Midtown.
   and it is the check that proves the walk routing is real. The same ratio over
   the transit graph is what turns "Flushing to Kew Gardens is annoying" into a
   number, and it will be highest exactly where the orbital gap is worst.
+
+  **Decided 2026-10-11 — what a null result means, written down before the
+  measurement, which is the only time it can be written honestly.** This is the
+  most interesting idea in the phase and the only one with no stated null
+  result, so: the layer is defined as the detour factor between every pair of
+  tract centroids under 15 km apart, and the claim it tests is that the worst
+  detours form a *ring* — a contiguous band of orbital pairs — rather than
+  scattering. Three outcomes, all publishable:
+
+  1. **A ring appears and the IBX alignment is visible.** The headline result.
+  2. **A ring appears somewhere else.** Better than the first outcome, because
+     it is a finding the agencies' own plans did not supply. Report where, and
+     check it against the proposed-corridor list rather than quietly dropping
+     the corridors that disagree.
+  3. **No ring: detour factor is roughly flat, or tracks distance alone.** Then
+     the orbital problem is *not* spatially concentrated — radial routing taxes
+     lateral trips everywhere about equally — and that is a real answer to a
+     real question, not a failure. It would say the orbital gap is a network
+     property rather than a corridor, which argues against any single new line
+     as the fix and is worth one paragraph in the methodology. The layer still
+     ships; the ratio is interpretable per tract whether or not it clusters.
+
+  The failure mode to guard against is deciding afterwards that whatever shape
+  turned up was the hypothesis. Hence the three outcomes, now, in writing.
 - **The metric that dissolves the hub question entirely** is cumulative
   opportunity: *jobs reachable within 45 minutes*. It needs no chosen center,
   it is the standard measure in the accessibility literature, and it needs LEHD
   LODES workplace-area job counts — **probed 2026-10-11, HTTP 200, 2.7 MB.**
-  Cost is the catch, and it is smaller than this bullet used to assume: one
-  Dijkstra per origin rather than per hub, so roughly 2,300 passes. But a pass
-  over the 25,164-node route-expanded transit graph is nothing like a pass over
-  the 1.84M-node walk graph, and the two can be separated — route between stops
-  on the small graph, then attach the 2,325 tract sample sets through the walk
-  graph once. **The honest version of this estimate should be measured before
-  it is used to defer the work**, because the measurement that killed the fear
-  about the graph's size may kill this one too. Still: do the hub list first,
-  because it is the thing that tells you whether the transit graph is right.
+  **Cost was the catch and it is now measured away.** This bullet used to call
+  for roughly 2,300 Dijkstra passes and warn that the estimate should be
+  measured before it was used to defer the work. It was measured on
+  2026-10-11, and it defers nothing: all-pairs over the 2,712-node rail graph
+  is **7 ms**, and the 1,165 bounded walk-graph passes that attach origins and
+  destinations to it are **4 seconds**. The separation this bullet proposed —
+  route between stops on the small graph, attach the tract sample sets through
+  the walk graph once — is the right structure, and it is cheap enough that
+  *jobs within 45 minutes* can be recomputed on every build like everything
+  else in the pipeline. This is why the order flipped and jobs now comes
+  first.
 - **The payoff is a different headline.** "X% of New Yorkers are within a
   10-minute walk of a train" says nothing about whether the train goes anywhere
   useful. Time-to-nearest-center and the detour factor are the first metrics in
   this roadmap that could contradict the walk-access map rather than refine it,
   and the places they disagree are the finding.
 
-### Airports
+### Deliberately not in this phase: airports
 
-A distinct question from commuting, and worth separating because it has two
-users with opposite needs.
-
-- **Travelers** make the trip occasionally, carry luggage, travel off-peak, and
-  tolerate a fare premium. **Airport workers** make it daily, on shift hours
-  that include the middle of the night, and are highly fare-sensitive. This
-  project's existing lens — residential population, walk access, 24-hour
-  service — serves the second group, and the second group is the
-  under-reported one. Build for the worker and the traveler's answer falls out.
-- **The three airports are three different problems.** JFK has AirTrain from
-  Jamaica (E/J/Z and LIRR) and Howard Beach (A), with an **$8.75** fare at
-  those two stations and free travel inside the airport. LGA has **no rail link
-  at all** — the AirTrain LGA project was halted in October 2021 — and is
-  reached by the Q70 LaGuardia Link, which has been **free year-round since
-  1 May 2022** and runs roughly every ten minutes in the daytime from Jackson
-  Heights and Woodside. EWR is outside the city but genuinely used by NYC
-  residents, via NJ Transit plus its own AirTrain.
-- **Those four figures are the only un-sourced numbers left in this file and
-  they are all perishable.** The $8.75 AirTrain fare, the Q70 being free, the
-  halt date and the ten-minute headway were written from memory in an earlier
-  session and never cited. Fares change; "free since 2022" is the kind of claim
-  that is true until a budget cycle says otherwise. Before any of this is
-  modeled, each wants a dated citation — and the Q70 headway should come from
-  `gtfs_q`, which is already on disk and already parsed, rather than from
-  recollection. Everything else in this phase is now measured; these are not.
-- **The modeling is small and already designed for.** These are a handful of
-  hand-coded edges on the Phase 4 transit graph — a headway and a fare on each
-  — plus a terminal node per airport. The fare premium reuses the commuter-rail
-  fare disclosure that now ships; the 3am service window reuses the
-  `tph_night` and `night_gap_hours` columns in `station_service.parquet`,
-  which already exist. **No GTFS feed for AirTrain JFK turned up in a search**
-  and the Port Authority's developer pages are unchecked, so assume
-  hand-coding and treat a feed as a bonus.
-- **The finding to look for:** the fare premium and the night gap, not the
-  distance. A JFK worker living in Brooklyn pays twice and waits twice, and a
-  3am shift may have no rail option at all — which is invisible to a map that
-  counts stations. Quote travel time *with and without* the premium link, so
-  the reader can see what the $8.75 buys and what it costs the people who pay
-  it every day.
+**Punted 2026-10-11 to Phase 9.** It was the cheapest-looking item here and
+that was the trap: it is a handful of hand-coded edges, but each one carries a
+*fare* and a *headway* that no feed on disk supplies, so it is the only part of
+Phase 4 that cannot be built from data the pipeline already has. It also serves
+a different reader — the airport worker, not the commuter — and mixing the two
+is how a phase stops being finishable. The machinery it needs (fares, the night
+gap) ships already and will still be there.
 
 ## Phase 5 — who lives there
 
@@ -877,6 +939,68 @@ alignment test: the measure is incomplete in ways this file has already named,
 rather than wrong in ways it has not.
 ---
 
+## Phase 9 — airports
+
+**Split out of Phase 4 on 2026-10-11.** See that phase for why: these are the
+only edges in the transit graph whose cost comes from neither GTFS nor the walk
+network, and the reader they serve is a different one. Nothing here blocks
+anything else.
+
+**This phase is the one deliberate exception to "no buses in the graph."** The
+Q70 is a bus and it is the *only* public transit link to LaGuardia, so a
+rail-only graph answers "how do you get to LGA" with silence. That is a
+defensible exception precisely because it is narrow and named: three airport
+terminal nodes with hand-coded edges, not 12,942 bus stops. Keep it out of the
+under-service score, where the rail-only reasoning in Phase 4 still holds —
+LaGuardia's access is a worker's commute question, not a residential
+service-gap question.
+
+A distinct question from commuting, and worth separating because it has two
+users with opposite needs.
+
+- **Travelers** make the trip occasionally, carry luggage, travel off-peak, and
+  tolerate a fare premium. **Airport workers** make it daily, on shift hours
+  that include the middle of the night, and are highly fare-sensitive. This
+  project's existing lens — residential population, walk access, 24-hour
+  service — serves the second group, and the second group is the
+  under-reported one. Build for the worker and the traveler's answer falls out.
+- **The three airports are three different problems.** JFK has AirTrain from
+  Jamaica (E/J/Z and LIRR) and Howard Beach (A), with an **$8.75** fare at
+  those two stations and free travel inside the airport. LGA has **no rail link
+  at all** — the AirTrain LGA project was halted in October 2021 — and is
+  reached by the Q70 LaGuardia Link, which has been **free year-round since
+  1 May 2022** and runs roughly every ten minutes in the daytime from Jackson
+  Heights and Woodside. EWR is outside the city but genuinely used by NYC
+  residents, via NJ Transit plus its own AirTrain.
+- **Those four figures are the only un-sourced numbers left in this file and
+  they are all perishable.** The $8.75 AirTrain fare, the Q70 being free, the
+  halt date and the ten-minute headway were written from memory in an earlier
+  session and never cited. Fares change; "free since 2022" is the kind of claim
+  that is true until a budget cycle says otherwise. **Treat all four as unknown
+  until cited.** The right order when this phase is picked up: compute the Q70
+  headway from `gtfs_q`, which is on disk and already parsed, so it is a
+  measurement rather than a recollection; then find a dated source for each of
+  the three policy facts (the fare, the free-fare status, the AirTrain LGA
+  halt) and write the date of the citation beside it, because each can change
+  without the map noticing. Until then no number in this bullet should appear
+  in the UI or the README. This is the one section of the roadmap whose facts
+  are not reproducible from the repo, and that is the reason it was split
+  out.
+- **The modeling is small and already designed for.** These are a handful of
+  hand-coded edges on the Phase 4 transit graph — a headway and a fare on each
+  — plus a terminal node per airport. The fare premium reuses the commuter-rail
+  fare disclosure that now ships; the 3am service window reuses the
+  `tph_night` and `night_gap_hours` columns in `station_service.parquet`,
+  which already exist. **No GTFS feed for AirTrain JFK turned up in a search**
+  and the Port Authority's developer pages are unchecked, so assume
+  hand-coding and treat a feed as a bonus.
+- **The finding to look for:** the fare premium and the night gap, not the
+  distance. A JFK worker living in Brooklyn pays twice and waits twice, and a
+  3am shift may have no rail option at all — which is invisible to a map that
+  counts stations. Quote travel time *with and without* the premium link, so
+  the reader can see what the $8.75 buys and what it costs the people who pay
+  it every day.
+
 ## Suggested order
 
 The score exists, it is measured against something outside itself, and the
@@ -902,12 +1026,14 @@ the components exist and which should happen before the 80% figure is quoted
 anywhere load-bearing. A per-tract precision figure compares a point measure
 against a line measure, and the corridors are lines.
 
-**Then time to hubs**, which is a project rather than a feature. Secondary hubs
-and the detour factor sit inside Phase 4 rather than beside it: they need the
-transit graph, and they are the reason to build it with more than one
-destination in mind from the start. Airports are the cheapest thing in that
-phase and a good first test of its fare and night-service machinery — both of
-which now have shipped machinery to reuse rather than to build.
+**Then the rail transit graph**, which is a project rather than a feature —
+but a smaller one than this file assumed until it was measured. Inside it the
+order is now *jobs within 45 minutes first*, then the hub surfaces, then the
+detour factor; secondary hubs and the detour factor sit inside Phase 4 rather
+than beside it, because they need the graph and are the reason to build it with
+more than one destination in mind from the start. Buses are not in the graph
+and airports have been split out to Phase 9, which is what makes the phase
+finishable: everything left in it is computable from feeds already on disk.
 
 Orthogonal to all of that, and pickable whenever: **publishing the map**, which
 needs no new data and currently blocks every other reader from seeing any of
