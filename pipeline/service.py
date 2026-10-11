@@ -401,9 +401,6 @@ def main(argv=None) -> int:
     return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
-
 
 # --- buses ------------------------------------------------------------------
 
@@ -547,3 +544,7 @@ def bus_stops(force: bool = False) -> pd.DataFrame:
     out.to_parquet(C.P_BUS_STOPS)
     print(f"  saved   {C.P_BUS_STOPS.name} ({len(out)} stops)")
     return out
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
