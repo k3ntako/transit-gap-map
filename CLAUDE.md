@@ -121,10 +121,11 @@ more stops); and all day rather than at the peak, because 8,027 of 12,942
 stops qualify on the AM peak alone — 62%, the "covers the whole city and says
 nothing" layer this was built to avoid. The all-day per-route test leaves
 2,368 stops, 18%, which has a shape. The six bus feeds are **not** partitioned
-by borough despite their names: they share one 307-route `routes.txt` and
-partition *trips* (zero `trip_id` overlaps), while stops do overlap and must
-be deduplicated after the union. `stop_times.txt` across the six is ~10M rows,
-so it is read in chunks and window-filtered inside the loop.
+by borough despite their names: **five of the six** share one identical
+307-route `routes.txt` (`gtfs_bus_busco` has its own, 92 routes, for 399 in
+all) and they partition *trips* (zero `trip_id` overlaps), while stops do
+overlap and must be deduplicated after the union. `stop_times.txt` across the
+six is ~10M rows, so it is read in chunks and window-filtered inside the loop.
 
 **Tracts are measured by a grid, not a centroid** — a 25 m sample grid clipped
 to each polygon, reduced with the median, because NYC tracts are long and
