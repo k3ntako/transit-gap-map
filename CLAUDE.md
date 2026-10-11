@@ -103,11 +103,13 @@ chroma on the finding. `audit()` enforces perceptual-separation `GATES` grouped
 by the reader's task (populated cells held to ΔE 15, the sparse row to 8); it
 raises rather than warns. Load the **dataviz skill** before touching any of this.
 
-**The web map is static and dumb on purpose.** `web/` is four files reading four
-payloads. `web/data/` is gitignored and entirely generated, so a fresh clone must
-`make all` before `make serve`. Anything a user might want to re-weight should
-recompute in the browser from per-tract fields rather than round-tripping through
-the pipeline.
+**The web map is static and dumb on purpose.** `web/` is three source files —
+`index.html`, `app.js`, `style.css` — reading the payloads in `web/data/`
+(`tracts`, `stations` and `walksheds` GeoJSON, `stats.json`, `palette.json`,
+`walk_surface.json` and one of the two surface PNGs). `web/data/` is gitignored
+and entirely generated, so a fresh clone must `make all` before `make serve`.
+Anything a user might want to re-weight should recompute in the browser from
+per-tract fields rather than round-tripping through the pipeline.
 
 **Payload budgets are asserted, not advisory.** `BUDGET_TRACTS_MB = 2.0` raises a
 `SystemExit` in `build.py`; the surface PNG budget warns. Raising a budget is a
