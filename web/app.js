@@ -293,6 +293,55 @@ const lineOpacity = () => ["case", belowFloor(), 0.15, 0.5];
 
 // --- layers -----------------------------------------------------------------
 
+// Opacity lives in one place now. It used to be applied twice -- 0.82 baked
+// into the PNG's alpha channel by surface.py and 0.85 again here -- which
+// multiplied out to this number without anyone choosing it. The PNG is now
+// fully opaque where it has a value, which is also what lets it be an indexed
+// image, so the composite is preserved here rather than being silently
+// changed into something rounder.
+const SURFACE_OPACITY = 0.82 * 0.85;
+
+// An image source starts downloading the moment it is added, so adding this
+// one in addLayers() cost every reader ~62 KB for a layer most of them never
+// turn on, in competition with the basemap tiles and the walksheds. It is
+// still prefetched -- the toggle should feel instant -- just last, after the
+// map has gone quiet. Idempotent, because the toggle calls it too in case a
+// reader gets there before the idle callback does.
+function addSurface() {
+  // No tracts-fill means the style was torn down by a theme switch, and that
+  // switch has scheduled its own load. There is nothing here to attach to.
+  if (!map.getLayer("tracts-fill")) return;
+  if (!map.getSource("surface")) {
+    map.addSource("surface", {
+      type: "image",
+      url: `data/${surf.images[state.theme]}`,
+      coordinates: surf.coordinates,
+    });
+  }
+  if (!map.getLayer("surface-img")) {
+    map.addLayer({
+      id: "surface-img", type: "raster", source: "surface",
+      layout: { visibility: state.surface ? "visible" : "none" },
+      paint: {
+        "raster-opacity": SURFACE_OPACITY,
+        "raster-resampling": "linear",
+      },
+    }, "tracts-fill");
+  }
+}
+
+// `idle` fires when every tile and source has settled; requestIdleCallback
+// then waits for a free frame after that, so the fetch lands in genuinely
+// spare time. The timeout is the backstop for a tab that never idles, and
+// setTimeout is the fallback for Safari, which has no requestIdleCallback.
+const whenIdle = globalThis.requestIdleCallback
+  ? (f) => globalThis.requestIdleCallback(f, { timeout: 3000 })
+  : (f) => setTimeout(f, 300);
+
+function deferSurface() {
+  whenIdle(() => addSurface());
+}
+
 function addLayers() {
   const st = pal.station[state.theme];
 
@@ -316,11 +365,6 @@ function addLayers() {
     type: "geojson", data: "data/stations.geojson", generateId: true,
   });
   map.addSource("walksheds", { type: "geojson", data: "data/walksheds.geojson" });
-  map.addSource("surface", {
-    type: "image",
-    url: `data/${surf.images[state.theme]}`,
-    coordinates: surf.coordinates,
-  });
 
   // Visibility comes from state, not from the default: the choropleth can now
   // start hidden, because a permalink said so.
@@ -352,11 +396,11 @@ function addLayers() {
     },
   });
 
-  map.addLayer({
-    id: "surface-img", type: "raster", source: "surface",
-    layout: { visibility: state.surface ? "visible" : "none" },
-    paint: { "raster-opacity": 0.85, "raster-resampling": "linear" },
-  }, "tracts-fill");
+  // The surface is the one layer that is off by default, so it is not part of
+  // the first paint -- unless a permalink asked for it, in which case the
+  // reader is looking at it and it is not optional.
+  if (state.surface) addSurface();
+  else map.once("idle", deferSurface);
 
   const sheds = shedCls();
   stats.thresholds_min.forEach((t, i) => {
@@ -753,13 +797,20 @@ function wireControls() {
     });
   });
 
-  const toggle = (id, key, layers) => $(id).addEventListener("change", (e) => {
-    state[key] = e.target.checked;
-    layers().forEach((l) =>
-      map.setLayoutProperty(l, "visibility", e.target.checked ? "visible" : "none"));
-    syncHash();
-  });
-  toggle("#t-surface", "surface", () => ["surface-img"]);
+  // `prepare` runs before the visibility flip, for a layer that may not exist
+  // yet: the surface is added lazily, and setLayoutProperty throws on an
+  // unknown id rather than ignoring it.
+  const toggle = (id, key, layers, prepare) =>
+    $(id).addEventListener("change", (e) => {
+      state[key] = e.target.checked;
+      if (prepare) prepare();
+      const vis = e.target.checked ? "visible" : "none";
+      layers().forEach((l) => {
+        if (map.getLayer(l)) map.setLayoutProperty(l, "visibility", vis);
+      });
+      syncHash();
+    });
+  toggle("#t-surface", "surface", () => ["surface-img"], addSurface);
   toggle("#t-sheds", "walksheds", () => stats.thresholds_min.map((t) => `shed-${t}`));
   toggle("#t-stations", "stations",
     () => ["stations-subway", "stations-rail", "stations-hit"]);
@@ -824,45 +875,56 @@ function fail(title, body, detail) {
 }
 
 async function main() {
-  // Loaded dynamically so a CDN or module failure can be reported in the page.
-  // With a static import, any failure is a module-level error: nothing below
-  // ever executes and the loading overlay just sits there.
-  try {
-    maplibregl = await import(MAPLIBRE_URL);
-  } catch (err) {
-    fail("Could not load MapLibre GL JS.",
-         `Check your network connection or whether ${MAPLIBRE_URL} is reachable.`,
-         err.message);
-    return;
-  }
-  if (!maplibregl?.Map) {
-    fail("MapLibre loaded but exposes no Map constructor.",
-         "The CDN build may have changed its exports.", "");
-    return;
-  }
-
   const j = async (u) => {
     const r = await fetch(u);
     if (!r.ok) throw new Error(`${u}: ${r.status}`);
     return r.json();
   };
 
-  try {
-    [pal, stats, surf, tracts] = await Promise.all([
+  // MapLibre is loaded dynamically so a CDN or module failure can be reported
+  // in the page. With a static import, any failure is a module-level error:
+  // nothing below ever executes and the loading overlay just sits there.
+  //
+  // Both requests start here and neither waits on the other, because the data
+  // does not depend on the library. Awaiting the import first put 290 KB of
+  // JavaScript in front of the 1.7 MB of GeoJSON instead of beside it.
+  // `.then(ok, err)` rather than a bare `await` in a try: a rejection on the
+  // branch that is not being awaited yet would otherwise go unhandled.
+  const settle = (promise) =>
+    promise.then((v) => ({ ok: true, v }), (err) => ({ ok: false, err }));
+  const [lib, data] = await Promise.all([
+    settle(import(MAPLIBRE_URL)),
+    settle(Promise.all([
       j("data/palette.json"), j("data/stats.json"), j("data/walk_surface.json"),
       j(GEO),
-    ]);
-    const n = rankTracts();
-    console.info(`ranked ${n} populated tracts for the gap score`);
-  } catch (err) {
+    ])),
+  ]);
+
+  if (!lib.ok) {
+    fail("Could not load MapLibre GL JS.",
+         `Check your network connection or whether ${MAPLIBRE_URL} is reachable.`,
+         lib.err.message);
+    return;
+  }
+  maplibregl = lib.v;
+  if (!maplibregl?.Map) {
+    fail("MapLibre loaded but exposes no Map constructor.",
+         "The CDN build may have changed its exports.", "");
+    return;
+  }
+
+  if (!data.ok) {
     $("#loading").innerHTML =
       `<div style="max-width:420px;text-align:center;line-height:1.6">
         <strong>Data not built yet.</strong><br>
         Run <code>make all</code> first — the map reads the files it writes
         into <code>web/data/</code>.<br><br>
-        <span style="color:var(--ink-muted)">${err.message}</span></div>`;
+        <span style="color:var(--ink-muted)">${data.err.message}</span></div>`;
     return;
   }
+  [pal, stats, surf, tracts] = data.v;
+  const ranked = rankTracts();
+  console.info(`ranked ${ranked} populated tracts for the gap score`);
 
   // Before anything reads state: the hash decides the theme, the layer, the
   // floors and the opening camera.

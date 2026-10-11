@@ -93,10 +93,15 @@ question is already answered and the real question is the build.
   the distinction the gitignore exists to make. **Recommend (a)**, with a
   `make publish` target so the deploy is reproducible and not a shell-history
   artifact.
-- **Payload, measured:** 2.9 MB total — `tracts.geojson` 1.7 MB, `walksheds`
-  816 KB, `stations` 138 KB, two surface PNGs at ~130 KB, `stats.json` 24 KB,
-  `palette.json` 4 KB. Fits any static host's free tier and loads over a phone
-  connection, so no tiling and no CDN decision is required.
+- **Payload, measured:** 2.8 MB on disk — `tracts.geojson` 1.7 MB, `walksheds`
+  816 KB, `stations` 138 KB, two surface PNGs at 62 KB, `stats.json` 24 KB,
+  `palette.json` 4 KB. **Over the wire the first paint is 406 KB**, because gzip
+  takes the GeoJSON down by a factor of six; the surface PNG is a further 62 KB
+  that arrives in the background, after the map goes idle, and only ever one of
+  the two. The 406 KB is the number the reader experiences, and it is why no
+  tiling and no CDN decision is required. It is also why the host has to be one
+  that compresses: `make serve` does not, so the map feels slower in
+  development than in production.
 - **AGPL section 13 is already satisfied, by construction.** A deployed
   instance must offer its source; `config.SOURCE_URL` reaches the browser
   through `stats.json` and the title card renders it. Confirm it points at the

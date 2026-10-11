@@ -100,18 +100,37 @@ def ramp_lut(ramp: list[str], vmax: float, n: int = 256):
     return (lut * 255).astype(np.uint8)
 
 
-def render_png(grid, ramp, vmax, path, alpha=0.82):
-    """Color-ramped RGBA PNG, north-up, transparent where there is no value."""
-    norm = np.clip(grid / vmax, 0, 1)
-    lut = ramp_lut(ramp, vmax)
-    idx = np.nan_to_num(norm * 255, nan=0).astype(np.uint8)
+def render_png(grid, ramp, vmax, path):
+    """Color-ramped indexed PNG, north-up, transparent where there is no value.
 
-    rgba = np.zeros((*grid.shape, 4), dtype=np.uint8)
-    rgba[..., :3] = lut[idx]
-    rgba[..., 3] = np.where(np.isfinite(grid), int(alpha * 255), 0)
+    Indexed rather than RGBA because the image already *is* a palette image:
+    every pixel is one entry of `ramp_lut`, so there were never more than 256
+    distinct colors to store. Writing it as truecolor cost 2.2x the bytes for
+    no additional information (137 KB -> 62 KB at 100 m).
+
+    Index 255 is reserved for "no value" and is what the tRNS chunk points at,
+    so the ramp gets 255 entries instead of 256 -- a difference of under half
+    of one ramp step, invisible against a 30-minute scale.
+
+    Opacity is deliberately *not* baked in. It belongs to the layer, and was
+    being applied in both places: 0.82 here times 0.85 in app.js, for an
+    effective 0.697 that nobody chose. app.js now owns it outright, which is
+    also what makes the alpha channel binary and the image indexable.
+    """
+    lut = ramp_lut(ramp, vmax, n=255)
+    norm = np.clip(grid / vmax, 0, 1)
+
+    idx = np.full(grid.shape, 255, dtype=np.uint8)
+    has_value = np.isfinite(grid)
+    idx[has_value] = (norm[has_value] * 254).astype(np.uint8)
+
+    palette = np.zeros((256, 3), dtype=np.uint8)
+    palette[:255] = lut
 
     # Grid rows run south -> north; PNG rows run top -> bottom.
-    Image.fromarray(rgba[::-1], mode="RGBA").save(path, optimize=True)
+    im = Image.fromarray(idx[::-1], mode="P")
+    im.putpalette(palette.reshape(-1).tolist())
+    im.save(path, optimize=True, transparency=255)
     kb = path.stat().st_size / 1024
     print(f"  saved   {path.name} ({kb:.0f} KB, {grid.shape[1]}x{grid.shape[0]})")
     return kb
