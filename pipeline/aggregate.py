@@ -286,7 +286,7 @@ def headline_stats(df, subway_walk_min) -> dict:
     total = pop.sum()
 
     within = {str(t): float(pop[walk <= t].sum() / total * 100)
-              for t in C.WALK_THRESHOLDS_MIN}
+              for t in C.WALK_THRESHOLDS_MINUTES}
 
     # Benchmark: the commonly cited figure is subway-only, within a half mile.
     sm = df["is_populated"] & np.isfinite(df["subway_walk_min"])

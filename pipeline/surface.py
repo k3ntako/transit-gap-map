@@ -165,7 +165,7 @@ def walksheds(dist, serviceable, land_merc):
         C.WALKSHED_RESOLUTION_METERS, dist, serviceable, land_merc)
 
     feats = []
-    for t in C.WALK_THRESHOLDS_MIN:
+    for t in C.WALK_THRESHOLDS_MINUTES:
         mask = np.isfinite(grid) & (grid <= t)
         geom = rect_union(mask, xs, ys, step)
         if geom is None:
@@ -202,7 +202,7 @@ def run(force: bool = False):
     dist, _nearest, serviceable = compute_dist(force=False, subway_only=False)
     land = _land()
 
-    vmax = float(C.WALK_THRESHOLDS_MIN[-1] * 2)   # 30 min caps the ramp
+    vmax = float(C.WALK_THRESHOLDS_MINUTES[-1] * 2)   # 30 min caps the ramp
     print(f"Surface raster (ramp caps at {vmax:.0f} min):")
     grid, xs, ys, step = distance_field(
         C.SURFACE_RESOLUTION_METERS, dist, serviceable, land)

@@ -140,7 +140,7 @@ def build_stats(stats: dict, df, lookups: dict) -> None:
         "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "geo_level": C.GEO_LEVEL,
         "walk_speed_mps": C.WALK_SPEED_MPS,
-        "thresholds_min": list(C.WALK_THRESHOLDS_MIN),
+        "thresholds_min": list(C.WALK_THRESHOLDS_MINUTES),
         "census_dataset": C.CENSUS_DATASET,
         "attribution": C.ATTRIBUTION,
         "license": "AGPL-3.0-or-later",

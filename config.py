@@ -19,7 +19,7 @@ CRS_GEO = "EPSG:4326"
 
 # --- Analysis parameters ----------------------------------------------------
 WALK_SPEED_MPS = 1.35          # ~3.0 mph, standard pedestrian planning speed
-WALK_THRESHOLDS_MIN = (5, 10, 15)
+WALK_THRESHOLDS_MINUTES = (5, 10, 15)
 HALF_MILE_METERS = 804.672     # for the published-benchmark cross-check
 
 # How far beyond the city line to extend the walk network and station search.
