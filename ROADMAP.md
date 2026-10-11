@@ -651,6 +651,56 @@ citywide layer.
   crossing delay would add realism, but OSM crossing tagging is uneven in NYC —
   check coverage before building on it.
 
+### Bikes
+
+Worth doing, and cheaper than it sounds, because it is the existing pipeline
+with two inputs swapped. The one-Dijkstra design already generalizes: filter
+the OSM edges to bikeable ways, raise the speed, re-run the same
+`min_only=True` pass, and the output is *bike* minutes to the nearest station
+for every node in the city. Nothing downstream has to change shape.
+
+Data probed live 2026-10-10 and both are usable:
+
+- **NYC DOT bike routes**, `data.cityofnewyork.us/resource/mzxg-pwib` — 29,695
+  segments with `ft_facilit` (facility type), `onoffst`, `lanecount` and
+  `instdate`. The facility breakdown is the whole point: **7,418 Protected**,
+  6,545 Conventional, 3,625 Shared, 783 buffered-conventional-or-curbside, and
+  **7,302 explicitly `None`**. 24,564 segments are on-street, 5,131 off.
+- **Citi Bike GBFS**, `gbfs.citibikenyc.com/gbfs/en/station_information.json`
+  — 2,519 stations, 74,258 docks, no key, 1.4 MB. The feed's bounding box stops
+  at about −74.10 longitude, so **there is no Citi Bike on Staten Island**,
+  which is where this map's worst tracts are.
+
+Three things it would actually answer:
+
+- **Does a bike close the gap, or move it?** Report bike minutes beside walk
+  minutes and the honest finding is probably that bikes rescue the middle of
+  the distribution — the 15-to-25-minute walks — and do much less for the
+  50-minute tracts, because those are far by street network and not merely far
+  on foot. If that is what it shows, it is a real result and an argument
+  against the common claim that bike infrastructure substitutes for a line.
+- **Protected-only is the version that means anything.** A bike catchment
+  computed over every street is a fantasy catchment; computed over protected
+  and off-street facilities only it is a measure of whether the city has built
+  a usable approach to its own stations. Those are two very different maps from
+  the same pass, and shipping both as a toggle is the cheapest way to make the
+  difference visible. The 7,302 `None` segments are the reminder that the
+  "bike network" is largely a route designation, not infrastructure.
+- **Bike parking at the station is the binding constraint, and it is missing.**
+  A bike catchment assumes you can leave the bike somewhere, and secure
+  parking at outer stations is scarce. Citi Bike inverts the problem — the dock
+  is the parking — which is exactly why its absence from Staten Island matters
+  more than its density in Manhattan.
+
+The trap to avoid: **bike access is not an equity substitute.** Cycling skews
+young, male, able-bodied and fair-weather, and this file already refuses to
+treat a mode's convenience as a mode's reach — see the step-free item above,
+which makes the opposite point with the same logic. Bike minutes belong as
+their own layer and their own column, never folded into the access axis as
+though a 20-minute ride were a 20-minute walk. The same caution applies to any
+"combined access" number: it would quietly reward the neighborhoods with the
+best weather-independent alternatives and penalize nobody.
+
 ## Phase 7 — scenarios: where should the next station go?
 
 This is where an under-service map becomes a planning tool rather than a
@@ -925,6 +975,12 @@ panels, the legend width. The class filter is worth doing before the zoning
 work, because naming the low-density/short-walk corner of the matrix is most of
 that question's cheap version.
 
+Bikes sit with step-free access in the "same pipeline, different input set"
+bucket, and should be picked up on the same grounds: the swap is an edge filter
+and a speed, the data is verified, and the likely result — that bikes rescue
+the middle of the distribution and not the tail — is worth having before anyone
+proposes a bike lane as an answer to a transit desert.
+
 **Contiguity is the sleeper.** It is in Phase 3 because it is a property of the
 score, but it needs nothing from Phase 2 and nothing from the Census — only an
 adjacency graph built from polygons already on disk. It is also the cheapest
@@ -959,6 +1015,8 @@ Probed live 2026-10-10; all reachable, none needing auth except Census.
 | Subway entrances | `data.ny.gov/resource/i9wp-a4ja` | 2,120 rows (2,072 entry-allowed; 116 step-free) |
 | Hourly ridership | `data.ny.gov/resource/wujg-7c2s` (to 2024), `5wq4-mkjj` (2025+) | large |
 | Jobs by block | `lehd.ces.census.gov/data/lodes/LODES8/ny/wac/ny_wac_S000_JT00_2022.csv.gz` | reachable |
+| Bike routes | `data.cityofnewyork.us/resource/mzxg-pwib` | 29,695 segments (7,418 protected) |
+| Citi Bike GBFS | `gbfs.citibikenyc.com/gbfs/en/station_information.json` | 2,519 stations, 74,258 docks, 1.4 MB |
 | ACS variables | `api.census.gov/data/2023/acs/acs5` | `B08201_002E`, `B19013_001E`, `B17001_002E`, `B08301_010E`, `B18101`, `B01001` all confirmed |
 
 The subway station table already carries `gtfs_stop_id`, so every GTFS join is a
