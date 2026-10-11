@@ -14,27 +14,35 @@ version of the first and nothing of the other two.
 
 | Axis | Question | Status |
 |---|---|---|
-| **Access cost** | How hard is it to get to a platform? | Partial — distance to a station *point*, on foot, ignoring stairs, slope and which door |
-| **Service quality** | Once you are there, what do you get? | **Missing** — a Staten Island Railway stop with a 30-minute headway counts the same as Times Square |
-| **Dependence** | How much do the people there need it? | Partial — population density only |
+| **Access cost** | How hard is it to get to a platform? | Partial — distance to a station *point*, plus the expected wait once there; still ignores stairs, slope and which door |
+| **Service quality** | Once you are there, what do you get? | **Scheduled frequency done** — trains per hour per station per window, and the wait charged on the graph. Ridership and crowding are not in it |
+| **Dependence** | How much do the people there need it? | Population, plus car ownership and poverty shipped as weightable terms — and both measured as *lowering* agreement with agency plans |
 
 A station is not a binary, and a person near a bad station can be worse off than
-a person a bit further from a good one. Most of the value left on the table is in
-the second row, and the cheapest way to get it is GTFS.
+a person a bit further from a good one. The second row is where most of the
+value was, and GTFS was the cheap way to get it.
 
-Two design principles follow:
+Three design principles, the third learned the hard way:
 
 1. **Ship raw normalized metrics, score in the browser.** Anything the user
    might want to re-weight — density floors, score weights, which metrics
    count — should recompute client-side from per-tract fields, with no pipeline
    round trip. Only things that need the walk graph or a transit graph get
-   pre-computed.
-2. **Percentile-rank before combining.** NYC's distributions are heavy-tailed
-   (density is roughly log-normal, walk time has a long right tail, income more
-   so). A weighted sum of raw values is dominated by whichever metric has the
-   fattest tail. Rank each metric to 0–1 within the city first, then weight.
-   *Contested for walk time as of 2026-10-10 — see "Proposal — what the gap
-   score should measure" below.*
+   pre-computed. Corollary now that fields cost ~5 KB gzipped each: never ship
+   a column the browser can derive. `excess` and `score` are not in the
+   payload for exactly this reason.
+2. **Percentile-rank the skewed metric; keep a meaningful one in its own
+   units.** The original form of this principle said to rank everything, and
+   that was wrong in the one place it mattered. Density, car ownership and
+   poverty all want ranking — none has a tail that *is* the finding. Walk time
+   does: ten times the walk is 1.4 times the percentile rank, so ranking it
+   destroyed the only part carrying information. **Settled 2026-10-10** in
+   favor of excess person-minutes; see `verify.py` for the test that settled
+   it.
+3. **A score change has to be measured against something outside the map.**
+   `verify.alignment()` is that something, and it gates the build. Nine of ten
+   candidate scores cleared its floor and the one that shipped for three
+   commits did not. No future score arrives without a row in that table.
 
 Phases 0 and 1 are shipped and have been dropped from this file. The numbering
 of what is left is deliberately unchanged, because commit messages, the README
@@ -49,7 +57,7 @@ only `web/`. None of it depends on a phase below.
 
 - **Filter by class, and a minimum-walk floor.** The display floors fade tracts
   under a density or population threshold; the same mechanism should fade by
-  *class* — show only the worst two gap bands, or only tracts over N minutes'
+  *class* — show only the worst two score bands, or only tracts over N minutes'
   walk. `belowFloor()` is already an expression consumed by both
   `fillOpacity()` and `lineOpacity()`, so a minute floor is a third clause and
   a class filter is an `["in", ["get", "bi"], …]` test; the permalink gains one
@@ -69,9 +77,16 @@ only `web/`. None of it depends on a phase below.
 - **Narrow the legend to the matrix.** `#legend` is 310 px wide for a bivariate
   grid that is 108 px. The panel is sized by its *labels*, not its swatches, so
   this is not purely cosmetic: narrowing it forces the three-class ramp rows and
-  the seven gap rows to wrap or abbreviate. Measure the widest label in each of
-  `renderLegend()`'s cases first, then pick the width — and check the gap
-  legend, which has the most rows and the longest numbers.
+  the seven score rows to wrap or abbreviate. Measure the widest label in each
+  of `renderLegend()`'s cases first, then pick the width — and check the
+  under-service legend, which has the most rows and now the longest labels,
+  since the bands are numbers in person-minutes rather than percentiles.
+- **The title card is getting long.** It now carries the hero number, six stat
+  rows, the straight-line benchmark, the commuter-rail fare note and the
+  external-validity paragraph. Each earned its place individually and the
+  result is a wall. This is the strongest argument for the collapsible panels
+  above, and it suggests the caveats want to be a `<details>` of their own
+  rather than three paragraphs in a row.
 
 ## Publishing the map
 
@@ -116,310 +131,93 @@ question is already answered and the real question is the build.
   keyless is not the same as unlimited. If the map ever gets real traffic this
   is the first thing that breaks.
 
-## Proposal — what the gap score should measure
+## What phases 2 and 3 left behind
 
-**Proposed 2026-10-10. Not implemented; no code has moved.** The walk-access
-gap layer shipped with `score = rank(density)^w × rank(walk)^(1−w)`. Hovering
-Mariner's Harbor is what exposed a defect in it, and measuring the obvious fix
-turned up a second one.
-
-### The defect
-
-Percentile rank destroys the walk-time tail, which is the only part of the walk
-number carrying information:
-
-| actual walk | percentile rank |
-|---|---|
-| 8.4 min (city median) | 0.50 |
-| 12.9 min | 0.69 |
-| 25 min | 0.89 |
-| 88.8 min | 0.995 |
-| 127.5 min | 1.000 |
-
-Ten times the walk is 1.4 times the rank. Past ~25 minutes every tract is
-effectively tied, so the top of the ramp is decided by density alone. The
-symptom: Upper East Side–Yorkville, 110,790 people/km² and a **12.9-minute**
-walk, paints in the worst band, while Mariner's Harbor at 10,145 people/km²
-and a **104-minute** walk sits at the 67th percentile.
-
-Rank was the right medicine for density, which spans 279 to 110,790 and would
-bulldoze minutes in any sum. It was then prescribed to walk time out of
-symmetry, and walk time did not need it.
-
-### What does not fix it
-
-**Capping walk time on a minute scale is a near-no-op.** Replacing the walk
-rank with `min(walk, 30) / 30` leaves the ordering 0.938 Spearman-correlated
-with the shipped score. Measured 2026-10-10 over all 2,243 scored tracts.
-
-**No choice of cap fixes Yorkville.** Its density rank is exactly 1.000 — it is
-the densest tract in the city — so at w=0.5 the score is √(walk term), and no
-walk scale makes the square root of a number near 1 small. It holds the worst
-band at every cap tested from 15 to 127 minutes.
-
-**A lower cap makes the original complaint worse.** The cap is the point above
-which everything ties, and ties are then broken by density alone:
-
-| cap | tracts at the ceiling | Mariner's Harbor's worst tract |
-|---|---|---|
-| 15 min | 25.6% | 55th percentile |
-| 20 min | 17.1% | 70th |
-| 25 min | 11.2% | 81st |
-| 30 min | 7.4% | 88th |
-
-At a 20-minute cap a 104-minute walk scores identically to an 18-minute walk,
-and Belmont (49,459 people/km²) wins the tiebreak over Mariner's Harbor
-(10,145). "Nobody regularly walks 20 minutes to a train" is correct about
-behavior and wrong about where that number belongs in the formula.
-
-### Where the behavioral number does belong
-
-At a floor, not a ceiling: inside roughly ten minutes there is no gap to
-measure. El-Geneidy et al. measured 16,014 home-based transit trips in
-Montreal along the street network — median walk 294 m, 75th percentile 525 m,
-85th percentile 678 m; by mode the 85th percentile is 524 m for bus, **873 m
-for metro** and over 1,250 m for commuter rail
-([paper](https://www.tram.mcgill.ca/Research/Publications/Transit_service_area.pdf)).
-At this project's 1.35 m/s that is 10.8 minutes to a subway and 15.4 to
-commuter rail. The half-mile rail standard, 800 m, is 9.9 minutes — the same
-number arrived at from planning convention rather than observation.
-Corroborating: Calgary LRT mean 649 m with the 75th percentile at 840 m; a
-second operator in the same review, mean 805 m to rail and 75th at 1,018 m; a
-recent light-rail study, mean 968 m and 75th at 1,167 m.
-
-Caveat worth keeping next to the number: those are *riders'* revealed walks,
-conditional on having chosen the train. This project measures the median
-network distance from a grid over a tract to the nearest station whether anyone
-there rides or not. The ten-minute anchor is a planning standard that observed
-behavior happens to agree with, not a like-for-like comparison.
-
-### The proposal
-
-```
-excess = population × max(walk_min − 10, 0)   # person-minutes, one-way
-```
-
-Real units, one research-anchored constant, nothing normalized and nothing
-weighted. Measured on the shipped data:
-
-- The worst tracts are four of Mariner's Harbor's, plus New Springville and
-  Westerleigh — 415,000 to 568,000 excess person-minutes each.
-- Yorkville falls to band 3 of 6. The worst band holds 69 Queens tracts, 56
-  Staten Island, 14 Bronx and 14 Brooklyn — and no Manhattan tract at all.
-- Citywide: **39.1 million excess person-minutes per one-way trip**, and
-  **3.02 million New Yorkers** beyond the ten-minute standard. The project
-  publishes no headline number of this kind today.
-- Spearman correlation with the shipped score: **0.145**. This is a different
-  map, not a retuning — which is the point, and also the risk.
-- **It is the only version that survives an external check.** Against the eight
-  corridors agencies have actually proposed, the shipped score's worst 25
-  tracts hit 24% — the 26% baseline a random pick would get — while this
-  measure hits 80%. See *Validating against official plans* in Phase 8; that
-  test is now the strongest argument on this page for making the change.
-
-### What it costs
-
-- **59.2% of tracts score exactly zero**, being inside the standard. Quantile
-  bands cannot split a tie, so three of the seven colors come out empty. The
-  fix is structural, not cosmetic: band 0 becomes "within the ten-minute
-  standard" and the other six are quantiles of the 915 tracts that are not,
-  which comes out at 1,328 / 152 / 153 / 152 / 153 / 152 / 153. Most of the map
-  then paints the palest step — the honest picture, and a visibly emptier one
-  than today's.
-- **The weight slider loses its meaning.** There are no longer two normalized
-  halves to trade off. It shipped three commits ago and would be retired, along
-  with the `w=` permalink key; unknown keys are ignored, so existing links
-  degrade quietly rather than breaking.
-- **Density leaves the formula, replaced by population.** For "how many people
-  does this happen to", population is the honest term. Tract populations run
-  1,687 to 6,444 across the middle 80%, so it still does real work rather than
-  acting as a constant.
-- **It moves closer to the plain walk-time layer** that already ships: ρ = 0.77
-  against raw walk time, with 28 of the worst 40 tracts shared. Today's score
-  is more independent of that layer, and this is the strongest argument against
-  the change.
-- **Design principle 2 would need amending** to "percentile-rank the skewed
-  metric; keep a meaningful one in its own units." The principle is
-  load-bearing for Phase 3, where most candidate terms (income, zero-car
-  households) genuinely are skewed and genuinely do want ranking. The amendment
-  is narrow: a metric whose units mean something to a reader, and whose tail is
-  the finding, should not be ranked.
-
-### What would change the recommendation
-
-- **Phase 2 changes the shape of the question.** Once a wait penalty exists the
-  deficit side stops being one number, and a product of ranks may be the right
-  container for three or four deficit terms even though it is wrong for one.
-  This proposal is for the single-term case; Phase 3 should revisit it, not
-  inherit it.
-- **The floor may want to be per-mode.** Ten minutes is the subway figure;
-  commuter rail's 85th percentile is 15.4. The nearest station's mode is
-  already in the payload as `smode`, so a per-mode floor costs nothing but a
-  decision about whether a $10 peak LIRR ticket should get a more generous
-  standard than a subway swipe.
-- **This reintroduces the failure mode Phase 3 warns about, in miniature.**
-  Population is not normalized, so a small population times a huge excess can
-  outscore a crowd with a modest one: the Arlington marshland tract — 1,078
-  people, a 127.5-minute walk — scores 126,665 and lands in the **worst band**,
-  where today's product of ranks correctly buries it at the 3rd percentile.
-  That is the "empty land with terrible access" result the Phase 3 notes argue
-  against. Measured containment: only **3 of the 153 worst-band tracts have
-  fewer than 2,000 people**, so it is three bad pixels rather than a pervasive
-  bias, and the shipped population floor fades them on demand. Deciding whether
-  the floor should instead be *inside* the score is part of accepting this
-  proposal, not a detail after it.
-
-## Phase 2 — service quality from GTFS
-
-The highest value per unit of effort in the whole roadmap, and it needs no
-routing engine — just a join and a group-by.
-
-- **Trains per hour per station.** `gtfs_subway.zip` is 5.6 MB and the station
-  table already carries `gtfs_stop_id`, so this is a key join, not fuzzy name
-  matching. From `stop_times` × `trips` × `calendar`, count scheduled trips in a
-  window and attach to each station:
-  - weekday AM peak (8–9am) — the headline number
-  - midday, evening, Saturday
-  - **3am** — the subway runs 24/7 but service collapses overnight and most
-    buses stop entirely. A night-service map is genuinely under-reported and
-    costs nothing extra once the loader exists.
-- **Span of service.** First and last train, per station, per day type. A stop
-  with no service after 11pm is a different kind of under-served.
-- **Weight the station set by frequency.** This is the conceptual change: the
-  Dijkstra pass in `pipeline/distance.py` currently treats all 557 stations as
-  equal sources. Add a frequency-derived wait penalty to each station's virtual
-  source cost (`headway / 2` is the standard expected-wait approximation for
-  turn-up-and-go service, capped for long headways where people time their
-  arrival). The existing architecture already supports this — it is exactly what
-  the snap-offset weighting does — so the change is a few lines plus the GTFS
-  loader.
-- **Rename the gap layer here, and not before.** "Walk-access gap" is the
-  honest name while service quality is missing from it; a frequency-weighted
-  station set is what earns the word *under-served*. The rename is the last
-  step of this phase, not the first.
-- **Commuter rail honestly.** LIRR (1.8 MB) and MNR (4.4 MB) feeds. Many NYC
-  stations on these lines run hourly off-peak and cost a separate fare. The
-  frequency penalty handles the first; a fare flag should mark the second,
-  because counting a $10 peak LIRR ticket as equivalent to a subway swipe
-  overstates access in eastern Queens and the north Bronx substantially.
-
-### Buses
-
-Your instinct about a penalty is right, but bus *proximity* is the wrong metric.
-There are roughly 15,000 bus stops in the city — a bus-stop walkshed layer would
-cover nearly everything and tell you nothing. The informative versions:
-
-- **Frequent Transit Network layer.** Show only stops whose peak headway is ≤10
-  minutes. That map has real structure, and it is the standard planning
-  definition of useful service.
-- **Buses in the time-to-hub graph (Phase 4), with a penalty.** Slower, less
-  reliable, more exposed to traffic. Model it as a wait multiplier and a
-  schedule-adherence factor rather than a flat dislike term, and make the
-  multiplier a visible, documented parameter rather than a hidden constant.
-- Six bus feeds, ~62 MB total (`gtfs_b` 19.6 MB, `gtfs_bx` 9.6 MB, `gtfs_busco`
-  9.6 MB, `gtfs_m` 9.5 MB, `gtfs_si` 7.5 MB, `gtfs_q` 6.8 MB). Budget a cache
-  stage; the existing conditional-GET cache in `pipeline/fetch.py` handles it.
+Both phases shipped (`64ed3f7` through `d96e5fe`). Three things inside them did
+not, and they are here rather than deleted because each is a real piece of work
+with its findings already paid for.
 
 ### Ridership and crowding
 
-Worth doing — but **after** the frequency join above, and the reason is the
-whole insight. Crowding is a ratio, riders over seats. Ridership on its own is a
-popularity measure, and the places this map exists to find are unpopular by
-construction: a station with few riders is as likely to be badly served as to be
-unneeded. Once Phase 2 has trains per hour, the supply side exists and the ratio
-becomes computable:
+Still the right next thing on the service-quality axis, and now computable,
+because crowding is a ratio and the frequency work built the denominator:
 
 ```
 pressure = riders per hour / (trains per hour × capacity per train)
 ```
 
-- **The data.** Hourly ridership by station (`wujg-7c2s` through 2024,
-  `5wq4-mkjj` for 2025 onward) is large but aggregates cleanly to
-  station × hour × day type, and it joins on `gtfs_stop_id` like everything else.
-- **Honest limit, stated up front.** These are *fare transactions at a station*,
-  not passengers on a train. They miss transfers made inside the fare gates,
-  they say nothing about direction, and a packed train passing through a quiet
-  station is invisible to them. A station-level pressure index is defensible;
-  "the 4 train is at 112% of capacity through Grand Central" is not, from this
-  dataset.
-- **Where it changes the answer.** A tract whose only option is a station
-  already running at the edge of its scheduled capacity is worse off than its
-  walk time suggests, because the next increment of service there is harder to
-  deliver. That is a distinct condition from "far from a station" and belongs as
-  its own deficit term in Phase 3 rather than folded into frequency.
-- **Free side benefit:** ridership is the sanity check on Phase 4's hub list. If
-  a chosen hub is not among the busiest stations in the city, it is the wrong
-  hub.
+Ridership on its own is a popularity measure, and the places this map exists to
+find are unpopular by construction — a station with few riders is as likely to
+be badly served as to be unneeded. With trains per hour in hand the supply side
+exists and the ratio means something.
 
-## Phase 3 — the under-service score
+**Three things measured 2026-10-10 that change the shape of this job**, all of
+which the earlier version of this section had wrong:
 
-With Phase 2 done there is something worth scoring.
+- **It cannot be downloaded.** `wujg-7c2s` (through 2024) holds **120,855,567
+  rows** and `5wq4-mkjj` (2025 onward) another **45,962,558** — one row per
+  station × hour × payment method × fare class. This has to be a server-side
+  SoQL aggregation (`$select=station_complex_id,sum(ridership)&$group=…`), not a
+  fetch-then-group. The existing conditional-GET cache in `fetch.py` does not
+  help with a query that has no file behind it.
+- **The join key is not `gtfs_stop_id`.** It is `station_complex_id`, which
+  joins to the station table's `complex_id`, not to the per-station key
+  everything else in the pipeline uses. Times Square alone is four parent
+  stations with separate frequencies (34.0, 35.0, 28.5 and 18.0 trains/hour at
+  the AM peak), so complex-level ridership over station-level service needs an
+  explicit rule — summing the complex's stations is the defensible one, and it
+  should be written down rather than assumed.
+- **Capacity per train is in none of the data.** Not in GTFS, not in the
+  ridership feed. It needs car counts and car lengths per route — IRT cars are
+  51 ft and BMT/IND cars 60–75 ft — which means a documented constant per
+  division and an honest error bar, or a pressure index expressed in
+  riders-per-train rather than percent-of-capacity. The second is weaker and
+  defensible from the data alone; the first is what people want and is partly
+  an assumption.
 
-```
-need      = rank(density) ⊕ rank(zero-car households) ⊕ rank(poverty) ...
-deficit   = rank(walk time) ⊕ rank(wait penalty) ⊕ rank(time to hub) ...
-score     = need × deficit          (or w·need + (1−w)·deficit)
-```
+The honest limit stated up front, unchanged: these are *fare transactions at a
+station*, not passengers on a train. They miss transfers inside the fare gates,
+say nothing about direction, and a packed train passing through a quiet station
+is invisible to them. A station-level pressure index is defensible; "the 4 train
+is at 112% of capacity through Grand Central" is not, from this dataset.
 
-Design notes that matter more than the formula:
+Where it changes the answer: a tract whose only option is a station already at
+the edge of its scheduled capacity is worse off than its walk time suggests,
+because the next increment of service there is harder to deliver. That is a
+distinct condition from "far from a station" and belongs as its own deficit
+term, not folded into frequency. Free side benefit: ridership is the sanity
+check on Phase 4's hub list — if a chosen hub is not among the busiest stations
+in the city, it is the wrong hub.
 
-- **Multiplicative beats additive** for this question. A sum gives a high score
-  to empty land with terrible access; a product requires *both* need and
-  deficit to be present, which is what "under-served" means. Offer both, default
-  to the product.
-- **Weights live in the UI.** Sliders, recomputed client-side, with the top-20
-  table re-ranking live and the weights in the permalink. This turns the map from
-  an assertion into an instrument — anyone who disagrees with the weighting can
-  move it and see. *Half-shipped:* one weight, in the paint expression and the
-  permalink. What is missing is the table re-ranking with it — and until that
-  lands **the map and the top-20 table disagree on purpose**. The table still
-  picks its rows the old way, top density tercile then the longest walks, and
-  **9 tracts score worse than the worst tract in it**, led by a Canarsie tract
-  at 21,783 people/km² with a 33.1-minute walk. Worth knowing before someone
-  quotes both.
-- **Show the decomposition.** The tooltip should say *why* a tract scores high
-  (e.g. "92nd percentile need, 88th percentile deficit; driven by wait time").
-  A score nobody can interrogate does not persuade anyone.
-- **Publish the sensitivity.** Which tracts stay in the worst 50 across a wide
-  range of weightings? Those are the robust findings; the rest are artifacts of
-  the weighting. This is the single most credibility-building thing in the
-  roadmap.
+### The spatial statistic, after the component count
 
-### Contiguity: a line serves a corridor, not a tract
+Cluster size and cluster population now ship, and that was the cheap 90%. A
+**Local Moran's I** cluster map (`libpysal` for the weights, `esda` for the
+statistic) is the formal way to say the same thing and distinguishes a real hot
+spot from a run of noise. It earns its place only now that the plain component
+count is on the page, and it is harder to explain, so it needs a reason beyond
+rigor. The reason to want it: the largest block is **430 tracts and 1.31M
+people**, which is so large it is arguably not a project unit but "the whole
+outer ring" — a statistic that can split that band into genuine hot spots would
+be saying something the component count cannot.
 
-Every version of the score in this file ranks tracts independently, and that is
-a genuine misfit with the decision it informs. A new line is justified by a
-*run* of under-served tracts along a plausible alignment. One bad tract ringed
-by good ones is a bus-stop problem, or a park, or a measurement artifact — and
-ranked independently the two are indistinguishable. Forty bad tracts in a row
-are a transit project; one is a complaint.
+### Cluster-level precision in the alignment test
 
-This needs no new data. Tract adjacency falls out of geometry already in
-`data/processed/`, and the DCP polygons are water-excluded, so tracts facing
-each other across the East River do not share a boundary — contiguity is
-already *land* contiguity, which is the right default for a walking measure.
-The only explicit decision is whether to add edges for the bridges.
+`verify.alignment()` compares a per-tract score against corridors that are runs
+of tracts, so a per-tract precision figure is measuring a point against a line.
+Precision at the **cluster** level is the fairer version, and probably a kinder
+one to every score in the table. The components exist now, so this is a group-by
+rather than new machinery. Worth doing before the 80% figure is quoted anywhere
+load-bearing.
 
-- **Report cluster size and cluster population beside the tract score.** The
-  honest headline is not "the worst tract" but "the largest contiguous block of
-  tracts above the standard, and how many people live in it". That second
-  number is the one an agency would recognize, and it is a connected-components
-  pass over the adjacency graph on a single boolean — cheap, and legible enough
-  to put in the tooltip.
-- **Then the spatial statistic, not before it.** A Local Moran's I cluster map
-  is the formal way to say the same thing (`libpysal` for the weights, `esda`
-  for the statistic) and distinguishes a real hot spot from a run of noise. It
-  is also harder to explain, so it earns its place only after the plain
-  component count is on the page.
-- **It changes the alignment test in Phase 8.** Those corridors are runs of
-  tracts, so a per-tract precision figure is comparing a point measure against
-  a line measure. Precision at the cluster level is the fairer version of that
-  test, and probably a kinder one to both scores.
-- **It is also the honest answer to the orbital problem.** The IBX corridor is
-  not a set of individually bad tracts — its median walk is the city median.
-  What makes it a project is that it is a *continuous band* of them with no
-  radial service. Phase 4 needs the travel-time graph to see that; contiguity
-  gets part of the way there with nothing new.
+### One thing deliberately not done
+
+The roadmap asked for both a multiplicative and an additive form of the score,
+defaulting to the product. Only the product shipped. The additive form is three
+lines, but it needs a row in the alignment table before it is offered, and a
+sum's known failure — giving a high score to empty land with terrible access —
+is the thing the product exists to prevent. If it is added, it is added with its
+measurement.
 
 ## Phase 4 — travel time to hubs
 
@@ -470,9 +268,10 @@ origins as *well served*, because each is a short ride from Midtown.
   the one a resident of Jamaica or Fordham actually has.
 - **Pick the hub list from data, not from feel.** Candidates: Downtown
   Brooklyn, Jamaica, Flushing, Long Island City, Fordham, St. George, 149th
-  St–Grand Concourse. Phase 2's ridership join is the arbiter — a proposed hub
-  that is not among the busiest stations in the city is the wrong hub, which is
-  the sanity check already noted there.
+  St–Grand Concourse. The ridership join is the arbiter — a proposed hub that
+  is not among the busiest stations in the city is the wrong hub — which makes
+  *Ridership and crowding* a dependency of this bullet rather than a parallel
+  nice-to-have.
 - **The layer that makes the radial bias visible is a ratio, not a time.**
   Transit time divided by the straight-line time at a reference speed — a
   *detour factor*. This project already has the pattern: `pipeline/verify.py`
@@ -516,11 +315,12 @@ users with opposite needs.
   residents, via NJ Transit plus its own AirTrain.
 - **The modeling is small and already designed for.** These are a handful of
   hand-coded edges on the Phase 4 transit graph — a headway and a fare on each
-  — plus a terminal node per airport. The fare premium reuses the flag Phase 2
-  already plans for LIRR; the 3am service window reuses the span-of-service
-  work there. **No GTFS feed for AirTrain JFK turned up in a search** and the
-  Port Authority's developer pages are unchecked, so assume hand-coding and
-  treat a feed as a bonus.
+  — plus a terminal node per airport. The fare premium reuses the commuter-rail
+  fare disclosure that now ships; the 3am service window reuses the
+  `tph_night` and `night_gap_hours` columns in `station_service.parquet`,
+  which already exist. **No GTFS feed for AirTrain JFK turned up in a search**
+  and the Port Authority's developer pages are unchecked, so assume
+  hand-coding and treat a feed as a bonus.
 - **The finding to look for:** the fare premium and the night gap, not the
   distance. A JFK worker living in Brooklyn pays twice and waits twice, and a
   3am shift may have no rail option at all — which is invisible to a map that
@@ -728,7 +528,8 @@ description, and the architecture makes it unusually cheap.
     poorly-served tracts the bivariate map lights up, so it is the strongest
     test case available: *does the IBX fix the Brooklyn–Queens gap this map
     shows?*
-  - **Second Avenue Subway** — Phase 2 (96th to 125th) is under construction;
+  - **Second Avenue Subway** — its own Phase 2 (96th to 125th) is under
+    construction;
     the full **T** south of 63rd through Lower Manhattan is unfunded but has a
     published alignment. Toggle the phases separately, because their benefits
     land in completely different places and bundling them hides that.
@@ -829,18 +630,20 @@ for: from "where is service missing" to "where could housing go".
   work against numbers they already trust.
 - **CSV / GeoJSON export** of the per-tract table, and a documented schema.
   `stats.json` already carries `schema`; surface it as a download.
-- **Crowding** has moved up to Phase 2 — see *Ridership and crowding* there. It
-  landed in this phase originally on the assumption that it was a nice-to-have;
-  it is really a service-quality measure, and it means very little until
-  scheduled service is in hand.
+- **Crowding** is no longer in this phase — see *Ridership and crowding* near
+  the top of this file. It landed here originally on the assumption that it was
+  a nice-to-have; it is really a service-quality measure, and it meant very
+  little until scheduled service was in hand. It is now, so it is next.
 
 ### Validating against official plans
 
 The map has no ground truth, and "does it look right" is not a standard. The
 closest available check is whether the tracts it calls worst are the ones
-transit agencies have already decided to spend money on. **Measured 2026-10-10,
-and the result is severe enough to be the main argument for the proposal
-above.**
+transit agencies have already decided to spend money on. **This now lives in
+`pipeline/verify.py` and gates the build**, which was the one item in this
+section that mattered most: without it a score change is unfalsifiable. What
+follows is the reasoning behind the test; the numbers it produces are in
+`stats.json` and on the page.
 
 **How the professionals decide.** Federal New Starts money is awarded against
 six statutory project-justification criteria — mobility improvements,
@@ -852,7 +655,11 @@ forecast *trips on the project*, which means a model, not a geography. The
 nearest thing to this map in the federal process is the land-use criterion, and
 the nearest thing in the MTA's own language is its Equity Areas, which it
 characterizes by **zero-vehicle households — 65% in Equity Areas against 29%
-elsewhere** — the variable Phase 5 already ranks first.
+elsewhere**. That variable now ships (`nveh`, from ACS B08201) and is
+weightable in the UI — and measured, weighting it *lowers* agreement with the
+agencies' own corridors, which is the most interesting negative result in this
+file. Being the operator's own equity definition and being a predictor of where
+the operator builds turn out to be different things.
 
 **The classic density test is non-binding in New York, and that matters.**
 Pushkarev and Zupan's thresholds are still the standard rule of thumb: roughly
@@ -864,7 +671,9 @@ density of 17,030. Even generous assumptions leave a 4× margin. The density
 axis therefore carries far less information here than it would anywhere else in
 the country: nearly every tract in the city is dense enough for rail, so
 density cannot be what separates them. A score that leans half its weight on
-density is spending that weight on a variable that has already saturated.
+density is spending that weight on a variable that has already saturated —
+which is exactly what the retired rank-product score did, and why it measured
+at the baseline.
 
 **The alignment test.** Tracts were matched by neighborhood name to eight
 corridors that agencies have actually proposed: Penn Station Access (four new
@@ -874,15 +683,33 @@ extension at East New York, QueensLink on the Rockaway Beach Branch, the
 Interborough Express, and the Red Hook extension. **580 of 2,243 tracts (26%)
 sit in one of them**, which is the baseline a useless score would hit.
 
+Ten candidate scores, re-measured 2026-10-11 with the test in `verify.py`:
+
 | | worst 25 | worst 50 | worst 100 |
 |---|---|---|---|
-| Shipped score (ranks, w=0.5) | 24% | 24% | 25% |
-| Proposed excess person-minutes | **80%** | **58%** | **43%** |
+| `pop × excess walk` — **shipped** | **80%** | 58% | 43% |
+| `need × excess walk` | 76% | **60%** | **48%** |
+| `pop × excess access` (counts the wait) | 76% | 52% | 41% |
+| `need × excess access` | 76% | 54% | 40% |
+| `pop × need × excess walk` | 72% | 56% | 42% |
+| `carfree hh × excess walk` | 56% | 50% | 47% |
+| `carfree hh × excess access` | 44% | 44% | 38% |
+| Rank product (retired) | 20% | 26% | 23% |
 | Baseline (random) | 26% | 26% | 26% |
 
-The shipped score scores **at the baseline at every depth**. Against the
-agencies' own revealed priorities it has no predictive value whatsoever. The
-proposed measure runs 3.1× the baseline at the top.
+The retired rank product scored **at or below the baseline at every depth**:
+against the agencies' own revealed priorities it had no predictive value
+whatsoever. The shipped measure runs 3.1× the baseline at the top, and
+`ALIGNMENT_MIN_PRECISION` fails the build below 40%.
+
+**`need × excess walk` leads at depth and did not ship.** It wins at worst-50
+and worst-100 while losing worst-25 by four points, and the tiebreaker was not
+alignment: a pure need index carries no population term, so it puts 27 of the
+worst 153 tracts under 2,000 people — the smallest with 43 residents — against
+3 for the shipped score. That is the empty-land failure mode, and preventing it
+mattered more than four points at one depth. It stays in the table as the
+strongest live alternative, and if cluster-level precision is ever measured it
+is the one most likely to overtake.
 
 **Where the disagreements are, and why.** The pattern is systematic rather than
 noisy, and it maps exactly onto the three axes of the reframe at the top of
@@ -890,23 +717,25 @@ this file:
 
 - **Agreement where the plan is about walk access.** Penn Station Access,
   SI North Shore, SI West Shore, Utica Avenue and QueensLink all score high,
-  and the proposed measure ranks all five at the 98th–100th percentile. Co-op
-  City is the single worst tract on the current map and officials called it a
-  transit desert at the Penn Access groundbreaking. SI West Shore is the
-  sharpest case: the shipped score puts it at the 76th percentile, the proposed
-  measure at the 100th.
+  and the shipped measure ranks all five at the 98th–100th percentile. Officials
+  called Co-op City a transit desert at the Penn Access groundbreaking. SI West
+  Shore is the sharpest case: the rank product put it at the 76th percentile,
+  this measure at the 100th. It is also where the robustness check lands — 12
+  tracts stay in the worst 50 under every score that clears the floor, and all
+  twelve are SI North and West Shore, inside one 105-tract contiguous block.
 - **Accidental agreement where the plan is about network shape.** The IBX
-  corridor scores 98th percentile on the shipped score — but its median walk is
+  corridor scored 98th percentile on the rank product — but its median walk is
   **8.4 minutes, exactly the city median**. The map is flagging it for density,
   not for the orbital gap that is IBX's entire justification. Same for the
   3-train extension (median walk 6.2 minutes) and Red Hook (8.3). These are
   capacity and connectivity projects, and this map cannot see either. They are
   the argument for *Secondary hubs, and the orbital problem* in Phase 4.
-- **False positives that are the defect in miniature.** The shipped score's
-  worst 25 includes Yorkville, Lenox Hill, East Village, Belmont, Corona,
+- **False positives that were the defect in miniature.** The rank product's
+  worst 25 included Yorkville, Lenox Hill, East Village, Belmont, Corona,
   Tremont, Claremont Village and Flushing — all 11–19-minute walks, none
-  proposed for new rail by anyone, because they already have it.
-- **False positives that are probably real findings.** The proposed measure's
+  proposed for new rail by anyone, because they already have it. All are gone
+  from the worst band now.
+- **False positives that are probably real findings.** The shipped measure's
   misses are Todt Hill, College Point and Throgs Neck–Schuylerville, at 50–64
   minutes' walk. No plan targets them. That is at least as likely to be a gap
   in the plans as a gap in the map, and it is the more interesting of the two
@@ -927,21 +756,29 @@ live in `pipeline/verify.py` so a score change cannot quietly lower it.
 things a planner weighs are absent here by construction, and each of them would
 move tracts:
 
-- **Buses.** Rail-only is a deliberate v1 scope, and on Staten Island, in
-  eastern Queens and in the east Bronx it is the difference between *no*
-  transit and *slow* transit. Phase 2 above.
+- **Buses.** Still absent from every distance and score calculation, which on
+  Staten Island, in eastern Queens and in the east Bronx is the difference
+  between *no* transit and *slow* transit. The frequent-bus layer now shows
+  *where* useful service exists — 2,368 of 12,942 stops hold a 10-minute
+  headway all day — so the omission is at least visible on the page. Putting
+  buses in the graph is Phase 4.
 - **Car ownership.** A 40-minute walk where 90% of households have a car is a
-  different finding from the same walk where 10% do. Phase 5 — and the MTA's own
-  Equity Areas definition says the same thing in its own words.
+  different finding from the same walk where 10% do. Now shipped and
+  weightable — and measured as making the alignment *worse*, which is the thing
+  about this list that should be least comfortable: the variable with the best
+  equity argument behind it is the one the agencies' revealed behavior agrees
+  with least.
 - **Whether a line is buildable at all.** Geology, right-of-way, yard capacity
   and where the tunnels would actually connect kill more real proposals than
   low need ever does. Phase 7 is the only part of this file that touches it.
 - **Cost.** Excluded for now on purpose, and that exclusion is exactly why this
   map can point at things no agency would fund. Phase 6 is about the rider's
   cost, not the builder's.
-- **Contiguity.** The one with no home anywhere in this file, and probably the
-  most consequential of the five: a line serves a *corridor*, not a tract. See
-  *Contiguity* in Phase 3.
+- **Contiguity.** Now measured, and it was as consequential as expected: the
+  largest contiguous block past the standard is 430 tracts and 1.31M people.
+  What remains is to measure *precision at the cluster level*, since corridors
+  are runs of tracts and the table above compares a point measure against a
+  line measure. See *What phases 2 and 3 left behind*.
 
 Four of the five are already scheduled, which is the reassuring reading of the
 alignment test: the measure is incomplete in ways this file has already named,
@@ -950,28 +787,35 @@ rather than wrong in ways it has not.
 
 ## Suggested order
 
-The scoring machinery, its decomposition in the tooltip and its weight in the
-permalink all exist, which is what makes Phase 3 *adding terms to a score that
-already works* rather than building one.
+The score exists, it is measured against something outside itself, and the
+measurement gates the build. That changes what "next" means: every item below
+can now be judged by whether it moves the alignment number, and two of them
+have already been measured as moving it the wrong way.
 
-One decision is open ahead of everything else: the gap score's definition,
-written up as a proposal above. It is cheap to act on and it changes which
-tracts the map calls worst, so settle it before the top-20 table is re-ranked
-to agree with the map. The alignment test in Phase 8 is what settles it: the
-shipped score cannot beat a random baseline against agencies' own revealed
-priorities, and the proposal beats it by 3.1×. **Move that test into
-`verify.py` either way** — it is the only external check this project has, and
-without it a future score change is unfalsifiable.
+**Step-free access is first** — the biggest finding available for the least new
+machinery, and the one axis of access cost that is still entirely unmeasured.
+The subway-entrance table is fetched and verified (2,120 rows, 116 step-free),
+the swap is a source-set filter on the Dijkstra, and the result needs no new
+model.
 
-Next is step-free access, the biggest finding available for the least new
-machinery. Then Phase 2 (GTFS frequency), because it is what makes a score mean
-anything. Then the score. Then time-to-hub, which is a project rather than a
-feature.
+**Then ridership and crowding**, because it is the last piece of the
+service-quality axis and because *Secondary hubs* in Phase 4 depends on it: a
+hub list picked by feel rather than by ridership is the wrong hub list. Read
+the three measured obstacles first — it is a server-side aggregation against
+167 million rows, it joins on `station_complex_id` rather than
+`gtfs_stop_id`, and train capacity is in none of the data.
 
-Secondary hubs and the detour factor sit inside Phase 4 rather than beside it:
-they need the transit graph, and they are the reason to build it with more than
-one destination in mind from the start. Airports are the cheapest thing in that
-phase and a good first test of its fare and night-service machinery.
+**Then cluster-level precision in the alignment test**, which is cheap now that
+the components exist and which should happen before the 80% figure is quoted
+anywhere load-bearing. A per-tract precision figure compares a point measure
+against a line measure, and the corridors are lines.
+
+**Then time to hubs**, which is a project rather than a feature. Secondary hubs
+and the detour factor sit inside Phase 4 rather than beside it: they need the
+transit graph, and they are the reason to build it with more than one
+destination in mind from the start. Airports are the cheapest thing in that
+phase and a good first test of its fare and night-service machinery — both of
+which now have shipped machinery to reuse rather than to build.
 
 Orthogonal to all of that, and pickable whenever: **publishing the map**, which
 needs no new data and currently blocks every other reader from seeing any of
@@ -986,12 +830,13 @@ and a speed, the data is verified, and the likely result — that bikes rescue
 the middle of the distribution and not the tail — is worth having before anyone
 proposes a bike lane as an answer to a transit desert.
 
-**Contiguity is the sleeper.** It is in Phase 3 because it is a property of the
-score, but it needs nothing from Phase 2 and nothing from the Census — only an
-adjacency graph built from polygons already on disk. It is also the cheapest
-thing on this page that changes what the map *says* rather than how it looks,
-because "the largest contiguous block above the standard, and its population"
-is a headline no version of the current score can produce.
+**Contiguity was the sleeper and it paid off.** It needed nothing but an
+adjacency graph over polygons already on disk, and it produced the one headline
+no per-tract score can: 430 contiguous tracts holding 1.31M people, Canarsie
+through Flatlands to St. Albans. The honest caveat is that a block that large
+is arguably not a project unit but "the whole outer ring", which is the
+argument for the spatial statistic — a Local Moran's I could split that band
+into genuine hot spots, where the component count cannot.
 
 Proposed-line toggles (IBX, the T) are the most tempting thing to pull forward,
 and they should not be. Their entire value is the before/after comparison, so
@@ -1001,9 +846,17 @@ shipping them early would produce confident answers from the weaker model.
 Deliberately *not* first: more color classes — settled 2026-10-10, a 4×4
 bivariate matrix measures 10.0 on its weakest pair against a 15.1 floor, and
 the resolution belongs on a one-axis ramp (now 7 steps) rather than in more
-cells; bus proximity, which would add 62 MB of data to draw a layer
-covering the whole city; and ridership, which means little before scheduled
-service exists.
+cells; and **anything that adds a term to the score without a row in the
+alignment table**. Two such terms have now been tried and both lowered it: the
+wait penalty, and the equity variables. Neither is a reason not to measure
+something — both are shipped and visible — but the score itself is now
+defended by a number, and a term that lowers that number needs an argument
+better than "it ought to matter".
+
+Bus *proximity* is also still off the list for the original reason — 15,000
+stops covering the whole city — but note that the objection was to the metric,
+not the data: the 62 MB is downloaded and parsed, and the selective version of
+the layer ships.
 
 ---
 
