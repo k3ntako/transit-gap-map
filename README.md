@@ -11,6 +11,13 @@ The point is the combination. A bivariate map shows where density is high but
 station access is poor, and the pipeline reports what share of New Yorkers live
 within a 5, 10 and 15-minute walk of a train.
 
+A station is an on-ramp, not a destination, so there is a third measure that
+can contradict the first two: **how many of the city's jobs each tract can
+reach in 45 minutes**, over a rail graph built from the schedules. The average
+New Yorker reaches **1.25M of 4.47M jobs** that way — 28%. Living near a
+train says nothing about whether the train goes anywhere, and these are the
+first numbers here that can disagree rather than merely refine.
+
 Stations counted: all **496 subway stations** (including the 21 Staten Island
 Railway stops), plus **LIRR and Metro-North** stations in or just beyond the
 city — 557 in total.
@@ -21,7 +28,8 @@ city — 557 in total.
 make setup                 # .venv on Python 3.14 + dependencies
 cp .env.example .env       # then paste a free Census key into it
 make all                   # fetch -> network -> service -> distance ->
-                           #   palette -> surface -> build -> verify
+                           #   transit -> access -> palette -> surface ->
+                           #   build -> verify
 make serve                 # http://localhost:8000
 ```
 
@@ -61,11 +69,13 @@ instead of being treated as sitting exactly on it.
 | 2 | `pipeline/network.py` | `.pbf` → cached undirected walking graph |
 | 3 | `pipeline/service.py` | GTFS → trains per hour per station, frequent bus stops |
 | 4 | `pipeline/distance.py` | Multi-source Dijkstra → walk and walk+wait per node |
+| 4b | `pipeline/transit.py` | Rail GTFS → a frequency graph, solved for every station pair |
+| 4c | `pipeline/accessibility.py` | Jobs reachable in 45 min, job centers, detour factor |
 | 5 | `pipeline/aggregate.py` | Node distances → per-tract statistics and the score |
 | 6 | `pipeline/palette.py` | Generate and audit the color system |
 | 7 | `pipeline/surface.py` | Walk-time raster + network walkshed polygons |
 | 8 | `pipeline/build.py` | Emit `web/data/` payloads |
-| — | `pipeline/verify.py` | Barrier test, spot checks, and the alignment gate |
+| — | `pipeline/verify.py` | Barrier test, trip probes, spot checks, and the alignment gate |
 
 Everything under `web/data/` is generated and gitignored, so a fresh clone must
 run `make all` before `make serve` — the map reports that explicitly rather than
@@ -179,11 +189,35 @@ Coney Island Creek            1894 m network   1152 m straight    1.64x
 Greenpoint is the clearest case: 895 m across Newtown Creek, but 1,771 m on
 foot, because the walk has to go around via the Pulaski Bridge.
 
+The rail graph gets the same treatment: known trips are checked as wide bands
+against what the published schedules do, and each band is set to fail a
+specific way of breaking the graph rather than to flatter it.
+
+```
+Bay Ridge-95 St -> Times Sq (R local)        50.1  PASS (35-65)
+Times Sq -> Grand Central (across complexes)  7.1  PASS (5-15)
+Jamaica -> Penn (LIRR)                       21.7  PASS (15-35)
+St George -> Atlantic Av                      inf  PASS (unreachable)
+```
+
+Times Square to Grand Central is the sharpest of them. The shuttle ride is
+three minutes; the other four are the declared walk across the complex plus
+the wait. A graph with free transfers reports three, so anything under five
+fails — and free transfers are the single most likely way to build this
+wrong. St George is asserted *unreachable* because the Staten Island Railway
+has no rail connection to the rest of the system and a ferry is not rail;
+adding a ferry edge later is supposed to fail this test and make someone
+decide, rather than quietly changing a number about 495,000 people.
+
 Also checked: stations measured from their own coordinates return ~0 (median
 22 m, confirming the virtual-source wiring); dense core tracts come back under
 5 minutes; known thin-coverage areas (Breezy Point, Charleston, Bergen Beach,
-Country Club) come back far; the population join is complete; and the payload
-budgets hold.
+Country Club) come back far; the population join is complete; 89% of station
+pairs are reachable, which a graph that lost its transfer edges would fail;
+and the payload budgets hold. `make verify` also prints the 30 cross-feed
+interchanges inferred by proximity — the one part of the transfer model that
+is a radius rather than a declaration, so the one part that has to be read by
+a person.
 
 The headline number is cross-checked against **its own straight-line
 equivalent** rather than an external figure. Published "share within a half

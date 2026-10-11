@@ -17,8 +17,11 @@ check whether an idea is already there (often with an argument against it).
 
 ```bash
 make setup        # .venv (Python 3.14) + requirements; then cp .env.example .env
-make all          # fetch -> network -> service -> distance -> palette -> surface -> build -> verify
+make all          # fetch -> network -> service -> distance -> transit -> access
+                  #   -> palette -> surface -> build -> verify
 make serve        # static server on :8000 (PORT=xxxx to change)
+make transit      # rail-only transit graph: station-to-station travel time
+make access       # jobs reachable in 45 min, job centers, detour factor
 make verify       # the correctness gate
 make clean        # wipe data/processed and web/data
 ```
@@ -40,11 +43,20 @@ Type checking (pyright is **not** installed in the venv; use npx):
 npx -y pyright
 ```
 
-**Baseline is 38 errors, 0 warnings.** All 38 are third-party stub gaps, not
+**Baseline is 34 errors, 0 warnings.** All 34 are third-party stub gaps, not
 defects — pyrosm typed as returning `Optional`, `scipy.spatial.cKDTree` absent
 from the stubs, shapely's `BaseGeometry.geoms`, `Series.map` with a dict. Treat
-39 as a regression; they want casts, not fixes. `pyrightconfig.json` also has
-the unused-code rules turned on, but note the limit: pyright only reports unused
+35 as a regression; they want casts, not fixes. It was 38 until Phase 4, and
+the move is inference noise rather than a fix: merging the accessibility table
+into `df` in `aggregate.run` changed what pyright infers for it and six of
+that file's errors went away, while two new `cKDTree` imports arrived. The
+patterns that keep new code off the list are in `pipeline/transit.py` — wrap
+a `pd.to_numeric` result in `np.asarray`, write `.map(lambda k: d.get(k))`
+rather than `.map(d)`, and construct a `pd.DataFrame(...)` around a
+`groupby().agg()` whose return the stubs type as `NDFrame`.
+
+`pyrightconfig.json` also has the unused-code rules turned on, but note the
+limit: pyright only reports unused
 *locals* and *private* module symbols, never a public module-level function, so
 it is a sufficient signal for dead code and not a necessary one.
 
@@ -64,11 +76,15 @@ downstream of the expensive parse.
 | 5 | `aggregate.py` | `tract_stats.parquet` — per-geography statistics |
 | 6 | `palette.py` | `web/data/palette.json` |
 | 7 | `surface.py` | walk-time raster PNGs + `walksheds.geojson` |
-| 8 | `build.py` | `tracts.geojson`, `stations.geojson`, `bus_ftn.geojson`, `stats.json` |
-| — | `verify.py` | nothing; checks stage 4 |
+| 4b | `transit.py` | `rail_station_time.npz` + `transit_graph.parquet` — a rail-only transit graph, solved for every station pair |
+| 4c | `accessibility.py` | `tract_accessibility.parquet` + `tract_transit_time.npz` — jobs reachable, hub times, detour factor |
+| 8 | `build.py` | `tracts.geojson`, `stations.geojson`, `bus_ftn.geojson`, `hubs.json`, `stats.json` |
+| — | `verify.py` | nothing; checks stages 4 and 4b |
 
 Stage 3 depends only on stage 1, not on the walk graph, so it can be re-run
-without touching the expensive parse.
+without touching the expensive parse. **Stage 4b is the same** — it reads the
+three rail GTFS feeds and nothing else — while 4c is the one place the walk
+graph and the rail graph meet.
 
 `config.py` is the single source of truth for every path, CRS, threshold, URL
 and tunable. Nothing else should hardcode any of those. `ROOT` is derived from
@@ -137,7 +153,15 @@ numbers. Every meter-valued tunable is named `*_METERS`, spelled out, because
 
 **`palette.py` is the only place colors are defined.** Both the raster in stage 7
 and the browser read `palette.json`, so there is exactly one definition of every
-color. The bivariate matrix is an **OKLCH field** (`FIELD` + `bivariate_field()`),
+color. The two Phase 4 choropleths stay inside that system rather than beside
+it: `app.js:seqRamp()` samples seven steps out of the same 13-step audited
+`ramps.density` and `ramps.walk`, reversed in dark mode, which is exactly what
+`density_classes_dark` is against `density_classes`. The detour factor has
+**no layer**, deliberately — measured, the middle 80% of tracts run 0.79 to
+1.26, so a choropleth of it is close to one color. It ships in the tooltip,
+and a diverging ramp for it would need new steps through `audit()`'s gates.
+
+The bivariate matrix is an **OKLCH field** (`FIELD` + `bivariate_field()`),
 not a four-corner bilinear blend — that was tried and provably cannot put the
 chroma on the finding. `audit()` enforces perceptual-separation `GATES` grouped
 by the reader's task (populated cells held to ΔE 15, the sparse row to 8); it
@@ -145,8 +169,11 @@ raises rather than warns. Load the **dataviz skill** before touching any of this
 
 **The web map is static and dumb on purpose.** `web/` is three source files —
 `index.html`, `app.js`, `style.css` — reading the payloads in `web/data/`
-(`tracts`, `stations` and `walksheds` GeoJSON, `stats.json`, `palette.json`,
-`walk_surface.json` and one of the two surface PNGs). `web/data/` is gitignored
+(`tracts`, `stations`, `bus_ftn` and `walksheds` GeoJSON, `stats.json`,
+`palette.json`, `hubs.json`, `walk_surface.json` and one of the two surface
+PNGs). `hubs.json` is fetched with a `.catch(() => null)`: it is 34 KB only
+the hub switcher reads, and a build from before Phase 4 has no such file, so a
+rejection must not take the map down with it. `web/data/` is gitignored
 and entirely generated, so a fresh clone must `make all` before `make serve`.
 Anything a user might want to re-weight should recompute in the browser from
 per-tract fields rather than round-tripping through the pipeline.
@@ -165,6 +192,74 @@ already holds: `needExpr()` is `needBlend()` written as an expression, and the
 two were checked to agree to 0.0 on every tract at five weights before shipping.
 The freeze turns a repeat of this into an immediate throw.
 
+**The transit graph's node is a leg, not a station and not a route, and the
+reason is where the wait comes from.** `transit.py` builds a rail-only
+frequency graph. One node per *station* lets a shortest path change vehicles
+at no cost, so transfers become free and the graph claims a connectivity the
+city does not have — the opposite of what this measures. One node per
+`(station, route, direction)` fixes that and introduces a different error:
+`headway / 2` is the headway of the service a rider waits for, and taken per
+route it is wrong wherever several routes at one station go to the same place
+next. Metro-North runs two inbound trains an hour on the Harlem line at
+Fordham and two on the New Haven line, both to Grand Central; charging each a
+15-minute wait tells a Grand Central-bound rider to wait twice as long as they
+do. Measured: the per-route rule overstates 856 subway and 118 commuter-rail
+waits, by up to 14 minutes at Jamaica. Taken per *station* it is wrong the
+other way — at Union Square it would hand an L-train rider the combined
+headway of eight routes — and a transitive "shares any next stop" grouping
+collapses Jamaica's wait to 0.8 minutes, which is absurd.
+
+So the node is `(route, direction, from, to)`: one per leg. The wait charged
+is the combined headway of **every service making the same next stop**, which
+is the Chriqui-Robillard common-lines result applied one hop at a time, and
+staying on the train is a zero-wait edge to the next leg of the same route.
+Two details are load-bearing. A leg may only be *boarded* if it runs in the
+window, even though the wait it pays is its whole group's — otherwise a 6am
+express inherits the 8am local's wait and gets ridden the length of its own
+pattern. And arrival and departure are separate station nodes, with the
+in-station change time on the edge between them, so only a rider who actually
+transfers pays it; the same declared time also sits on a departure-to-departure
+edge, because without it a rider standing on the Times Square 1/2/3 platform
+who wants the Grand Central shuttle gets routed onto a train, around and back.
+Median wait comes out at 3.0 minutes against 3.8 per route alone.
+
+The residual bias is stated rather than fixed: a rider who would accept either
+the local or the express still pays the wait for whichever group they board,
+because resolving that needs hyperpath routing rather than a shortest path.
+Fordham to Grand Central therefore reads 37 minutes against a real expected
+~27. It biases toward *overstating* under-service on commuter rail, which is
+the direction this project has to be most suspicious of.
+
+**Buses are in neither the transit graph nor the score, and that is an
+epistemic decision, not a data one.** Bus service is what the city provides
+*instead of* rail in precisely the places this map exists to find, so letting
+a bus close the gap would hide the finding by construction. The
+frequent-bus-network layer keeps the job of showing what runs today, drawn on
+top of the score rather than netted off it. The consequence to own is that
+Staten Island reads as reaching 18,000 of the city's 4.47M jobs, because the
+Staten Island Railway has no rail connection to the rest of the system and the
+ferry is not rail. `verify.py` *asserts* that pair is unreachable, so adding a
+ferry edge later fails the test and makes someone decide.
+
+**The accessibility measure has one budget, and the first version had two.**
+`C.JOBS_BUDGET_MINUTES` is 45 minutes door to door. An early pass also capped
+the access walk at 15 minutes, which told 625 tracts — 27% of the city, and
+exactly the under-served ones — that they had no rail access at all. That is
+a truncation manufacturing the project's own thesis. The cap was also
+unnecessary: a 40-minute walk leaves five minutes of riding and reaches almost
+nothing, so long access walks drop out on their own. Walking the whole way
+stays a competing option, because a Financial District tract can walk to
+several hundred thousand jobs without touching a train.
+
+Access and egress both read the same `W[station, tract]` matrix — the walk
+graph is undirected, so one bounded pass per station serves both ends, and the
+measure on the two ends of a trip is identical. It is a per-tract median over
+the same 25 m sample grid everything else uses, which makes it
+`min_station(median_sample)` where stage 4 publishes
+`median_sample(min_station)`. Those are not the same number; measured, the
+difference is +0.25 min at the median and within 2 minutes for 96.6% of
+tracts, and it leans conservative.
+
 **Payload budgets are asserted, not advisory, and they are measured gzipped.**
 `BUDGET_TRACTS_WIRE_KB = 350` raises a `SystemExit` in `build.py` and
 `BUDGET_WALKSHEDS_WIRE_KB = 150` does the same in `surface.py`, both against
@@ -173,8 +268,20 @@ printed and ignored because the wire size is what a reader downloads, not
 because the two diverge: measured at 24.4 KB raw and 5.1 KB gzipped per new
 numeric field, they move together at a constant ~5×. (An earlier comment
 claimed 0.3 KB gzipped; that was a measurement error, corrected in
-`config.py`.) Headroom is finite — 305 KB against 350 is about nine more
-fields. **A new float field must join the rounding tuple in `build.py`**:
+`config.py`.)
+
+Headroom is finite, and Phase 4 spent most of it: **343 KB against 350**, or
+about one more field. Phase 4's three fields cost 51 KB in this file against
+19 KB measured standalone, which is the interleaving tax made concrete — a
+column costs roughly **2.5x more as a per-feature property than as a
+contiguous array**, because gzip's window cannot span 2,325 features. That is
+the lever for the next field: `hubs.json` carries eight hub columns as
+parallel arrays aligned to an explicit `geoids` list for 34 KB, where the same
+numbers interleaved would have been about 100. `app.js:attachHubs()` joins
+them onto the features **before** `addSource`, which is mandatory and not
+stylistic (see the black-map note below).
+
+**A new float field must join the rounding tuple in `build.py`**:
 unrounded float64 costs 15 KB gzipped instead of 5, and four such fields ate
 most of the budget in one commit. The surface PNG budget stays raw and warns
 rather than raising, because a PNG is already compressed. Raising a budget is a
@@ -215,6 +322,31 @@ load-bearing, so don't "improve" the score past them without re-running it:
   56%). They ship and are weightable in the UI because the MTA defines its own
   Equity Areas by exactly the zero-vehicle variable, but the default weight is
   zero and the measurement is why.
+- **Phase 4 lowers it further, and the prediction was on record in
+  `ROADMAP.md` before anything was computed.** Jobs accessibility and the
+  detour factor both come in at or *below* the 26% baseline: `pop x jobs out
+  of reach` 16%, `pop x detour` 4%, against 80% for the shipped score. Hub
+  minutes do better — `pop x excess hub min` 56% — but still lose.
+  **The mechanism is diagnosable and is the useful part:** alignment tracks
+  each factor's dynamic range exactly, and monotonically. Coefficient of
+  variation, with the Spearman correlation between `pop x factor` and `pop`
+  alone:
+
+  | factor | CoV | rho vs pop | worst-25 |
+  |---|---|---|---|
+  | excess walk min (shipped) | 2.24 | -0.15 | 80% |
+  | excess hub min | 1.34 | -0.05 | 56% |
+  | hub minutes | 0.50 | 0.61 | 48% |
+  | jobs out of reach | 0.33 | 0.71 | 16% |
+  | detour factor | 0.18 | 0.88 | 4% |
+
+  A narrow-range factor multiplied by population *is* a population ranking,
+  and the city's most populous tracts are its well-served cores, which no
+  agency is proposing to serve again. So the shipped score keeps working
+  because excess walk minutes span 0 to 100+, not because walking matters
+  more than travel time. The detour factor at CoV 0.18 is near-constant
+  citywide, which is itself the answer to the question the layer was built to
+  ask — see the pre-registered ring test in `ROADMAP.md`.
 
 `SHIPPED_SCORE` in `verify.py` names the candidate that `aggregate.add_score`
 implements; if one changes without the other the gate silently measures the

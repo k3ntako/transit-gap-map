@@ -257,9 +257,12 @@ Where it changes the answer: a tract whose only option is a station already at
 the edge of its scheduled capacity is worse off than its walk time suggests,
 because the next increment of service there is harder to deliver. That is a
 distinct condition from "far from a station" and belongs as its own deficit
-term, not folded into frequency. Free side benefit: ridership is the sanity
-check on Phase 4's hub list — if a chosen hub is not among the busiest stations
-in the city, it is the wrong hub.
+term, not folded into frequency. **The free side benefit this used to claim is
+withdrawn:** it said ridership was the sanity check on the hub list, and that
+rule was tested on 2026-10-11 and failed on its own candidates — it is
+circular, because the subway is radial, so its busiest stations are the radial
+ones. Phase 4 picks hubs by jobs instead. Ridership's remaining jobs are the
+crowding numerator and a check that a jobs-derived hub is reachable today.
 
 ### The spatial statistic, after the component count
 
@@ -291,268 +294,116 @@ sum's known failure — giving a high score to empty land with terrible access �
 is the thing the product exists to prevent. If it is added, it is added with its
 measurement.
 
-## Phase 4 — travel time to hubs
+## What Phase 4 left behind
 
-The item that most changes the answer, and the most work. Distance to the nearest
-station treats a station as a destination; it is really an on-ramp. Eastern Queens
-is a short walk from an LIRR stop that costs $10 and runs hourly; Bay Ridge is a
-short walk from the R, which is a 50-minute local ride to Midtown. Only
-time-to-somewhere separates those.
+**Phase 4 shipped.** `pipeline/transit.py` builds a rail-only frequency graph
+— 733 stations, 3,165 legs, 4,631 nodes, solved for every station pair in
+183 ms — and `pipeline/accessibility.py` turns it into jobs reachable in 45
+minutes, minutes to eight job centers, and the detour factor, in 30 seconds
+for the whole city. The design reasoning now lives in `CLAUDE.md`, which is
+where the things worth not rediscovering go; what is here is the part a plan
+of record owes: the pre-registered test's result, and the work the phase
+revealed rather than finished.
 
-**Approach — a frequency-based static transit graph over rail only, not a full
-RAPTOR.**
+### The pre-registered ring test: outcome 3, with a bonus
 
-**Decided 2026-10-11: buses are in neither the graph nor the score.** The
-reasoning is about what the map claims, not about what data is available. A
-tract with a case for rail does not lose it because a bus already runs there —
-bus service is what the city provides *instead of* rail in precisely the places
-this map exists to find, so letting it close the gap would hide the finding by
-construction. And this map does not have the final say on anything: it is one
-way to see where new service would be defensible and plausible, and the
-decision belongs to people with more than two variables. Buses keep the role
-they already have — the frequent-bus-network layer ships and draws *on top of*
-the score, so a reader sees what runs today beside what is missing. That is the
-honest form of the same information: context, not a credit against the score.
+This file committed to three outcomes before the detour factor was computed,
+specifically so the answer could not be chosen after the fact. The result:
 
-The consequence to own is that Staten Island and eastern Queens will read as
-deeply under-served, because in rail terms they are. Under the framing above
-that is the result rather than an artifact — but it is the reason the bus layer
-belongs on by default wherever the score is shown, and the reason the
-methodology has to say "rail" in every sentence where it would be tempting to
-say "transit".
+**Outcome 3 — no ring. The detour factor is close to flat.** Its coefficient
+of variation is **0.18**; the middle 80% of tracts run 0.79 to 1.26 against a
+full range of 0.61 to 2.09, and the borough medians are 0.76 (Manhattan),
+0.99 (Brooklyn), 1.03 (Bronx and Queens), 1.17 (Staten Island). Outside
+Manhattan there is barely a gradient. The worst decile is 225 tracts in 24
+contiguous blocks, the largest holding 56 of them — 25%, not a band.
 
-**Rail-only is also an order of magnitude smaller. Sized 2026-10-11 against the
-feeds on disk, one weekday:**
+So the orbital problem is **a network property rather than a corridor**:
+radial routing taxes lateral trips across the whole city at about the same
+rate. That argues against any single new line as *the* fix, which is the
+paragraph this file promised to write if the measurement came out this way.
+The layer still ships, in the tooltip; it has no choropleth because a
+near-constant field drawn as one would be a uniform map pretending to be a
+finding.
 
-| | all nine feeds | rail only |
-|---|---|---|
-| Stops | 14,608 | **1,165** |
-| Ride edges (unique consecutive-stop pairs) | 18,235 | **1,949** |
-| Route patterns (distinct stop sequences per route) | 2,216 | **842** |
-| `(stop, route, direction)` nodes | 25,164 | **2,712** |
-| Transfer pairs at 150 / 250 / 400 / 600 m | 26,770 / 57,518 / 124,700 / 254,575 | **807 / 1,057 / 1,592 / 3,211** |
-| Walk graph already handled, for comparison | 1.84M nodes / 2.14M edges | — |
+**The bonus is outcome 2 in miniature, and it was not predicted.** The largest
+detour block — Flatlands, Marine Park-Mill Basin, East Flatbush — is not
+one of the eight proposed corridors' shapes, and **54 of its 56 tracts also
+sit in the largest contiguous under-service block**. Two measures that share
+no inputs agree there: the under-service score is walk-and-density and knows
+nothing about travel time, and the detour factor is travel time and knows
+nothing about population. `accessibility.py` prints the overlap on every run
+so it stays a measurement rather than a memory.
 
-The node row is the one to read, and it is the only row measured the same way
-in both columns — trips filtered to one weekday's active services, then
-route-expanded. **25,164 nodes become 2,712, a factor of 9.3.** The stop counts
-are not strictly comparable: 14,608 is distinct `stop_id` across all nine
-feeds, while 1,165 is rail stops with service that day.
+### Jobs accessibility lowered alignment, as predicted
 
-**And the routing cost turns out not to be a cost at all.** Built for real —
-median scheduled runtime on each `(stop, route, direction)` edge, 2,712 nodes
-and 3,165 directed ride edges — an **all-pairs Dijkstra over the entire rail
-network takes 7 ms.** Not per hub: all 2,712 sources at once. The walk leg is
-the larger half and is also small: one single-source pass over the 1.84M-node
-walk graph is 64 ms unbounded and **3 ms bounded to a 15-minute walk budget**
-(`limit=1215` m, ~3,100 nodes reached), so the full access/egress matrix for all
-1,165 rail stops is **4 seconds**, or 1.2 minutes left unbounded. Every "too
-expensive to compute per origin" estimate in this phase was wrong by three
-orders of magnitude — including the one below that used it to defer the work.
-Nothing in Phase 4 is gated on compute. What it is gated on is the wait model,
-the transfer radius and one new data source.
+The prediction was on record here before anything was computed, and it held:
+`pop x jobs out of reach` hits **16%** at worst-25 and `pop x detour` **4%**,
+against a 26% random baseline and 80% for the shipped score. Hub minutes do
+better — `pop x excess hub min` 56% — and still lose. None of them enters
+the score; all ship as layers.
 
-- **Nodes must be `(stop, route, direction)`, not stops.** This is a
-  correctness fix, not an optimization, and it is the thing most likely to be
-  got wrong. With one node per stop, every route serving that stop shares it,
-  so a Dijkstra can change vehicles **at no cost** — transfers become free and
-  the graph quietly claims a connectivity the city does not have, which is the
-  precise opposite of what this phase exists to measure. Route-expanding is
-  what forces a change of vehicle through a transfer edge that carries the
-  wait. Measured cost on rail: 1,165 stops become **2,712** route-expanded
-  nodes, a 2.3× multiplier — the median rail stop serves two routes, the p90
-  four and the busiest eleven. It is nearly free; it is only expensive to
-  retrofit.
-- Ride edges: median scheduled runtime between consecutive stops on each route
-  pattern — 1,949 of them, so this is a group-by on `stop_times`, not a model.
-  Transfer edges: in-station or walking time between stops plus the expected
-  wait at the boarding stop, which `station_service.parquet` already computes
-  per station. (`bus_stop_service.parquet` keeps its existing job, the FTN
-  layer, and is not an input here.) Access edges: snap each of the 1,165 stops
-  to the walk graph exactly as `distance.py` snaps the 557 stations, and the
-  existing 1.84M-node walk graph supplies everything else — so access is 1,165
-  edges, not millions.
-- **The transfer radius mostly stops being a parameter, because the rail feeds
-  declare their own transfers.** Checked 2026-10-11: all three ship a
-  `transfers.txt`. The subway's has **150 between-station transfers with
-  `min_transfer_time` set** — median 180 s, max 420 s — plus 463 same-parent
-  entries giving the in-complex change time; LIRR and Metro-North declare
-  same-stop only. So the authoritative subway interchange set is a file, not a
-  guess, and the radius is needed only for the rail-to-commuter-rail
-  interchanges no feed declares (Jamaica, Atlantic Terminal, Woodside, Fordham
-  and a handful more). That is a dozen places to hand-check rather than a
-  tunable to converge — which is just as well, since the radius still moves the
-  rail transfer-pair count by a factor of four from 150 m to 600 m (807 to
-  3,211). Prefer the declared time wherever one exists; fall back to walk time
-  plus wait, and say which was used.
-- Then **one Dijkstra from the hub** over this graph gives time-to-hub for every
-  node in the city, and `pipeline/aggregate.py`'s median-over-sample-points
-  machinery converts that to per-tract values unchanged. This reuses the entire
-  existing architecture rather than bolting a routing server onto it.
-- Express service falls out for free: express patterns have faster ride edges,
-  so an express stop scores better without any special-casing — **provided the
-  nodes are route-expanded.** Without that, express and local share a node and
-  the express advantage disappears into an averaged edge.
-- **Honest limitation:** a static graph with expected waits approximates a
-  typical weekday peak. It cannot represent departure-time effects (just-missed
-  connections, timed transfers). Say so in the methodology rather than implying
-  schedule-exact routing. If that becomes the binding constraint, a proper RAPTOR
-  over `stop_times` is the upgrade — tractable in numpy, but a project of its own.
-- **Decided 2026-10-11: jobs-within-45-minutes is built first, and the hub
-  list comes after it.** The roadmap used to say the opposite — hubs first,
-  because the hub surfaces are what tell you whether the transit graph is
-  right. That argument fell when hub *selection* turned out to be circular (see
-  below): ridership picks radial hubs, which is the bias the secondary-hub idea
-  exists to correct, so the hub list cannot be settled before there is a
-  destination-free measure to settle it with. Jobs accessibility is that
-  measure, it is the standard one in the literature, and it is also the
-  arbiter for the hub list. Doing it first makes the hub list a **presentation
-  choice** — which few places to name for a reader who thinks in places — rather
-  than a modeling commitment. **`ny_wac_S000_JT00_2022.csv.gz`, LEHD LODES8 WAC,
-  probed 2026-10-11: HTTP 200, 2.7 MB gzipped.** (This file previously said in
-  one place that it was verified and in another that it was unprobed; it is
-  verified.) The validation that hubs were going to provide comes instead from
-  the graph itself: a handful of known trips with known times — Bay Ridge to
-  Midtown, Flushing to Kew Gardens, St George to Downtown Brooklyn — checked
-  against the published schedule, in the same spirit as `verify.py`'s barrier
-  probes.
-- **Hubs, once jobs exist:** Times Sq–42 St, Grand Central, Atlantic
-  Av–Barclays Ctr, Fulton St, Jackson Hts–Roosevelt Av, 125 St. Pre-compute one
-  surface per hub (now measured at well under a millisecond each) and let the
-  user switch, rather than routing live. **Read the ridership ranks below
-  before fixing this list** — 125 St does not survive its own test, and three
-  of these are split across several complexes in the ridership data.
-- **Decided 2026-10-11: neither time-to-hub nor jobs accessibility touches the
-  shipped score until it earns a row in the alignment table.** They ship as
-  their own layers and their own tooltip lines, like the wait penalty and the
-  equity variables before them. The prediction on record, so it can be wrong in
-  public: jobs accessibility will *lower* alignment, for the same reason the
-  wait penalty did — it measures the quality of a rider's morning, while the
-  agencies' proposed corridors track where people are and where the network
-  isn't. If it raises alignment instead, that is the most interesting result in
-  the project and the score should change. Either way the order is measure,
-  then adopt — never the reverse.
+What was *not* predicted is why, and it generalizes past Phase 4: **alignment
+tracks each factor's dynamic range, monotonically.** A factor with a narrow
+spread multiplied by population is a population ranking, and the most populous
+tracts are the well-served cores no agency proposes to serve again. The table
+is in `CLAUDE.md`. The practical rule it leaves behind: before proposing any
+`pop x factor` score, measure the factor's coefficient of variation. Under
+roughly 0.5 it will lose to population and the alignment test will say so.
 
-### Secondary hubs, and the orbital problem
+### The work this phase revealed
 
-Phase 4 as written above picks *a* hub, which quietly assumes the thing this
-system is worst at. The subway is radial: it is built to move people into
-Manhattan and back out, so a lateral trip is either routed through Manhattan or
-handed to a bus. Flushing to Kew Gardens is a few miles and an awkward trip;
-most of Brooklyn to most of Queens is worse. A single-hub map would score both
-origins as *well served*, because each is a short ride from Midtown.
+- **Common lines, properly.** The wait is charged per leg group — every
+  service making the same next stop — which fixes Jamaica but not Fordham,
+  where the inbound local and the inbound express have *different* next stops
+  and both end at Grand Central. Fordham to Grand Central therefore reads 37
+  minutes against a real expected ~27. Fixing it needs hyperpath routing
+  (Chriqui-Robillard with destination-dependent attractive sets), which is a
+  different algorithm, not a parameter. It matters because the bias
+  **overstates** under-service on commuter rail, which is the direction this
+  project is least entitled to be wrong in — eastern Queens and the Bronx
+  are where the thesis lives.
+- **The Staten Island Ferry.** The rail-only graph answers "how does a Staten
+  Islander reach a job" with 18,000 of 4.47M, because the SIR has no rail
+  connection to anything and a ferry is not rail. That is true of *rail* and
+  false of *transit*, and it is a number about 495,000 people that would be
+  quoted. `verify.py` asserts the pair is unreachable so nobody adds the edge
+  by accident. Adding it deliberately needs a headway and a runtime that no
+  feed on disk supplies — the identical reason airports went to Phase 9 —
+  so the honest version is a cited source, not a hand-coded guess. **This is
+  the most load-bearing gap the phase leaves.**
+- **A diverging ramp for the detour factor**, if it ever gets a layer. It is a
+  ratio centered on 1.0 and the palette has no diverging pair; adding one
+  means new steps through `palette.py`'s `audit()` gates, and the flatness
+  above says the layer is low-value anyway. Recorded so the absence reads as a
+  decision.
+- **Hub granularity.** Staten Island's job center comes back as
+  **Tompkinsville** rather than St George, one stop away, because "jobs within
+  a 10-minute walk" is measured to the tract *median* and the high-job tracts
+  beside St George have medians just outside it. The hub list is a
+  presentation choice and this is a presentation wobble, not a wrong number,
+  but it is the visible edge of the `min_station(median_sample)` coarseness
+  `CLAUDE.md` describes.
+- **Payload headroom is gone.** 343 KB against a 350 KB budget. The next
+  per-tract field does not fit, and the lever is measured: a column costs
+  ~2.5x more as a per-feature property than as a parallel array, so the next
+  one should follow `hubs.json` rather than `tracts.geojson`.
+- **Cluster-level precision in the alignment test** is now overdue rather than
+  merely cheap. Sixteen candidate scores are compared on a per-tract hit rate
+  against corridors that are lines, and Phase 4 added six of those sixteen.
 
-- **The architecture already handles it, linearly.** Time-to-hub is one Dijkstra
-  from one source over the static transit graph. Ten hubs is ten passes, which
-  is seconds, not a redesign. Publish per-hub times *and* the minimum across
-  hubs — "time to your nearest center" is the polycentric question, and it is
-  the one a resident of Jamaica or Fordham actually has.
-- **Pick the hub list from data, not from feel — but not from ridership.**
-  This bullet used to say the ridership join was the arbiter: "a proposed hub
-  that is not among the busiest stations in the city is the wrong hub." That
-  rule was tested on 2026-10-11, with a server-side aggregation over October
-  2025 ridership, and **it fails on its own candidates.** Ranks among 428
-  complexes:
+### Airports, and what the graph is still not
 
-  | candidate | rank | riders (Oct 2025) |
-  |---|---|---|
-  | Flushing–Main St | 12 | 1,226,218 |
-  | Atlantic Av–Barclays Ctr | 21 | 988,683 |
-  | Jay St–MetroTech (Downtown Bklyn) | 25 | 808,268 |
-  | Jamaica Center–Parsons/Archer | 37 | 610,072 |
-  | Court Sq–23 St (LIC) | 38 | 601,801 |
-  | 125 St (A,C,B,D) — *listed as a primary hub above* | 47 | 554,199 |
-  | 149 St–Grand Concourse | 146 | 243,003 |
-  | Fordham Rd (4) | 175 | 193,939 |
-  | St George (SIR) | 193 | 172,574 |
+Airports went to **Phase 9** and stayed there: a handful of hand-coded edges,
+each carrying a fare and a headway no feed supplies. Unchanged by Phase 4
+except that the graph they would attach to now exists.
 
-  The rule would reject Fordham, St George and 149th Street — three of the
-  seven secondary candidates — and would reject 125 St from the primary list.
-  **And the reason it fails is structural, not a threshold problem: the rule is
-  circular.** The subway is radial, so the busiest stations are the radial ones;
-  the top 20 are almost entirely Manhattan. Using ridership to choose
-  *secondary* hubs selects for the radial bias that the secondary-hub idea
-  exists to correct. St George is the clearest case — it is unambiguously
-  Staten Island's hub and it ranks 193rd, because only ~500,000 people live
-  there. Ridership is partly a measure of catchment population, which is one of
-  the things this map is trying to explain rather than assume.
+And the standing limitation, to repeat wherever a number from this is shown: a
+static graph with expected waits approximates a typical weekday peak. It
+cannot represent departure-time effects — a just-missed connection, a timed
+transfer that holds. Both commuter-rail feeds declare their transfers as
+trip-to-trip timed transfers, which a frequency graph cannot use at all; a
+RAPTOR over `stop_times` is the upgrade, and a project of its own.
 
-  **Two fixes, and the second is the real one.**
-
-  First, a mechanical one: ridership keys on `station_complex_id`, and a *place*
-  can be several complexes. 125 St appears four times (ranks 47, 50, 112, 164);
-  summed it is ~1.59M, which would place it around 8th rather than 47th.
-  Fordham, Jamaica, Flushing Av and Atlantic Av are likewise split. Any
-  ranking has to group complexes by place first, or it answers a different
-  question than the one asked.
-
-  Second, the right arbiter for a secondary hub is **jobs, not riders** — LEHD
-  LODES WAC, now verified reachable. A center is where the work is, whether or
-  not the subway already serves it well; ridership can only confirm a hub the
-  network already feeds. Ridership keeps a role, but a narrower one: as a
-  sanity check that a jobs-derived hub is actually reachable today, and as the
-  input to crowding.
-- **The layer that makes the radial bias visible is a ratio, not a time.**
-  Transit time divided by the straight-line time at a reference speed — a
-  *detour factor*. This project already has the pattern: `pipeline/verify.py`
-  requires an inflated network-to-straight-line ratio at the barrier probes,
-  and it is the check that proves the walk routing is real. The same ratio over
-  the transit graph is what turns "Flushing to Kew Gardens is annoying" into a
-  number, and it will be highest exactly where the orbital gap is worst.
-
-  **Decided 2026-10-11 — what a null result means, written down before the
-  measurement, which is the only time it can be written honestly.** This is the
-  most interesting idea in the phase and the only one with no stated null
-  result, so: the layer is defined as the detour factor between every pair of
-  tract centroids under 15 km apart, and the claim it tests is that the worst
-  detours form a *ring* — a contiguous band of orbital pairs — rather than
-  scattering. Three outcomes, all publishable:
-
-  1. **A ring appears and the IBX alignment is visible.** The headline result.
-  2. **A ring appears somewhere else.** Better than the first outcome, because
-     it is a finding the agencies' own plans did not supply. Report where, and
-     check it against the proposed-corridor list rather than quietly dropping
-     the corridors that disagree.
-  3. **No ring: detour factor is roughly flat, or tracks distance alone.** Then
-     the orbital problem is *not* spatially concentrated — radial routing taxes
-     lateral trips everywhere about equally — and that is a real answer to a
-     real question, not a failure. It would say the orbital gap is a network
-     property rather than a corridor, which argues against any single new line
-     as the fix and is worth one paragraph in the methodology. The layer still
-     ships; the ratio is interpretable per tract whether or not it clusters.
-
-  The failure mode to guard against is deciding afterwards that whatever shape
-  turned up was the hypothesis. Hence the three outcomes, now, in writing.
-- **The metric that dissolves the hub question entirely** is cumulative
-  opportunity: *jobs reachable within 45 minutes*. It needs no chosen center,
-  it is the standard measure in the accessibility literature, and it needs LEHD
-  LODES workplace-area job counts — **probed 2026-10-11, HTTP 200, 2.7 MB.**
-  **Cost was the catch and it is now measured away.** This bullet used to call
-  for roughly 2,300 Dijkstra passes and warn that the estimate should be
-  measured before it was used to defer the work. It was measured on
-  2026-10-11, and it defers nothing: all-pairs over the 2,712-node rail graph
-  is **7 ms**, and the 1,165 bounded walk-graph passes that attach origins and
-  destinations to it are **4 seconds**. The separation this bullet proposed —
-  route between stops on the small graph, attach the tract sample sets through
-  the walk graph once — is the right structure, and it is cheap enough that
-  *jobs within 45 minutes* can be recomputed on every build like everything
-  else in the pipeline. This is why the order flipped and jobs now comes
-  first.
-- **The payoff is a different headline.** "X% of New Yorkers are within a
-  10-minute walk of a train" says nothing about whether the train goes anywhere
-  useful. Time-to-nearest-center and the detour factor are the first metrics in
-  this roadmap that could contradict the walk-access map rather than refine it,
-  and the places they disagree are the finding.
-
-### Deliberately not in this phase: airports
-
-**Punted 2026-10-11 to Phase 9.** It was the cheapest-looking item here and
-that was the trap: it is a handful of hand-coded edges, but each one carries a
-*fare* and a *headway* that no feed on disk supplies, so it is the only part of
-Phase 4 that cannot be built from data the pipeline already has. It also serves
-a different reader — the airport worker, not the commuter — and mixing the two
-is how a phase stops being finishable. The machinery it needs (fares, the night
-gap) ships already and will still be there.
 
 ## Phase 5 — who lives there
 
@@ -597,8 +448,10 @@ daily and bidirectional, a visitor's is occasional and often off-peak.
 
 So carry it as a separate **attraction** field and let the score combine the two:
 
-- **Jobs per block** — LEHD LODES8 WAC, already verified reachable and already
-  wanted for Phase 4. The best destination signal available: comprehensive,
+- **Jobs per block** — LEHD LODES8 WAC. **Now fetched and in use:** Phase 4
+  ships it as the destination side of the accessibility metric, 4,466,975 jobs
+  across 2,303 tracts, so what is left here is the *other* use below. The best
+  destination signal available: comprehensive,
   uncurated, and it captures the thing most visitor lists miss, which is that
   the largest destination in almost every tract is somebody's workplace.
 - **A curated anchor list** for what jobs data under-weights — museums (Met,
@@ -1021,7 +874,11 @@ this file:
   not for the orbital gap that is IBX's entire justification. Same for the
   3-train extension (median walk 6.2 minutes) and Red Hook (8.3). These are
   capacity and connectivity projects, and this map cannot see either. They are
-  the argument for *Secondary hubs, and the orbital problem* in Phase 4.
+  the argument the orbital work in Phase 4 was built on — and the detour
+  factor it produced says the gap is citywide rather than corridor-shaped,
+  which makes this bullet sharper, not weaker: if no single corridor carries
+  the orbital penalty, a map that scores IBX at the city median is not
+  mis-ranking one project, it is blind to a whole class of them.
 - **False positives that were the defect in miniature.** The rank product's
   worst 25 included Yorkville, Lenox Hill, East Village, Belmont, Corona,
   Tremont, Claremont Village and Flushing — all 11–19-minute walks, none
@@ -1052,8 +909,11 @@ move tracts:
   Staten Island, in eastern Queens and in the east Bronx is the difference
   between *no* transit and *slow* transit. The frequent-bus layer now shows
   *where* useful service exists — 2,368 of 12,942 stops hold a 10-minute
-  headway all day — so the omission is at least visible on the page. Putting
-  buses in the graph is Phase 4.
+  headway all day — so the omission is at least visible on the page.
+  **Decided in Phase 4 and not deferred: buses are never going in the graph.**
+  Bus service is what the city provides instead of rail in exactly these
+  places, so letting it close the gap would hide the finding by construction.
+  The layer on top is the honest form of the same information.
 - **Car ownership.** A 40-minute walk where 90% of households have a car is a
   different finding from the same walk where 10% do. Now shipped and
   weightable — and measured as making the alignment *worse*, which is the thing
@@ -1079,7 +939,9 @@ rather than wrong in ways it has not.
 
 ## Phase 9 — airports
 
-**Split out of Phase 4 on 2026-10-11.** See that phase for why: these are the
+**Split out of Phase 4 on 2026-10-11.** See *What Phase 4 left behind* for
+why {EM} and note that the Staten Island Ferry is now the same problem with a
+larger population behind it. These are the
 only edges in the transit graph whose cost comes from neither GTFS nor the walk
 network, and the reader they serve is a different one. Nothing here blocks
 anything else.
@@ -1124,8 +986,9 @@ users with opposite needs.
   in the UI or the README. This is the one section of the roadmap whose facts
   are not reproducible from the repo, and that is the reason it was split
   out.
-- **The modeling is small and already designed for.** These are a handful of
-  hand-coded edges on the Phase 4 transit graph — a headway and a fare on each
+- **The modeling is small and the graph now exists.** These are a handful of
+  hand-coded edges on `pipeline/transit.py`'s rail graph — a headway and a
+  fare on each
   — plus a terminal node per airport. The fare premium reuses the commuter-rail
   fare disclosure that now ships; the 3am service window reuses the
   `tph_night` and `night_gap_hours` columns in `station_service.parquet`,
@@ -1143,12 +1006,28 @@ users with opposite needs.
 
 The score exists, it is measured against something outside itself, and the
 measurement gates the build. That changes what "next" means: every item below
-can now be judged by whether it moves the alignment number, and two of them
-have already been measured as moving it the wrong way.
+can now be judged by whether it moves the alignment number, and **eight of
+them have now been measured as moving it the wrong way** — two from phases 2
+and 3, six from Phase 4. That is not a run of bad luck; it is what the test is
+for.
+
+**Revised 2026-10-11, after Phase 4 shipped.** Phase 4 was "the rail transit
+graph, which is a project rather than a feature" and sat fifth in this list. It
+is built, so it is gone from here and its leftovers are their own section
+above. The two items it promoted are both in that section: the **Staten Island
+Ferry**, which is the only thing standing between the accessibility layer and
+a defensible statement about 495,000 people, and **cluster-level precision**,
+which went from cheap to overdue the moment six more candidate scores were
+compared on a per-tract hit rate against corridors that are lines.
 
 **The rail lines are first** — revised 2026-10-11, displacing step-free
-access. 15.2 KB on the wire, geometry already parsed in every feed, no new
-source and no new model, and it is the only item in this file that changes what
+access. Phase 4 strengthened this rather than changing it: the map now has a
+*second* reason a reader needs to see the network, which is that the largest
+detour block and the largest under-service block are the same 54 tracts, and
+neither is legible as a shape without the lines drawn.
+
+15.2 KB on the wire, geometry already parsed in every feed, no new source and
+no new model, and it is the only item in this file that changes what
 the map *argues* rather than what it measures: the contiguous band stops
 reading as scattered polygons and starts reading as the space between the
 lines. A reader cannot currently see that without already knowing the network.
@@ -1164,25 +1043,19 @@ the distribution is flat, 252 stations deep, and no short list of elevators
 fixes it.
 
 **Then ridership and crowding**, because it is the last piece of the
-service-quality axis and because *Secondary hubs* in Phase 4 depends on it: a
-hub list picked by feel rather than by ridership is the wrong hub list. Read
-the three measured obstacles first — it is a server-side aggregation against
-167 million rows, it joins on `station_complex_id` rather than
-`gtfs_stop_id`, and train capacity is in none of the data.
+service-quality axis. Note that its old justification is dead: this said the
+hub list depended on it, and Phase 4 settled the hub list with jobs instead,
+precisely because ridership is circular — the subway is radial, so its
+busiest stations are the radial ones. Ridership keeps a narrower job: a sanity
+check that a jobs-derived hub is reachable today, and the numerator for
+crowding. Read the three measured obstacles first — it is a server-side
+aggregation against 167 million rows, it joins on `station_complex_id`
+rather than `gtfs_stop_id`, and train capacity is in none of the data.
 
 **Then cluster-level precision in the alignment test**, which is cheap now that
 the components exist and which should happen before the 80% figure is quoted
 anywhere load-bearing. A per-tract precision figure compares a point measure
 against a line measure, and the corridors are lines.
-
-**Then the rail transit graph**, which is a project rather than a feature —
-but a smaller one than this file assumed until it was measured. Inside it the
-order is now *jobs within 45 minutes first*, then the hub surfaces, then the
-detour factor; secondary hubs and the detour factor sit inside Phase 4 rather
-than beside it, because they need the graph and are the reason to build it with
-more than one destination in mind from the start. Buses are not in the graph
-and airports have been split out to Phase 9, which is what makes the phase
-finishable: everything left in it is computable from feeds already on disk.
 
 Orthogonal to all of that, and pickable whenever: **publishing the map**, which
 needs no new data and currently blocks every other reader from seeing any of
