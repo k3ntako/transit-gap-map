@@ -988,8 +988,7 @@ users with opposite needs.
   out.
 - **The modeling is small and the graph now exists.** These are a handful of
   hand-coded edges on `pipeline/transit.py`'s rail graph — a headway and a
-  fare on each
-  — plus a terminal node per airport. The fare premium reuses the commuter-rail
+  fare on each — plus a terminal node per airport. The fare premium reuses the commuter-rail
   fare disclosure that now ships; the 3am service window reuses the
   `tph_night` and `night_gap_hours` columns in `station_service.parquet`,
   which already exist. **No GTFS feed for AirTrain JFK turned up in a search**
