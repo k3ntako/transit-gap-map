@@ -72,6 +72,18 @@
       Walk time to station</label>
     <label class="opt"><input type="radio" name="choro" value="access">
       Walk + wait for a train</label>
+    <label class="opt"><input type="radio" name="choro" value="jobs">
+      Jobs reachable in 45 min</label>
+    <label class="opt"><input type="radio" name="choro" value="hub">
+      Time to a job center</label>
+    <div class="field" id="hubpick" hidden>
+      <div class="flabel"><label for="f-hub">Which center</label></div>
+      <select id="f-hub"></select>
+      <p class="sub" style="margin:5px 0 0">One center per borough, then the
+        stations adding the most jobs no other center reaches. Picked from
+        where the jobs are, not from ridership — which is circular, because
+        the busiest stations are the radial ones.</p>
+    </div>
     <label class="opt"><input type="radio" name="choro" value="none">
       None</label>
 

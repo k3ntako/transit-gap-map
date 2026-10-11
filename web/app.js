@@ -62,13 +62,18 @@ const state = {
   hoveredStation: null,
   densFloor: 0,
   popFloor: 0,
+  // Which job center the "time to a job center" layer shows. -1 is the
+  // nearest of all of them, which is the polycentric question and the
+  // default; 0..N-1 picks one, which is the question a reader who thinks in
+  // places actually asks.
+  hub: -1,
   // Set once the theme is an explicit choice -- by the toggle or by the URL --
   // so a shared link carries the theme but an unshared one keeps following the
   // reader's own OS setting.
   themePinned: false,
 };
 
-let map, pal, stats, surf, tracts;
+let map, pal, stats, surf, tracts, hubs;
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -86,7 +91,8 @@ const query = (layer, point) =>
 // and reads as a list of deliberate choices. Plain key=value with unknown keys
 // ignored, which means a later control is one more key and there is no format
 // to version. `v` is zoom/lat/lon, the order OSM and Mapbox hashes use.
-const CHOROPLETHS = ["bivariate", "gap", "density", "walk", "access", "none"];
+const CHOROPLETHS = ["bivariate", "gap", "density", "walk", "access",
+                     "jobs", "hub", "none"];
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 // Reads the hash into `state` and returns the camera it asked for, if any.
@@ -107,6 +113,8 @@ function applyHash() {
   if (pop != null) state.popFloor = pop;
   const w = num("w", 0, 1);
   if (w != null) state.gapWeight = w;
+  const h = num("hub", -1, 31);
+  if (h != null) state.hub = Math.round(h);
   if (q.get("t") === "dark" || q.get("t") === "light") {
     state.theme = q.get("t");
     state.themePinned = true;
@@ -135,6 +143,7 @@ function syncHash() {
     if (state.densFloor) q.push(`dens=${state.densFloor}`);
     if (state.popFloor) q.push(`pop=${state.popFloor}`);
     if (state.gapWeight) q.push(`w=${state.gapWeight}`);
+    if (state.hub >= 0) q.push(`hub=${state.hub}`);
     if (state.themePinned) q.push(`t=${state.theme}`);
     if (state.surface) q.push("surface=1");
     if (state.busFtn) q.push("bus=1");
@@ -162,6 +171,8 @@ function reflectState() {
   $("#f-pop").value = state.popFloor;
   $("#f-weight").value = state.gapWeight;
   showGapWeight();
+  if ($("#f-hub")) $("#f-hub").value = String(state.hub);
+  showHubPick();
   // Open the panel when a floor is in force, or the faded tracts look like a bug.
   if (state.densFloor || state.popFloor) $("#settings").open = true;
 }
@@ -217,6 +228,33 @@ function rankInto(feats, src, dst) {
   const rank = new Map();
   vals.forEach((v, i) => rank.set(v, (i + 1) / vals.length));
   for (const f of feats) f.properties[dst] = rank.get(f.properties[src]);
+}
+
+// Per-hub travel times, joined onto the features by geoid.
+//
+// Written here rather than shipped in tracts.geojson because eight more
+// per-feature columns measured about 100 KB gzipped against 45 KB of remaining
+// budget, while the same numbers as parallel arrays are 34: gzip's window
+// cannot span 2,325 interleaved features, so a column costs roughly 2.5x more
+// interleaved than contiguous.
+//
+// It must run **before** `rankTracts`, and the reason is the bug that painted
+// the whole city black: `addSource` serializes the properties object, so a
+// property written after that point is invisible to every paint expression and
+// fails silently. rankTracts freezes the properties for exactly that reason,
+// which means this would also throw rather than fail quietly -- but the right
+// place is still ahead of it.
+function attachHubs() {
+  if (!hubs?.geoids || !hubs?.minutes?.length) {
+    hubs = null;
+    return;
+  }
+  const row = new Map(hubs.geoids.map((g, i) => [g, i]));
+  for (const f of tracts.features) {
+    const i = row.get(f.properties.geoid);
+    if (i == null) continue;
+    hubs.minutes.forEach((arr, h) => { f.properties[`h${h}`] = arr[i]; });
+  }
 }
 
 // The ranks are written into the fetched GeoJSON *before* it is handed to the
@@ -368,6 +406,72 @@ function gapColor() {
 const biFlat = () => state.theme === "dark" ? pal.bivariate_dark.flat() : pal.bivariate.flat();
 const densCls = () => state.theme === "dark" ? pal.density_classes_dark : pal.density_classes;
 const walkCls = () => state.theme === "dark" ? pal.walk_classes_dark : pal.walk_classes;
+
+// --- the Phase 4 layers ------------------------------------------------------
+
+// Seven steps sampled from the same 13-step OKLCH ramps palette.py already
+// audits, rather than two new palettes: the three-step class colors are
+// sampled from these ramps too, so this stays inside the validated system
+// instead of inventing colors beside it. Dark mode reverses the ramp, which
+// is exactly what `density_classes_dark` is against `density_classes` -- on a
+// dark surface the high end has to be the light one or it disappears.
+const SEQ_STEPS = 7;
+function seqRamp(name) {
+  const r = pal.ramps[name];
+  const idx = Array.from({ length: SEQ_STEPS },
+    (_, i) => Math.round(i * (r.length - 1) / (SEQ_STEPS - 1)));
+  const out = idx.map((i) => r[i]);
+  return state.theme === "dark" ? out.slice().reverse() : out;
+}
+
+// Quantile breaks, for the same reason the gap layer uses them: jobs reachable
+// is heavily skewed -- a Manhattan tract reaches seventy times what a
+// Rockaways tract does -- so equal intervals would paint the whole city the
+// palest band. Computed in the browser from the shipped column, so no breaks
+// have to be shipped and a field can be added without touching stats.json.
+const seqCache = new Map();
+function seqBreaks(key) {
+  if (seqCache.has(key)) return seqCache.get(key);
+  const vals = tracts.features.map((f) => f.properties[key])
+    .filter((v) => v != null && isFinite(v)).sort((a, b) => a - b);
+  const raw = [];
+  for (let i = 1; i < SEQ_STEPS; i++)
+    raw.push(vals[Math.floor(i * vals.length / SEQ_STEPS)]);
+  // Quantile breaks cannot split a tie, so a repeated break would make one
+  // band unreachable and leave a color unused. Dropping the duplicate leaves
+  // fewer bands, which is the honest picture of a column with a big tie in it.
+  const out = raw.filter((v, i) => i === 0 || v > raw[i - 1]);
+  seqCache.set(key, out);
+  return out;
+}
+
+// Which property the hub layer reads: the precomputed nearest-center column,
+// or one hub's own array injected before the source was built. Falls back to
+// the nearest-center column whenever that array is not actually there -- a
+// build from before Phase 4, a failed hubs.json fetch, or a hand-edited
+// `#hub=` past the end of the list. Without this the paint expression reads a
+// property no feature has, which is the same silent class of failure as the
+// one that painted the city black.
+const hubKey = () =>
+  (state.hub >= 0 && hubs && state.hub < hubs.minutes.length)
+    ? `h${state.hub}` : "hub";
+
+// A `step` expression over quantile breaks, with nulls handled before it --
+// `step` needs a numeric input, and a tract with no rail path to any center
+// is null rather than large.
+function seqFill(key, ramp, invert) {
+  const b = seqBreaks(key);
+  const colors = invert ? ramp.slice().reverse() : ramp;
+  // `step` is invalid with no stops, so a column that is entirely null or
+  // entirely one value paints flat rather than throwing on parse.
+  if (!b.length) return ["case", ["<", ["get", "dc"], 0], unpop(), colors[0]];
+  const stops = [];
+  b.forEach((v, i) => stops.push(v, colors[i + 1]));
+  return ["case",
+    ["==", ["get", key], null], unpop(),
+    ["<", ["get", "dc"], 0], unpop(),
+    ["step", ["get", key], colors[0], ...stops]];
+}
 const shedCls = () => state.theme === "dark" ? pal.walkshed_dark : pal.walkshed;
 const unpop = () => pal.unpopulated[state.theme];
 
@@ -391,6 +495,15 @@ function fillColor() {
       ["<", ["get", "dc"], 0], unpop(),
       ["step", ["get", "acc"], ramp[0], b[0], ramp[1], b[1], ramp[2]]];
   }
+  // More jobs is better, so the ramp is inverted: the dark end of a sequential
+  // scale reads as "most of whatever is being measured", and here the thing
+  // worth finding on the map is the tracts that reach the fewest.
+  if (state.choropleth === "jobs")
+    return seqFill("j45", seqRamp("density"), true);
+  // More minutes is worse, which is the same direction walk time already runs
+  // in, so it gets the same ramp.
+  if (state.choropleth === "hub")
+    return seqFill(hubKey(), seqRamp("walk"), false);
   const [key, ramp] = state.choropleth === "density"
     ? ["dc", densCls()] : ["wc", walkCls()];
   return ["match", ["get", key], 0, ramp[0], 1, ramp[1], 2, ramp[2], unpop()];
@@ -717,6 +830,28 @@ function wireHover() {
               ? ` Nearest subway is ${fmt(sw, 1)} min.` : "") + `</div>`;
         }
       }
+      // Shown on every layer, not only the two Phase 4 ones, for the same
+      // reason the wait is: these are properties of the tract rather than of
+      // whichever fill happens to be selected.
+      if (p.j45 != null) {
+        const total = stats.accessibility?.jobs_total ?? 0;
+        html += row(`Jobs in ${fmt(stats.accessibility?.budget_min, 0)} min`,
+                    `${fmt(p.j45 * total / 100 / 1e6, 2)}M`);
+      }
+      const hv = p[hubKey()];
+      const hubName = state.hub < 0 ? "nearest job center"
+        : (stats.accessibility?.hubs?.[state.hub]?.name ?? "job center");
+      if (hv != null) html += row(`To ${hubName}`, `${fmt(hv, 0)} min`);
+      else if (p.j45 != null)
+        html += `<div class="tnote">No rail path to a job center.</div>`;
+      // The detour factor has no layer of its own: measured, it is nearly
+      // flat -- the middle 80% of tracts run 0.79 to 1.26, against a full
+      // range of 0.61 to 2.09 -- so a choropleth of it is close to one color.
+      // That flatness is the finding, and it belongs in a sentence rather
+      // than in a legend.
+      if (p.det != null)
+        html += row("Detour factor", `${fmt(p.det, 2)}\u00d7 typical`);
+
       // The access measure often prefers a further station with more trains.
       // Naming it only when it differs keeps the common case quiet and makes
       // the interesting case self-explanatory.
@@ -895,6 +1030,56 @@ function renderLegend() {
     return;
   }
 
+  if (state.choropleth === "jobs" || state.choropleth === "hub") {
+    const jobs = state.choropleth === "jobs";
+    const key = jobs ? "j45" : hubKey();
+    const ramp = jobs ? seqRamp("density").slice().reverse() : seqRamp("walk");
+    const brk = seqBreaks(key);
+    const total = stats.accessibility?.jobs_total ?? 0;
+    // Shown as a count rather than the shipped percentage: "1.2M jobs" is a
+    // quantity a reader has intuitions about and "27.9%" is not. The
+    // percentage is what travels on the wire because it is four characters
+    // instead of seven; the conversion belongs here.
+    const k = jobs
+      ? (v) => `${fmt(v * total / 100 / 1e6, 2)}M`
+      : (v) => `${fmt(v, 0)} min`;
+    const rows = ramp.slice(0, brk.length + 1).map((hex, i) => {
+      const lab = i === 0 ? `under ${k(brk[0])}`
+        : i === brk.length ? `over ${k(brk[i - 1])}`
+        : `${k(brk[i - 1])} – ${k(brk[i])}`;
+      return `<div class="ramprow"><i data-cls="${i}"
+              style="background:${hex}"></i>
+              <span class="lab">${lab}</span></div>`;
+    });
+    const hubName = state.hub < 0 ? null
+      : (stats.accessibility?.hubs?.[state.hub]?.name ?? null);
+    el.innerHTML = rows.join("")
+      + `<div class="ramprow"><i style="background:${unpop()}"></i>
+         <span class="lab">${jobs ? "no residents"
+           : "no rail path to a center"}</span></div>`
+      + `<div class="sub" style="margin-top:9px">` + (jobs
+        ? `Jobs reachable in <strong>${fmt(stats.accessibility?.budget_min, 0)}
+           minutes</strong> by rail and on foot, out of
+           ${fmt(total / 1e6, 2)}M in the city. Buses are not in this graph —
+           see the note below. It is a <em>commute</em> measure: school,
+           hospitals and family are not jobs.`
+        : `Minutes to ${hubName ? `<strong>${esc(hubName)}</strong>`
+           : "the nearest of the eight job centers"}, by rail, including the
+           walk at both ends and the wait. Staten Island has no rail link to
+           the other four boroughs, so its centers are its own.`)
+      + `</div>`
+      + `<div class="sub" style="margin-top:6px">This does
+         <strong>not</strong> feed the under-service score. Measured against
+         the corridors agencies have proposed it scores
+         ${fmt(100 * (stats.alignment?.precision?.[jobs
+           ? "pop x jobs out of reach" : "pop x excess hub min"]?.["25"] ?? 0),
+           0)}%, against ${fmt(100 * (stats.alignment?.baseline ?? 0), 0)}% for
+         random and ${fmt(100 * (stats.alignment?.precision?.[
+           stats.alignment?.shipped]?.["25"] ?? 0), 0)}% for the shipped
+         score.</div>`;
+    return;
+  }
+
   const isDens = state.choropleth === "density";
   const isAcc = state.choropleth === "access";
   const ramp = isDens ? densCls() : walkCls();
@@ -963,6 +1148,14 @@ function renderStats() {
   );
   const sub = stats.pct_within_min_subway;
   if (sub) rows.push(["Within 10 min, subway only", `${fmt(sub["10"], 0)}%`]);
+  // The Phase 4 figure, and the one that can contradict everything above it:
+  // living near a train says nothing about whether the train goes anywhere.
+  const ac = stats.accessibility;
+  if (ac) rows.push(
+    [`Jobs reachable in ${fmt(ac.budget_min, 0)} min`,
+     `${fmt(ac.weighted_jobs_reach / 1e6, 2)}M`],
+    ["\u2026 of the city's jobs", `${fmt(100 * ac.weighted_share, 0)}%`],
+  );
   $("#statlist").innerHTML = rows.map(([k, v]) =>
     `<div class="statrow"><span class="k">${k}</span><span class="v">${v}</span></div>`).join("");
 
@@ -1092,6 +1285,28 @@ function showGapWeight() {
   $("#gapweight").hidden = state.choropleth !== "gap";
 }
 
+function showHubPick() {
+  const el = $("#hubpick");
+  if (el) el.hidden = state.choropleth !== "hub" || !hubs;
+}
+
+// The hub picker is built from stats.json rather than hardcoded, because the
+// hub list is derived from the jobs data and changes when that data does.
+function fillHubPicker() {
+  const sel = $("#f-hub");
+  const list = stats.accessibility?.hubs ?? [];
+  if (!sel || !list.length) return;
+  sel.innerHTML = `<option value="-1">Nearest center</option>`
+    + list.map((h, i) => `<option value="${i}">${esc(h.name)} — `
+      + `${esc(h.borough || h.mode)}</option>`).join("");
+  sel.value = String(state.hub);
+  sel.addEventListener("change", () => {
+    state.hub = Number(sel.value);
+    if (state.choropleth === "hub") repaint();
+    syncHash();
+  });
+}
+
 function applyTheme(next) {
   state.theme = next;
   state.themePinned = true;
@@ -1121,6 +1336,7 @@ function wireControls() {
       map.setLayoutProperty("tracts-line", "visibility", on ? "visible" : "none");
       if (on) repaint(); else renderLegend();
       showGapWeight();
+      showHubPick();
       syncHash();
     });
   });
@@ -1191,6 +1407,7 @@ function wireControls() {
     syncHash();
   });
   showWeight();
+  fillHubPicker();
 
   $("#homebtn").addEventListener("click", () =>
     map.fitBounds(HOME_BOUNDS, fitOptions(650)));
@@ -1242,6 +1459,11 @@ async function main() {
     settle(Promise.all([
       j("data/palette.json"), j("data/stats.json"), j("data/walk_surface.json"),
       j(GEO),
+      // Optional, and deliberately so: it is 34 KB that only the hub switcher
+      // reads, and a build from before Phase 4 has no such file. A rejection
+      // here would take the whole map down with it, so it resolves to null
+      // and the switcher hides itself.
+      j("data/hubs.json").catch(() => null),
     ])),
   ]);
 
@@ -1267,7 +1489,8 @@ async function main() {
         <span style="color:var(--ink-muted)">${data.err.message}</span></div>`;
     return;
   }
-  [pal, stats, surf, tracts] = data.v;
+  [pal, stats, surf, tracts, hubs] = data.v;
+  attachHubs();
   const ranked = rankTracts();
   console.info(`ranked ${ranked} populated tracts for the gap score`);
 
