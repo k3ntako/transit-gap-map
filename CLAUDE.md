@@ -115,11 +115,18 @@ and entirely generated, so a fresh clone must `make all` before `make serve`.
 Anything a user might want to re-weight should recompute in the browser from
 per-tract fields rather than round-tripping through the pipeline.
 
-**Payload budgets are asserted, not advisory.** `BUDGET_TRACTS_MB = 2.0` raises a
-`SystemExit` in `build.py`; the surface PNG budget warns. Raising a budget is a
-deliberate decision to state, not a way past a failing build. `build.py` also
-interns five repeated string columns into `stats.json` lookups, which is what
-buys the geometry fidelity — a new string field should usually join `INTERNED`.
+**Payload budgets are asserted, not advisory, and they are measured gzipped.**
+`BUDGET_TRACTS_WIRE_KB = 350` raises a `SystemExit` in `build.py` and
+`BUDGET_WALKSHEDS_WIRE_KB = 150` does the same in `surface.py`, both against
+`config.wire_kb()` — gzip level 6, which is what a CDN serves. The raw size is
+still printed and still ignored: it was the budget until a measurement showed a
+new numeric field costs 28 KB raw and 0.3 KB gzipped, so the old 2 MB disk
+budget would have failed the build over growth the reader feels as 2 KB. The
+surface PNG budget stays raw and warns rather than raising, because a PNG is
+already compressed. Raising a budget is a deliberate decision to state, not a
+way past a failing build. `build.py` also interns five repeated string columns
+into `stats.json` lookups, which is what buys the geometry fidelity — a new
+string field should usually join `INTERNED`.
 
 ### Fetch-stage conventions worth not breaking
 

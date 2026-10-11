@@ -1,5 +1,6 @@
 """Single source of truth for paths, CRS, data sources and analysis parameters."""
 
+import gzip
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -42,9 +43,25 @@ COORD_PRECISION = 5            # output GeoJSON decimal places (~1 m)
 SNAP_WARN_METERS = 250         # warn if a station snaps further than this
 MAX_SNAP_METERS = 1500         # beyond this, treat a sample as unreachable
 
-# Payload budgets, asserted in build.py so regressions can't slip through.
-BUDGET_TRACTS_MB = 2.0
-BUDGET_SURFACE_KB = 500.0
+# Payload budgets, asserted at the end of the stage that writes each file so
+# regressions can't slip through.
+#
+# The GeoJSON budgets are **gzipped** sizes, because that is what a reader
+# downloads: tracts.geojson is 1.70 MB on disk and 284 KB on the wire. Measured
+# at compression level 6, which is what a CDN actually serves -- level 9 is only
+# 2% smaller, so the number does not flatter itself. Budgeting the raw size
+# instead meant policing a number nobody experiences: a new numeric field costs
+# 28 KB raw but 0.3 KB gzipped, so seven new fields would have failed the build
+# over a growth the reader feels as 2 KB, and the fix would have been to weaken
+# the guard. What these numbers do catch, immediately, is the three things that
+# genuinely blow the payload up -- finer geometry, a string column that forgot
+# to join INTERNED, and switching GEO_LEVEL to block groups.
+BUDGET_TRACTS_WIRE_KB = 350.0      # now 284 KB
+BUDGET_WALKSHEDS_WIRE_KB = 150.0   # now 108 KB
+
+# The surface raster is budgeted raw: a PNG is already compressed, so gzip
+# cannot move it (132,016 bytes from 132,428 -- 0.3%).
+BUDGET_SURFACE_KB = 120.0          # now 62 KB
 
 # --- Geography --------------------------------------------------------------
 STATE_FIPS = "36"
@@ -116,6 +133,17 @@ P_GEO_STATS = PROCESSED / f"{GEO_LEVEL}_stats.parquet"
 def minutes(meters):
     """Meters of walking -> minutes, elementwise-safe for numpy arrays."""
     return meters / WALK_SPEED_MPS / 60.0
+
+
+def wire_kb(path) -> float:
+    """What a reader actually downloads: the gzipped size, in KB.
+
+    Level 6 rather than 9 because that is what a CDN serves. Compressing the
+    whole file on every build is affordable -- single-digit milliseconds on
+    payloads this size -- and the alternative, trusting a ratio, is how a
+    budget quietly stops measuring anything.
+    """
+    return len(gzip.compress(Path(path).read_bytes(), 6)) / 1024
 
 # A station must attach to a network of at least this many nodes. Stops this
 # from happening: a station entrance mapped on a stray footway fragment becomes

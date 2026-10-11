@@ -237,7 +237,15 @@ def run(force: bool = False):
     out = C.WEB_DATA / "walksheds.geojson"
     sheds.to_file(out, driver="GeoJSON", coordinate_precision=C.COORD_PRECISION)
     kb = out.stat().st_size / 1024
-    print(f"  saved   {out.name} ({kb:.0f} KB)")
+    wire_kb = C.wire_kb(out)
+    print(f"  saved   {out.name} ({kb:.0f} KB on disk, {wire_kb:.0f} KB gzipped)")
+    if wire_kb > C.BUDGET_WALKSHEDS_WIRE_KB:
+        raise SystemExit(
+            f"{out.name} is {wire_kb:.0f} KB gzipped, over the "
+            f"{C.BUDGET_WALKSHEDS_WIRE_KB:.0f} KB budget. These are three "
+            f"polygons with ~33,000 vertices between them, so the lever is "
+            f"WALKSHED_RESOLUTION_METERS or the simplify tolerance in "
+            f"walksheds().")
 
     land_km2 = gpd.read_file(C.P_BOROS).to_crs(C.CRS_PROJ).geometry.union_all().area / 1e6
     print(f"\n  NYC land area: {land_km2:,.0f} km2")

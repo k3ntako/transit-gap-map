@@ -100,13 +100,18 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
     path = C.WEB_DATA / f"{C.GEO_LEVEL}s.geojson"
     out.to_file(path, driver="GeoJSON", coordinate_precision=C.COORD_PRECISION)
     mb = path.stat().st_size / 1e6
+    wire_kb = C.wire_kb(path)
     saved = sum(len(v) for v in lookups.values())
-    print(f"  saved   {path.name} ({mb:.2f} MB, {len(out)} features; "
-          f"{len(INTERNED)} fields interned into {saved} unique strings)")
-    if mb > C.BUDGET_TRACTS_MB:
+    print(f"  saved   {path.name} ({mb:.2f} MB on disk, {wire_kb:.0f} KB "
+          f"gzipped, {len(out)} features; {len(INTERNED)} fields interned into "
+          f"{saved} unique strings)")
+    if wire_kb > C.BUDGET_TRACTS_WIRE_KB:
         raise SystemExit(
-            f"{path.name} is {mb:.2f} MB, over the {C.BUDGET_TRACTS_MB} MB budget. "
-            f"Raise SIMPLIFY_TOLERANCE_METERS or drop fields.")
+            f"{path.name} is {wire_kb:.0f} KB gzipped, over the "
+            f"{C.BUDGET_TRACTS_WIRE_KB:.0f} KB budget. A new numeric field costs "
+            f"~0.3 KB here, so this is almost certainly geometry: raise "
+            f"SIMPLIFY_TOLERANCE_METERS, or check that a new string column "
+            f"joined INTERNED rather than shipping {len(out)} copies of itself.")
     return mb, lookups
 
 
