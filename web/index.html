@@ -41,6 +41,7 @@
     <hr class="rule">
     <p class="sub" id="bench"></p>
     <p class="sub" id="railnote"></p>
+    <p class="sub" id="validity"></p>
     <div style="display:flex; gap:7px; margin-top:11px">
       <button class="ghost" id="tablebtn">Table view</button>
       <button class="ghost" id="themebtn">Dark mode</button>
@@ -55,11 +56,15 @@
     <label class="opt"><input type="radio" name="choro" value="bivariate" checked>
       Density &times; walk time</label>
     <label class="opt"><input type="radio" name="choro" value="gap">
-      Walk-access gap</label>
+      Under-service score</label>
     <div class="field" id="gapweight" hidden>
-      <div class="flabel"><label for="f-weight">Density / walk time</label>
+      <div class="flabel"><label for="f-weight">Equity weight</label>
         <output id="o-weight"></output></div>
-      <input type="range" id="f-weight" min="0" max="1" step="0.05" value="0.5">
+      <input type="range" id="f-weight" min="0" max="1" step="0.05" value="0">
+      <p class="sub" style="margin:5px 0 0">0 counts residents equally. Turning
+        it up weights car-free and lower-income households more heavily — which
+        <em>lowers</em> agreement with the corridors agencies have proposed,
+        measured, so the default is 0.</p>
     </div>
     <label class="opt"><input type="radio" name="choro" value="density">
       Population density</label>

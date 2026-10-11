@@ -176,6 +176,42 @@ requires a server receiving `If-None-Match` to ignore `If-Modified-Since`, and
 Socrata's ETag varies with content-encoding, so sending both reliably produces a
 full 200 instead of a 304. Measured; `README.md` has the table.
 
+**The under-service score was chosen by measurement, and the measurement is a
+gate.** `score = pop × max(walk_min − 10, 0)` — excess person-minutes, in real
+units, with one research-anchored constant (`C.ACCESS_FLOOR_MINUTES`, where the
+half-mile standard and El-Geneidy et al.'s observed 85th-percentile metro walk
+agree). It replaced a product of percentile ranks, which `verify.py` measures at
+20% against a 26% baseline — indistinguishable from random. Ten is a **floor,
+not a cap**: capping was measured and fails, because the cap is the point above
+which everything ties and ties break on density alone.
+
+`verify.alignment()` ranks every candidate score by how many of its worst 25
+tracts fall inside the eight corridors agencies have actually proposed, and
+`main()` fails the build if the shipped score drops below
+`ALIGNMENT_MIN_PRECISION`. Two results there are counter-intuitive and both are
+load-bearing, so don't "improve" the score past them without re-running it:
+
+- **Adding the wait penalty lowers alignment** (80% → 76% at worst-25). Access
+  cost is the better measure of a rider's morning and the worse predictor of
+  where an agency builds — a frequency problem is solved by more trains on
+  existing track, not a new line.
+- **Adding the equity variables lowers it too**, in every form tried: as rates,
+  as counts, in a product, in a weighted blend (car-free households alone,
+  56%). They ship and are weightable in the UI because the MTA defines its own
+  Equity Areas by exactly the zero-vehicle variable, but the default weight is
+  zero and the measurement is why.
+
+`SHIPPED_SCORE` in `verify.py` names the candidate that `aggregate.add_score`
+implements; if one changes without the other the gate silently measures the
+wrong thing.
+
+**Contiguity is reported beside the per-tract score**, because a line serves a
+corridor. Connected components over land adjacency — the DCP polygons exclude
+water, so tracts across the East River don't touch, and no bridge edges are
+added. The result is the headline no per-tract ranking can produce: **430
+contiguous tracts holding 1.31M people** past the standard, Canarsie through
+Flatlands to St. Albans, while 24 of the 58 blocks are a single isolated tract.
+
 ## Verification
 
 **There is no unit test suite.** `pipeline/verify.py` is the correctness gate and

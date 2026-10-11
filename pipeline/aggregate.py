@@ -27,6 +27,27 @@ warnings.simplefilter("ignore")
 
 # --- geography + population -------------------------------------------------
 
+def _share(df, num: str, den: str):
+    """num/den as a percentage, NaN where the denominator is zero or absent.
+
+    Zero denominator is "no households here", not "0% of them", and a tract
+    with no households should carry no rate at all -- a park reported as 0%
+    zero-vehicle would rank as the least transit-dependent place in the city
+    rather than as having no answer.
+    """
+    if num not in df.columns or den not in df.columns:
+        return pd.Series(np.nan, index=df.index)
+    # np.asarray rather than pd.to_numeric: the latter is typed as a union
+    # including scalars, so every method called on its result multiplies into
+    # nine pyright errors apiece.
+    d = np.asarray(df[den], dtype=float)
+    n = np.asarray(df[num], dtype=float)
+    ok = d > 0
+    out = np.full(d.shape, np.nan)
+    np.divide(100.0 * n, d, out=out, where=ok)
+    return pd.Series(out, index=df.index)
+
+
 def load_geographies() -> gpd.GeoDataFrame:
     for path, hint in ((C.P_GEOMS, "python -m pipeline.fetch"),
                        (C.P_CENSUS, "python -m pipeline.fetch")):
@@ -54,7 +75,9 @@ def load_geographies() -> gpd.GeoDataFrame:
     pop = pd.read_csv(C.P_CENSUS, dtype={"geoid": str})
     pop["geoid"] = pop["geoid"].str.zfill(11)
 
-    merged = gdf.merge(pop[["geoid", "pop", "pop_moe"]].drop_duplicates("geoid"),
+    want = ["geoid", "pop", "pop_moe"] + [
+        c for c in C.CENSUS_EXTRA_VARS if c in pop.columns]
+    merged = gdf.merge(pop[want].drop_duplicates("geoid"),
                        on="geoid", how="left")
 
     missing = merged["pop"].isna().sum()
@@ -63,6 +86,29 @@ def load_geographies() -> gpd.GeoDataFrame:
         ex = merged.loc[merged['pop'].isna(), 'geoid'].head(5).tolist()
         print(f"            e.g. {ex}")
     merged["pop"] = merged["pop"].fillna(0).astype(float)
+
+    # Shares, each against its own denominator. B17001's universe is
+    # "population for whom poverty status is determined", which is smaller
+    # than the tract population -- using `pop` instead would understate every
+    # poverty rate in the city, by more in tracts with group quarters.
+    merged["no_vehicle_pct"] = _share(merged, "hh_no_vehicle", "hh_total")
+    merged["poverty_pct"] = _share(merged, "pov_below", "pov_universe")
+    if "median_income" in merged.columns:
+        inc = np.asarray(merged["median_income"], dtype=float)
+        # ACS reports a missing median as 0 here; the fetch step already
+        # blanks the -666666666 annotation sentinel.
+        merged["median_income"] = np.where(inc > 0, inc, np.nan)
+    else:
+        merged["median_income"] = np.nan
+
+    nv = merged.loc[merged["pop"] > 0, "no_vehicle_pct"]
+    pv = merged.loc[merged["pop"] > 0, "poverty_pct"]
+    print(f"  need    zero-vehicle households: median {nv.median():.1f}% "
+          f"(p10 {nv.quantile(.1):.1f}%, p90 {nv.quantile(.9):.1f}%); "
+          f"{int(nv.isna().sum())} with no denominator")
+    print(f"          below poverty:           median {pv.median():.1f}% "
+          f"(p10 {pv.quantile(.1):.1f}%, p90 {pv.quantile(.9):.1f}%); "
+          f"{int(pv.isna().sum())} with no denominator")
 
     total = merged["pop"].sum()
     print(f"  joined  {len(merged)} {C.GEO_LEVEL}s, total population {total:,.0f}")
@@ -246,7 +292,8 @@ def attach_served_station(df, nearest, serviceable):
         svc.index[svc["wait_min"].notna()].tolist()).to_numpy()
     sub = st.loc[usable].reset_index(drop=True)
 
-    ok = (sidx >= 0) & np.isfinite(df["access_min"].to_numpy())
+    acc = np.asarray(df["access_min"], dtype=float)
+    ok = (sidx >= 0) & np.isfinite(acc)
     pick = np.clip(sidx, 0, len(sub) - 1)
     keys = sub["station_key"].to_numpy()[pick]
     tph = svc[f"tph_{C.WAIT_WINDOW}"].reindex(keys).to_numpy()
@@ -258,6 +305,154 @@ def attach_served_station(df, nearest, serviceable):
     print(f"  access-cost station named for {int(ok.sum())}/{len(df)} "
           f"{C.GEO_LEVEL}s; {changed} differ from the nearest station")
     return df
+
+
+def ranks(s) -> pd.Series:
+    """Percentile rank in 0..1, ties averaged."""
+    return pd.Series(s).rank(pct=True, method="average")
+
+
+def need_index(df: pd.DataFrame, weights: dict | None = None) -> pd.Series:
+    """How much the people in each tract need transit, as a 0..1 index.
+
+    A weighted mean of percentile ranks, which is the right treatment here and
+    the wrong one for the deficit side. These three distributions are bounded
+    shares and a skewed density; ranking them costs nothing, because none of
+    them has a tail that *is* the finding. Walk time does, which is why it
+    stays in minutes -- see C.ACCESS_FLOOR_MINUTES.
+
+    A tract missing a denominator (no households, no poverty universe) falls
+    back to the terms it does have rather than scoring zero, because zero here
+    would read as "nobody needs transit" when it means "nobody lives here".
+    """
+    w = dict(C.NEED_WEIGHTS if weights is None else weights)
+    cols = {"no_vehicle": "no_vehicle_pct", "poverty": "poverty_pct",
+            "density": "density_km2"}
+    num = pd.Series(0.0, index=df.index)
+    den = pd.Series(0.0, index=df.index)
+    for key, col in cols.items():
+        if col not in df.columns or key not in w:
+            continue
+        r = ranks(df[col])
+        ok = r.notna()
+        num = num.add((r * w[key]).where(ok, 0.0), fill_value=0.0)
+        den = den.add(pd.Series(float(w[key]), index=df.index).where(ok, 0.0),
+                      fill_value=0.0)
+    return (num / den.where(den > 0)).astype(float)
+
+
+def add_score(df: pd.DataFrame) -> dict:
+    """Excess person-minutes, plus the terms the browser needs to re-weight it.
+
+    `score = pop x max(walk_min - ACCESS_FLOOR_MINUTES, 0)` -- real units, one
+    research-anchored constant, nothing normalized and nothing weighted.
+    Chosen by measurement, not by argument: `verify.py` scores nine candidates
+    against the eight corridors agencies have actually proposed, and this one
+    hits 80% of its worst 25 inside a corridor against a 26% baseline. Nothing
+    beat it. Two results from that test are worth carrying here because they
+    are counter-intuitive:
+
+    * **The wait penalty makes it worse.** Substituting access cost for walk
+      time drops the hit rate at every depth (80 -> 76, 58 -> 52, 43 -> 41).
+      Access cost is the better measure of what a rider experiences and the
+      worse predictor of where an agency builds, which is coherent: a
+      frequency problem is solved by running more trains on track that already
+      exists, not by a new line.
+    * **The equity variables make it worse too.** Car-free households and
+      people below poverty, as counts or as rates, in a product or in a
+      weighted blend, all lower it -- carfree households alone to 56%. They
+      stay in the payload and in the tooltip because they are well justified
+      on their own terms (the MTA defines its own Equity Areas by exactly the
+      zero-vehicle variable) and because the reader can weight them in. They
+      are not in the default score, and the measurement is why.
+    """
+    excess = (df["walk_min"] - C.ACCESS_FLOOR_MINUTES).clip(lower=0)
+    scored = df["is_populated"] & np.isfinite(df["walk_min"])
+    df["excess_min"] = excess.where(scored)
+    df["score"] = (df["pop"] * excess).where(scored)
+    df["need_index"] = need_index(df).where(scored)
+
+    tot = float(df.loc[scored, "score"].sum())
+    beyond = df.loc[scored & (excess > 0), "pop"].sum()
+    n_zero = int((scored & (excess <= 0)).sum())
+    print(f"  excess  {tot / 1e6:.1f}M person-minutes per one-way trip; "
+          f"{beyond:,.0f} people beyond the "
+          f"{C.ACCESS_FLOOR_MINUTES:.0f}-minute standard")
+    print(f"          {n_zero} of {int(scored.sum())} tracts "
+          f"({100 * n_zero / scored.sum():.1f}%) score exactly zero, being "
+          f"inside it")
+    return {
+        "total_excess_person_minutes": int(tot),
+        "population_beyond_standard": int(beyond),
+        "floor_minutes": C.ACCESS_FLOOR_MINUTES,
+        "n_at_standard": n_zero,
+        "n_scored": int(scored.sum()),
+    }
+
+
+def add_clusters(gdf: gpd.GeoDataFrame, df: pd.DataFrame) -> dict:
+    """Contiguous runs of tracts beyond the standard, and their population.
+
+    A line serves a corridor, not a tract. Forty bad tracts in a row are a
+    transit project; one ringed by good ones is a bus-stop problem, a park, or
+    a measurement artifact -- and ranked independently the two are
+    indistinguishable. This is the cheapest thing in the roadmap that changes
+    what the map *says* rather than how it looks.
+
+    Adjacency comes straight from the DCP polygons, which are water-excluded,
+    so tracts facing each other across the East River do not touch. Contiguity
+    is therefore already *land* contiguity, which is the right default for a
+    walking measure -- no bridge edges are added, and that is a decision rather
+    than an omission: a bridge is not a walk most people would make.
+    """
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    beyond = (df["excess_min"].fillna(0) > 0).to_numpy()
+    idx = np.flatnonzero(beyond)
+    if idx.size == 0:
+        df["cluster_tracts"] = 0
+        df["cluster_pop"] = 0
+        return {}
+
+    # Reset the index first: sjoin reports both sides by index *label*, and a
+    # positional lookup against a filtered frame's labels is an IndexError
+    # waiting for the first tract past row 923.
+    geom = gpd.GeoSeries(df["geometry"].to_numpy()[idx], crs=gdf.crs)
+    sub = gpd.GeoDataFrame(geometry=geom.reset_index(drop=True))
+    pairs = gpd.sjoin(sub, sub, how="inner", predicate="touches")
+    r = pairs.index.to_numpy()
+    c = pairs["index_right"].to_numpy()
+    adj = coo_matrix((np.ones(len(r)), (r, c)), shape=(len(sub), len(sub)))
+    n_comp, labels = connected_components(adj, directed=False)
+
+    pop = df["pop"].to_numpy()[idx]
+    sizes = np.bincount(labels, minlength=n_comp)
+    pops = np.bincount(labels, weights=pop, minlength=n_comp)
+
+    df["cluster_tracts"] = 0
+    df["cluster_pop"] = 0
+    df.iloc[idx, df.columns.get_loc("cluster_tracts")] = sizes[labels]
+    df.iloc[idx, df.columns.get_loc("cluster_pop")] = pops[labels].astype(int)
+
+    order = np.argsort(-pops)
+    print(f"  clusters {n_comp} contiguous blocks of tracts beyond the "
+          f"{C.ACCESS_FLOOR_MINUTES:.0f}-minute standard "
+          f"({len(idx)} tracts in all):")
+    top = []
+    for k in order[:5]:
+        members = idx[labels == k]
+        names = (df.iloc[members]["ntaname"].value_counts().head(3)
+                 .index.tolist())
+        print(f"    {int(sizes[k]):4} tracts, {int(pops[k]):9,} people  "
+              f"{', '.join(str(n)[:24] for n in names)}")
+        top.append({"n_tracts": int(sizes[k]), "pop": int(pops[k]),
+                    "where": [str(n) for n in names]})
+    singles = int((sizes == 1).sum())
+    print(f"    {singles} of the {n_comp} blocks are a single isolated tract, "
+          f"which is a complaint rather than a project")
+    return {"n_clusters": int(n_comp), "n_tracts_beyond": int(len(idx)),
+            "largest": top, "n_single_tract_clusters": singles}
 
 
 # --- classification ---------------------------------------------------------
@@ -489,10 +684,16 @@ def run(force: bool = False):
     df = attach_nearest_station(df, dist_all, nearest_all, serv_all)
     df = attach_served_station(df, nearest_acc, serv_acc)
 
+    print("Under-service score:")
+    score_stats = add_score(df)
+    cluster_stats = add_clusters(gdf, df)
+
     print("Classification:")
     breaks = add_classes(df)
     stats = headline_stats(df, df["subway_walk_min"])
     stats["breaks"] = breaks
+    stats["score"] = score_stats
+    stats["clusters"] = cluster_stats
 
     # Highest-density geographies with the worst access -- the headline finding.
     deserts = (df[df["is_populated"] & (df["density_class"] == 2)]

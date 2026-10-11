@@ -33,6 +33,12 @@ FIELDS = {
     "no_walk_access": "noacc",
     "access_min": "acc", "wait_min": "wait",
     "served_station": "sst", "served_tph": "stph",
+    # The score's inputs, not the score. `excess` is max(walk - 10, 0) and
+    # `score` is pop x excess, both derivable in the browser from fields that
+    # already ship, so neither is sent: at ~5 KB gzipped per field, shipping a
+    # derivable column is 5 KB spent to save a multiplication.
+    "no_vehicle_pct": "nveh", "poverty_pct": "pov",
+    "cluster_tracts": "clu", "cluster_pop": "clupop",
 }
 
 # These columns hold a small number of long, highly repeated strings -- NTA
@@ -64,6 +70,11 @@ SCHEMA_DOC = {
     "sst": "name of the station the access-cost measure picks, which for 224 "
            "tracts is not the nearest one",
     "stph": "trains per hour per direction at that station, weekday 8-9am",
+    "nveh": "percent of households with no vehicle available (ACS B08201)",
+    "pov": "percent below the poverty line, against B17001's own universe",
+    "clu": "tracts in this tract's contiguous block beyond the 10-minute "
+           "standard, 0 if it is inside the standard",
+    "clupop": "population of that block",
 }
 
 
@@ -93,8 +104,11 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
     # cost 61 KB gzipped for four fields, 200x the 0.3 KB a rounded field costs
     # and most of the way through the payload budget. The map renders to one
     # decimal; 10.81292377475531 is 15 digits of nothing.
-    for col in ("walk", "swalk", "wlo", "whi", "acc", "wait", "stph"):
+    for col in ("walk", "swalk", "wlo", "whi", "acc", "wait", "stph",
+                "nveh", "pov"):
         out[col] = out[col].replace([np.inf, -np.inf], np.nan).round(1)
+    for col in ("clu", "clupop"):
+        out[col] = out[col].fillna(0).astype("int32")
     out["dens"] = out["dens"].replace([np.inf, -np.inf], np.nan).round(0)
     out["pop"] = out["pop"].round(0).astype("int64")
     for col in ("bi", "dc", "wc"):
@@ -224,6 +238,20 @@ def main(argv=None) -> int:
     P.main()
 
     df, stats = aggregate_run(args.force)
+
+    # The alignment numbers go into the payload so the map can state its own
+    # external validity rather than leaving it in a terminal nobody reads.
+    # `verify.py` owns the test; this only embeds the result.
+    from pipeline.verify import ALIGNMENT_MIN_PRECISION, SHIPPED_SCORE, alignment
+    hits = alignment(df, verbose=False)
+    stats["alignment"] = {
+        "shipped": SHIPPED_SCORE,
+        "baseline": round(hits["_baseline"][25], 3),
+        "floor": ALIGNMENT_MIN_PRECISION,
+        "precision": {k: {str(d): round(v, 3) for d, v in h.items()}
+                      for k, h in hits.items() if not k.startswith("_")},
+        "robust": hits["_robust"],
+    }
 
     print("\nWeb payloads:")
     _mb, lookups = build_geographies(df)

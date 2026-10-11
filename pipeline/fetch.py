@@ -221,7 +221,9 @@ def fetch_census(force: bool = False) -> Path:
 
     key = _census_key()
     geo = "tract" if C.GEO_LEVEL == "tract" else "block group"
-    cols = [C.CENSUS_POP_VAR] + ([C.CENSUS_MOE_VAR] if C.CENSUS_MOE_VAR else [])
+    extra = list(C.CENSUS_EXTRA_VARS.items())
+    cols = ([C.CENSUS_POP_VAR] + ([C.CENSUS_MOE_VAR] if C.CENSUS_MOE_VAR else [])
+            + [v for _k, v in extra])
     rows: list[dict] = []
 
     for county, name in C.COUNTY_FIPS.items():
@@ -269,6 +271,8 @@ def fetch_census(force: bool = False) -> Path:
             rec = {"geoid": geoid, "borough": name, "pop": num(C.CENSUS_POP_VAR)}
             if C.CENSUS_MOE_VAR:
                 rec["pop_moe"] = num(C.CENSUS_MOE_VAR)
+            for k, v in extra:
+                rec[k] = num(v)
             rows.append(rec)
         print(f"  census  {name:14} {len(body_rows):5} {geo}s")
 

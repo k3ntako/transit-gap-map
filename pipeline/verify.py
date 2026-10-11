@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import warnings
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 from pyproj import Transformer
 from scipy.spatial import cKDTree
 
 import config as C
+from pipeline.aggregate import need_index, ranks
 from pipeline.distance import compute as compute_dist
 from pipeline.graphutil import load_graph
 
@@ -126,6 +128,29 @@ def main() -> int:
     if np.median(snet) > 60:
         failures.append(f"stations median self-distance {np.median(snet):.0f} m is too high")
 
+    # External validity. The only check in this project that compares the map
+    # against something outside it, which is why a score change must not be
+    # able to lower it quietly.
+    try:
+        df = gpd.read_parquet(C.P_GEO_STATS)
+    except Exception as e:
+        print(f"\n  skipped the alignment test: {C.P_GEO_STATS.name} "
+              f"unreadable ({type(e).__name__}). Run `make build` first.")
+    else:
+        hits = alignment(df)
+        got = hits[SHIPPED_SCORE][25]
+        base = hits["_baseline"][25]
+        print(f"\n  shipped score ({SHIPPED_SCORE}) hits "
+              f"{100 * got:.0f}% at worst-25, against a {100 * base:.0f}% "
+              f"baseline and a {100 * ALIGNMENT_MIN_PRECISION:.0f}% floor")
+        if got < ALIGNMENT_MIN_PRECISION:
+            failures.append(
+                f"the shipped score hits only {100 * got:.0f}% of its worst 25 "
+                f"inside a proposed corridor, under the "
+                f"{100 * ALIGNMENT_MIN_PRECISION:.0f}% floor. A score at the "
+                f"{100 * base:.0f}% baseline has no predictive value; check "
+                f"what changed in aggregate.add_score or in the need terms.")
+
     print()
     if failures:
         print("FAILURES:")
@@ -134,6 +159,161 @@ def main() -> int:
         return 1
     print("All distance checks passed.")
     return 0
+
+
+# --- external validity: do we agree with the agencies? ----------------------
+
+# Eight corridors agencies have actually proposed, matched to tracts by NTA
+# name substring. This is the only external check the project has: the map has
+# no ground truth, and "does it look right" is not a standard.
+#
+# Matching by neighborhood name is coarse -- digitized corridor geometry would
+# be better and is the known next step -- but it is reproducible and it is what
+# makes a score change falsifiable rather than a matter of taste.
+#
+# What this test is NOT: official plans are not need. They are need filtered
+# through cost, politics, and whether an abandoned right-of-way happens to be
+# lying around -- two of these eight exist largely because one does. Absence of
+# a plan is not absence of need, so a score is never penalized for ranking an
+# unplanned tract highly; only the hit rate is reported.
+CORRIDORS = {
+    # Four new Metro-North stations in the east Bronx, under construction,
+    # opening 2027.
+    "Penn Station Access": ["Co-op City", "Morris Park", "Parkchester",
+                            "Hunts Point"],
+    # BRT on the abandoned North Shore rail right-of-way.
+    "SI North Shore BRT": ["Mariner's Harbor", "Port Richmond",
+                           "West New Brighton", "St. George", "Stapleton"],
+    "SI West Shore": ["New Springville", "Westerleigh", "Bulls Head"],
+    "Utica Ave corridor": ["Flatlands", "Canarsie", "Marine Park",
+                           "East Flatbush"],
+    "3 train / East New York": ["East New York"],
+    "QueensLink (Rockaway Beach Branch)": ["Rockaway", "Broad Channel",
+                                           "Ozone Park"],
+    "Interborough Express": ["Borough Park", "Kensington", "Flatbush",
+                             "Brownsville", "Ridgewood", "Maspeth",
+                             "Middle Village", "Elmhurst", "Jackson Heights",
+                             "Bay Ridge", "Sunset Park"],
+    "Red Hook extension": ["Red Hook", "Carroll Gardens"],
+}
+
+# The hit rate a score has to beat at worst-25 to be worth shipping. The
+# baseline -- the share of all scored tracts that sit in some corridor -- is
+# about 26%, so a score at 26% has no predictive value at all. This margin is
+# deliberately modest: the test is coarse enough that a near-miss should not
+# fail a build, while a score scoring *at* the baseline should.
+ALIGNMENT_MIN_PRECISION = 0.40
+
+# The score the pipeline actually ships, by name in `candidate_scores`. Named
+# here rather than inline so the gate and the shipped definition cannot drift
+# apart: if `aggregate.add_score` changes, this test starts measuring the
+# wrong thing, and the assertion below is what catches it.
+SHIPPED_SCORE = "pop x excess walk"
+
+
+def candidate_scores(df: pd.DataFrame) -> dict:
+    """Every score worth comparing, as one column each.
+
+    Kept together so the alignment table compares like with like, and so a
+    future score arrives beside its predecessors rather than replacing them
+    silently.
+    """
+    d = df.copy()
+    rd = ranks(d["density_km2"])
+    rw = ranks(d["walk_min"])
+    need = need_index(d)
+    excess_walk = (d["walk_min"] - C.ACCESS_FLOOR_MINUTES).clip(lower=0)
+    excess_acc = (d["access_min"] - C.ACCESS_FLOOR_MINUTES).clip(lower=0)
+    return {
+        # What shipped: a geometric mean of two percentile ranks.
+        "ranks (shipped)": (rd * rw) ** 0.5,
+        # The 2026-10-10 proposal: population times excess walk minutes.
+        "pop x excess walk": d["pop"] * excess_walk,
+        # The same, once the wait is counted.
+        "pop x excess access": d["pop"] * excess_acc,
+        # Phase 3: a need index in place of bare population.
+        "need x excess access": need * excess_acc,
+        "need x excess walk": need * excess_walk,
+        # Both: how many people, how much they need it, how bad it is.
+        "pop x need x excess walk": d["pop"] * need * excess_walk,
+        "pop x need x excess acc": d["pop"] * need * excess_acc,
+        # The need variables as COUNTS rather than rates, which keeps the
+        # score in person- or household-minutes and keeps the tail.
+        "carfree hh x excess walk": d.get("hh_no_vehicle", 0) * excess_walk,
+        "poor people x excess walk": d.get("pov_below", 0) * excess_walk,
+        "carfree hh x excess acc": d.get("hh_no_vehicle", 0) * excess_acc,
+    }
+
+
+def alignment(df: pd.DataFrame, verbose: bool = True) -> dict:
+    """Hit rate of each candidate score against the proposed corridors."""
+    keep = (np.asarray(df["is_populated"], dtype=bool)
+            & np.isfinite(np.asarray(df["walk_min"], dtype=float))
+            & np.isfinite(np.asarray(df["access_min"], dtype=float)))
+    scored = pd.DataFrame(df.loc[keep]).copy()
+    nta = [str(v) if v is not None else "" for v in scored["ntaname"].tolist()]
+    keys = [k for v in CORRIDORS.values() for k in v]
+    inside = np.array([any(k in n for k in keys) for n in nta])
+    n = len(scored)
+    base = inside.mean()
+
+    cands = candidate_scores(scored)
+    if verbose:
+        print(f"\nExternal validity: {int(inside.sum())} of {n} tracts "
+              f"({100 * base:.0f}%) sit in one of {len(CORRIDORS)} corridors "
+              f"agencies have proposed. That share is the baseline a score with "
+              f"no predictive value would hit.")
+        print(f"\n  {'score':<24}{'worst 25':>10}{'worst 50':>10}"
+              f"{'worst 100':>11}")
+        print("  " + "-" * 55)
+
+    out = {}
+    for name, s in cands.items():
+        v = s.to_numpy()
+        order = np.argsort(-np.where(np.isfinite(v), v, -np.inf))
+        hits = {k: float(inside[order[:k]].mean()) for k in (25, 50, 100)}
+        out[name] = hits
+        if verbose:
+            print(f"  {name:<24}" + "".join(
+                f"{100 * hits[k]:>9.0f}%" if k == 25
+                else f"{100 * hits[k]:>9.0f}%" for k in (25, 50, 100)))
+    if verbose:
+        print(f"  {'baseline (random)':<24}" + f"{100 * base:>9.0f}%" * 3)
+    out["_baseline"] = {k: float(base) for k in (25, 50, 100)}
+
+    # Robustness: a tract in the worst 50 under one score is an artifact of
+    # that score; a tract there under every *credible* score is a finding.
+    #
+    # Credible has to mean something, or this measures nothing. The first
+    # version intersected all ten candidates and got zero, because the rank
+    # product is in the list and it is indistinguishable from random -- so the
+    # intersection was asking which tracts a worthless score agrees with.
+    # Only scores clearing the alignment floor are counted.
+    credible = [n for n, h in out.items()
+                if not n.startswith("_") and h[25] >= ALIGNMENT_MIN_PRECISION]
+    worst: dict[int, int] = {}
+    for name in credible:
+        v = cands[name].to_numpy()
+        order = np.argsort(-np.where(np.isfinite(v), v, -np.inf))
+        for i in order[:50]:
+            worst[i] = worst.get(i, 0) + 1
+    robust = [i for i, c in worst.items() if c == len(credible)]
+    if verbose:
+        print(f"\n  Robustness across the {len(credible)} of {len(cands)} "
+              f"scores that clear the "
+              f"{100 * ALIGNMENT_MIN_PRECISION:.0f}% floor: {len(worst)} "
+              f"distinct tracts appear in some worst 50, {len(robust)} appear "
+              f"in every one. Those are the findings that survive the "
+              f"weighting; the rest are artifacts of it.")
+        for i in sorted(robust,
+                        key=lambda j: -cands[SHIPPED_SCORE].to_numpy()[j])[:8]:
+            r = scored.iloc[i]
+            print(f"    {str(r['ntaname'])[:34]:34} pop {r['pop']:6.0f}  "
+                  f"walk {r['walk_min']:6.1f} min  block of "
+                  f"{int(r.get('cluster_tracts', 0) or 0)}")
+    out["_robust"] = {"n_any": len(worst), "n_all": len(robust),
+                      "n_scores": len(credible), "n_candidates": len(cands)}
+    return out
 
 
 if __name__ == "__main__":

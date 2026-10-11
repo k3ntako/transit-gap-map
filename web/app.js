@@ -50,8 +50,10 @@ const fmt = (n, d = 0) =>
 const state = {
   theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
   choropleth: "bivariate",
-  // The gap score's weight: 1 is density only, 0 is walk time only.
-  gapWeight: 0.5,
+  // How much the equity terms count. 0 weights residents equally, which is
+  // the measured-best version; 1 doubles the weight on the most car-free,
+  // highest-poverty tracts.
+  gapWeight: 0,
   surface: false,
   walksheds: true,
   stations: true,
@@ -132,7 +134,7 @@ function syncHash() {
     if (state.choropleth !== "bivariate") q.push(`c=${state.choropleth}`);
     if (state.densFloor) q.push(`dens=${state.densFloor}`);
     if (state.popFloor) q.push(`pop=${state.popFloor}`);
-    if (state.gapWeight !== 0.5) q.push(`w=${state.gapWeight}`);
+    if (state.gapWeight) q.push(`w=${state.gapWeight}`);
     if (state.themePinned) q.push(`t=${state.theme}`);
     if (state.surface) q.push("surface=1");
     if (state.busFtn) q.push("bus=1");
@@ -164,11 +166,36 @@ function reflectState() {
   if (state.densFloor || state.popFloor) $("#settings").open = true;
 }
 
-// --- the walk-access gap score ----------------------------------------------
+// --- the under-service score -------------------------------------------------
 
-// Not "under-served": two of the three axes in ROADMAP.md's reframe are still
-// missing, so this is what it says it is -- a crowd with a long walk.
+// Now "under-service" rather than "walk-access gap": service quality exists in
+// the pipeline, so the word is earned. What it is NOT is a blend of everything
+// available, and that was decided by measurement rather than taste. See
+// `pipeline/verify.py`: nine candidate scores were ranked by how many of their
+// worst 25 tracts fall inside the eight corridors agencies have actually
+// proposed, against a 26% baseline.
+//
+//   pop x excess walk     80%   <- this one
+//   need x excess walk    76%
+//   poor people x excess  76%
+//   pop x excess access   76%
+//   pop x need x excess   72%
+//   carfree hh x excess   56%
+//   ranks (what shipped)  20%   <- indistinguishable from random
+//
+// Two of those lines are counter-intuitive and both are load-bearing. Adding
+// the *wait* makes it worse, because a frequency problem is solved by running
+// more trains on existing track, not by a new line -- access cost is the better
+// measure of a rider's morning and the worse predictor of where an agency
+// builds. And the equity variables make it worse too, in every form tried.
+// They remain available as sliders, because the MTA defines its own Equity
+// Areas by exactly the zero-vehicle variable and a reader is entitled to
+// weight it; the default is zero, and the measurement is why.
 const GAP_BANDS = 7;
+
+// The floor, in minutes, below which there is no gap to measure. Must match
+// C.ACCESS_FLOOR_MINUTES; shipped in stats.json so it cannot drift.
+const floorMin = () => stats.score?.floor_minutes ?? 10;
 
 // Percentile rank rather than the raw value. Density is roughly log-normal --
 // the middle tract holds 16,664 people/km2 and the densest 110,790 -- while
@@ -193,14 +220,44 @@ function rankTracts() {
     (f) => f.properties.pop > 0 && f.properties.walk != null);
   rankInto(scored, "dens", "rd");
   rankInto(scored, "walk", "rw");
+  rankInto(scored, "nveh", "rnv");
+  rankInto(scored, "pov", "rpv");
+  // Excess minutes beyond the standard, and the score at full population
+  // weight. Written onto the feature so the paint expression stays a plain
+  // read: a weight change is one setPaintProperty, not a re-parse of 2 MB.
+  const fl = floorMin();
+  for (const f of scored) {
+    const p = f.properties;
+    p.exc = Math.max((p.walk ?? 0) - fl, 0);
+  }
   return scored.length;
 }
 
-// A weighted geometric mean, so a tract needs BOTH halves to be bad. A weighted
-// sum lets one half carry it: Mariner's Harbor at 279 people/km2 and a
-// 127-minute walk lands mid-ramp under a sum and near the floor under this,
-// which is the honest answer for 1,078 people on marshland.
-const gapScore = (p, w) => Math.pow(p.rd, w) * Math.pow(p.rw, 1 - w);
+// Excess person-minutes: how many people, times how far past the standard they
+// are. Real units, one research-anchored constant, nothing normalized.
+//
+// `w` is now the equity weight, not a density/walk tradeoff. At w=0 the
+// multiplier is population alone, which is the measured-best version. Turning
+// it up blends in the ranked need terms -- car-free households and poverty --
+// so a reader who holds that a car-free household beyond the standard is worse
+// off than a car-owning one can say so and watch the map change. The product
+// form is kept because a sum would let either half carry a tract on its own.
+//
+// Multiplying is also what keeps the empty-land failure mode out. The measured
+// containment: 3 of the worst 153 tracts have under 2,000 people at w=0, and
+// the shipped population floor fades those on demand. Pure need ranks, with no
+// population term, put 27 in -- the smallest a 43-person tract -- which is why
+// `w` scales the need terms *into* a population weight rather than replacing
+// it.
+const needBlend = (p, w) => {
+  if (!w) return 1;
+  const terms = [p.rnv, p.rpv].filter((v) => v != null && isFinite(v));
+  if (!terms.length) return 1;
+  const mean = terms.reduce((a, b) => a + b, 0) / terms.length;
+  return 1 - w + w * 2 * mean;   // w=0 -> 1; mean=0.5 -> 1 at any w
+};
+
+const gapScore = (p, w) => (p.pop ?? 0) * (p.exc ?? 0) * needBlend(p, w);
 
 // Quantile breaks, not equal intervals. The product is heavily skewed -- half
 // the city scores under 0.18 of a 0-0.79 range -- so equal slices would put
@@ -209,24 +266,35 @@ const gapScore = (p, w) => Math.pow(p.rd, w) * Math.pow(p.rw, 1 - w);
 // The bands come out equal to within a tract or two, except at w=0 or w=1,
 // where the score collapses to one variable and that variable's ties cannot be
 // split: walk time ships rounded to 0.1 min, so those bands run ~300-345.
+// Band 0 is "inside the standard", and the other six are quantiles of the
+// tracts that are not. This is structural, not cosmetic: 58.8% of tracts score
+// exactly zero because they are within a ten-minute walk, and quantile breaks
+// cannot split a tie, so plain septiles left three of the seven colors empty.
+// Most of the map paints the palest step, which is the honest picture and a
+// visibly emptier one than a rank product gave.
 let gapCache = { w: null };
 function gapCompute(w) {
   if (gapCache.w === w) return gapCache;
-  const sorted = tracts.features
-    .filter((f) => f.properties.rd != null)
-    .map((f) => gapScore(f.properties, w))
-    .sort((a, b) => a - b);
-  const breaks = [];
-  for (let i = 1; i < GAP_BANDS; i++) {
-    let b = sorted[Math.floor(i * sorted.length / GAP_BANDS)];
+
+  // `nb` has to live on the feature for the paint expression to read it, and
+  // it depends on w, so it is rewritten here -- once per weight change, not
+  // once per tract per frame.
+  const scored = tracts.features.filter((f) => f.properties.rd != null);
+  for (const f of scored) f.properties.nb = needBlend(f.properties, w);
+
+  const all = scored.map((f) => gapScore(f.properties, w));
+  const over = all.filter((v) => v > 0).sort((a, b) => a - b);
+  const breaks = [1e-9];          // anything above zero leaves band 0
+  for (let i = 1; i < GAP_BANDS - 1; i++) {
+    let b = over[Math.floor(i * over.length / (GAP_BANDS - 1))];
     const prev = breaks[breaks.length - 1];
     // `step` requires strictly ascending stops, and a quantile can repeat when
     // many tracts share a score. Nudging keeps the band empty instead of
     // throwing out the whole expression.
-    if (prev !== undefined && b <= prev) b = prev + 1e-6;
+    if (b === undefined || b <= prev) b = prev + 1e-6;
     breaks.push(b);
   }
-  gapCache = { w, sorted, breaks };
+  gapCache = { w, sorted: all.slice().sort((a, b) => a - b), over, breaks };
   return gapCache;
 }
 
@@ -247,8 +315,11 @@ const gapRamp = () =>
 function gapColor() {
   const ramp = gapRamp();
   const w = state.gapWeight;
-  // `^` is an expression operator, so the entire score evaluates in the paint.
-  const score = ["*", ["^", ["get", "rd"], w], ["^", ["get", "rw"], 1 - w]];
+  // The score evaluates in the paint expression, so a weight change is one
+  // setPaintProperty. `needBlend`'s mean-of-available-terms cannot be written
+  // as an expression without knowing which terms are null per feature, so the
+  // blend is read from `nb`, written alongside the ranks whenever w changes.
+  const score = ["*", ["get", "pop"], ["get", "exc"], ["get", "nb"]];
   const steps = ["step", score, ramp[0]];
   gapCompute(w).breaks.forEach((b, i) => steps.push(b, ramp[i + 1]));
   // No rank means unpopulated, or no station reachable on foot: no score, so it
@@ -582,6 +653,7 @@ function wireHover() {
       html += `<div class="tnote">No station reachable on foot (ferry-only island).</div>`;
     } else {
       html += row("Walk to station", `${fmt(p.walk, 1)} min`);
+      if (p.nveh != null) html += row("No car, households", `${fmt(p.nveh, 0)}%`);
       if (p.wlo != null && p.whi != null)
         html += row("Range in tract", `${fmt(p.wlo, 1)}–${fmt(p.whi, 1)} min`);
       // Always shown, not only on the access layer. The wait is a property of
@@ -625,10 +697,32 @@ function wireHover() {
     // instead: a score nobody can interrogate persuades nobody.
     if (state.choropleth === "gap" && p.rd != null) {
       const s = gapScore(p, state.gapWeight);
-      html += `<div class="tclass">Gap: worse than <strong>`
-        + `${Math.round(100 * gapPercentile(s))}%</strong> of tracts<br>`
-        + `density ${Math.round(100 * p.rd)}th percentile · `
-        + `walk ${Math.round(100 * p.rw)}th percentile</div>`;
+      const fl = floorMin();
+      if (s <= 0) {
+        html += `<div class="tclass">Within the ${fmt(fl, 0)}-minute standard —`
+          + ` no gap to measure</div>`;
+      } else {
+        // The decomposition, in the score's own terms. A score nobody can
+        // interrogate persuades nobody, and "92nd percentile" is not an
+        // interrogation -- it says where a tract sits without saying why.
+        html += `<div class="tclass"><strong>${fmt(s / 1000, 0)}k excess`
+          + ` person-minutes</strong><br>${fmt(p.pop)} residents × `
+          + `${fmt(p.exc, 1)} min past ${fmt(fl, 0)}`
+          + (state.gapWeight
+            ? ` × ${fmt(p.nb, 2)} equity weight` : "")
+          + `<br>worse than ${Math.round(100 * gapPercentile(s))}% of tracts`
+          + `</div>`;
+      }
+      // Contiguity: the honest headline is not the worst tract but the largest
+      // run of them. One bad tract ringed by good ones is a bus-stop problem.
+      if (p.clu > 1) {
+        html += `<div class="tnote">In a contiguous block of <strong>`
+          + `${fmt(p.clu)} tracts</strong> past the standard, `
+          + `${fmt(p.clupop)} people.</div>`;
+      } else if (p.clu === 1) {
+        html += `<div class="tnote">Isolated — every neighboring tract is`
+          + ` inside the standard.</div>`;
+      }
     } else if (state.choropleth === "access" && accessClass(p) >= 0) {
       html += `<div class="tclass">Access cost `
         + `<strong>${CLS_ACCESS[accessClass(p)]}</strong> of tracts</div>`;
@@ -736,19 +830,32 @@ function renderLegend() {
 
   if (state.choropleth === "gap") {
     const ramp = gapRamp();
-    const pct = (i) => Math.round(100 * i / GAP_BANDS);
-    // Worst band at the top, so the legend reads in the same direction as the
-    // finding. The label is a percentile of tracts, never the score itself:
-    // the score is a position in a line-up, not a quantity.
-    el.innerHTML = ramp.map((hex, i) => [hex, i]).reverse().map(([hex, i]) =>
-      `<div class="ramprow"><i data-cls="${i}" style="background:${hex}"></i>
-       <span class="lab">${pct(i)}\u2013${pct(i + 1)}%</span></div>`).join("")
+    const { breaks, over } = gapCompute(state.gapWeight);
+    const fl = floorMin();
+    // Labels are the score in its own units -- thousands of excess
+    // person-minutes -- because the score HAS units now. A percentile would
+    // throw away the one property that makes this measure better than the
+    // rank product it replaced.
+    const k = (v) => v >= 1000 ? `${fmt(v / 1000, 0)}k` : fmt(v, 0);
+    const rows = [];
+    for (let i = GAP_BANDS - 1; i >= 1; i--) {
+      const lo = breaks[i - 1], hi = breaks[i];
+      rows.push(`<div class="ramprow"><i data-cls="${i}" style="background:${
+        ramp[i]}"></i><span class="lab">${
+        i === GAP_BANDS - 1 ? `over ${k(lo)}` : `${k(lo)} – ${k(hi)}`
+      }</span></div>`);
+    }
+    el.innerHTML = rows.join("")
+      + `<div class="ramprow"><i data-cls="0" style="background:${ramp[0]}"></i>
+         <span class="lab">within ${fmt(fl, 0)} min — no gap</span></div>`
       + `<div class="ramprow"><i style="background:${unpop()}"></i>
          <span class="lab">no residents</span></div>`
-      + `<div class="sub" style="margin-top:9px">Percentile of tracts, worst
-         first. Density and walk time each as a rank, then multiplied \u2014 a
-         tract needs <strong>both</strong> a crowd and a long walk to score
-         high.</div>`;
+      + `<div class="sub" style="margin-top:9px"><strong>Excess
+         person-minutes</strong>: residents &times; minutes of walk beyond the
+         ${fmt(fl, 0)}-minute standard. ${fmt(over.length)} tracts are past it;
+         the rest paint the palest step because they have no gap to measure.
+         Of the nine scores tested against the corridors agencies have
+         proposed, this is the one that agreed best.</div>`;
     return;
   }
 
@@ -836,6 +943,26 @@ function renderStats() {
   // alone is misleading: the citywide share barely moves, since these tracts
   // were mostly outside the 10-minute band anyway, while the people in them
   // would walk twenty minutes further each way without it.
+  // External validity, stated on the page. The roadmap calls this the single
+  // most credibility-building thing available, and it only works if it is
+  // visible: a validation number in a terminal validates nothing.
+  const al = stats.alignment;
+  const av = $("#validity");
+  if (av && al) {
+    const pc = al.precision[al.shipped];
+    av.innerHTML =
+      `<strong>Does this agree with the agencies?</strong>
+       ${fmt(100 * pc["25"], 0)}% of the 20 worst-scoring tracts sit inside one
+       of eight corridors the MTA and partners have actually proposed, against
+       a ${fmt(100 * al.baseline, 0)}% baseline — the share a score with no
+       predictive value would hit. ${fmt(al.robust.n_all)} tracts stay in the
+       worst 50 under every one of ${fmt(al.robust.n_scores)} alternative
+       weightings; those are the findings that survive the weighting rather
+       than depending on it. Official plans are not need, though: they are need
+       filtered through cost, politics, and whether an abandoned right-of-way
+       happens to be lying around.`;
+  }
+
   const r = stats.commuter_rail_dependence;
   const el = $("#railnote");
   if (el && r) el.innerHTML =
@@ -854,10 +981,22 @@ function renderTable() {
      <td class="num">${fmt(r.mean_walk_min, 1)}</td>
      <td class="num">${fmt(r.pct_within_10, 0)}%</td></tr>`).join("");
 
-  const des = stats.transit_deserts.map((r) =>
-    `<tr><td>${r.ntaname ?? ""}</td><td>${r.boroname}</td>
-     <td class="num">${fmt(r.pop)}</td><td class="num">${fmt(r.density_km2)}</td>
-     <td class="num">${fmt(r.walk_min, 1)}</td></tr>`).join("");
+  // Ranked live by the score the map is painting, not by a list baked at
+  // build time. The old table picked its rows another way -- top density
+  // tercile, then the longest walks -- so the map and the table disagreed, and
+  // nine tracts scored worse than the worst row in it. Computing both from one
+  // function is what makes that impossible rather than merely fixed.
+  const L = stats.lookups;
+  const worst = tracts.features
+    .filter((f) => f.properties.rd != null && gapScore(f.properties, state.gapWeight) > 0)
+    .map((f) => ({ p: f.properties, s: gapScore(f.properties, state.gapWeight) }))
+    .sort((a, b) => b.s - a.s)
+    .slice(0, 20);
+  const des = worst.map(({ p, s }) =>
+    `<tr><td>${esc(L.nta[p.nta] ?? "")}</td><td>${esc(L.boro[p.boro] ?? "")}</td>
+     <td class="num">${fmt(p.pop)}</td><td class="num">${fmt(p.walk, 1)}</td>
+     <td class="num">${fmt(s / 1000, 0)}k</td>
+     <td class="num">${p.clu > 1 ? fmt(p.clu) : "—"}</td></tr>`).join("");
 
   $("#tables").innerHTML = `
     <table>
@@ -867,11 +1006,41 @@ function renderTable() {
       <tbody>${boro}</tbody>
     </table>
     <table>
-      <caption>Dense but poorly served: the 20 highest-density tracts with the
-        longest walks. These are the dark corner of the bivariate map.</caption>
+      <caption>The 20 worst tracts by the under-service score, ranked by the
+        same function the map paints with — so this table and that map can
+        never disagree. &ldquo;Block&rdquo; is the number of contiguous tracts
+        past the ${fmt(floorMin(), 0)}-minute standard that this one belongs
+        to; a line serves a corridor, not a tract.</caption>
       <thead><tr><th>Neighborhood</th><th>Borough</th><th class="num">Population</th>
-        <th class="num">Density /km²</th><th class="num">Walk (min)</th></tr></thead>
+        <th class="num">Walk (min)</th><th class="num">Excess person-min</th>
+        <th class="num">Block</th></tr></thead>
       <tbody>${des}</tbody>
+    </table>
+    ${clusterTable()}`;
+}
+
+// The corridor-scale finding, which no per-tract ranking can produce: the
+// largest contiguous runs of tracts past the standard, and how many people
+// live in them. This is the number an agency would recognize.
+function clusterTable() {
+  const c = stats.clusters;
+  if (!c || !c.largest?.length) return "";
+  const rows = c.largest.map((r) =>
+    `<tr><td>${esc(r.where.join(", "))}</td>
+     <td class="num">${fmt(r.n_tracts)}</td>
+     <td class="num">${fmt(r.pop)}</td></tr>`).join("");
+  return `
+    <table>
+      <caption>Contiguous blocks of tracts past the
+        ${fmt(floorMin(), 0)}-minute standard, largest first. ${fmt(c.n_clusters)}
+        blocks hold ${fmt(c.n_tracts_beyond)} tracts between them, and
+        ${fmt(c.n_single_tract_clusters)} of those blocks are a single isolated
+        tract — a complaint rather than a project. Adjacency is land
+        adjacency: the census polygons exclude water, so tracts facing each
+        other across the East River do not touch.</caption>
+      <thead><tr><th>Where</th><th class="num">Tracts</th>
+        <th class="num">Population</th></tr></thead>
+      <tbody>${rows}</tbody>
     </table>`;
 }
 
@@ -971,12 +1140,18 @@ function wireControls() {
   const weight = $("#f-weight"), weightOut = $("#o-weight");
   const showWeight = () => {
     const w = state.gapWeight;
-    weightOut.textContent = `${Math.round(w * 100)} / ${Math.round((1 - w) * 100)}`;
+    weightOut.textContent = w ? `${Math.round(w * 100)}%` : "off";
   };
   weight.addEventListener("input", () => {
     state.gapWeight = Number(weight.value);
     showWeight();
-    if (state.choropleth === "gap") repaint();
+    if (state.choropleth === "gap") {
+      repaint();
+      renderLegend();
+      // The table ranked by the old score and the map by the new one is the
+      // disagreement ROADMAP.md flagged; re-ranking here is what closes it.
+      renderTable();
+    }
     syncHash();
   });
   showWeight();

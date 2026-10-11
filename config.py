@@ -112,6 +112,35 @@ BUDGET_WALKSHEDS_WIRE_KB = 150.0   # now 111 KB
 # cannot move it (132,016 bytes from 132,428 -- 0.3%).
 BUDGET_SURFACE_KB = 120.0          # now 62 KB
 
+# --- The under-service score ------------------------------------------------
+# The floor below which there is no gap to measure. Ten minutes is where
+# planning convention and observed behavior agree: the half-mile rail standard
+# is 800 m, which at WALK_SPEED_MPS is 9.9 minutes, and El-Geneidy et al.
+# measured 16,014 home-based transit trips in Montreal along the street network
+# and put the 85th percentile walk at 873 m to a metro -- 10.8 minutes here.
+# https://www.tram.mcgill.ca/Research/Publications/Transit_service_area.pdf
+#
+# It is a FLOOR, not a cap, and that distinction is the whole finding. Capping
+# walk time was measured and does not work: at a 20-minute cap a 104-minute
+# walk scores the same as an 18-minute one, 17% of tracts tie at the ceiling,
+# and the tie is then broken by density alone -- which is the defect the cap
+# was supposed to fix. Percentile-ranking the walk does the same damage more
+# quietly: ten times the walk is 1.4 times the rank.
+ACCESS_FLOOR_MINUTES = 10.0
+
+# How the need side combines, by default. The browser owns these at runtime --
+# they are sliders, and the whole point is that a reader who disagrees can
+# move them -- so these are the defaults and the values `verify.py` scores
+# against, not a fixed definition.
+#
+# Zero-vehicle households carry the most weight because they are the only term
+# with an agency definition behind them: the MTA characterizes its Equity Areas
+# by exactly this variable. Density carries the least because it has
+# effectively saturated in New York -- at the Pushkarev and Zupan heavy-rail
+# threshold of ~4,100 people/km2, only 5.4% of NYC tracts fall below it, so
+# density cannot be what separates one tract from another here.
+NEED_WEIGHTS = {"no_vehicle": 0.4, "poverty": 0.35, "density": 0.25}
+
 # --- Geography --------------------------------------------------------------
 STATE_FIPS = "36"
 # Bronx, Kings (Brooklyn), New York (Manhattan), Queens, Richmond (Staten Island)
@@ -135,6 +164,23 @@ CENSUS_DATASET = "2023/acs/acs5"
 CENSUS_POP_VAR = "B01003_001E"
 CENSUS_MOE_VAR = "B01003_001M"
 CENSUS_KEY_SIGNUP = "https://api.census.gov/data/key_signup.html"
+
+# Who needs transit, beyond "how many people live here". Each is a count that
+# has to be divided by its own denominator -- the universes differ, and
+# B17001's is "population for whom poverty status is determined", which is
+# smaller than the tract population and not interchangeable with it.
+#
+# Zero-vehicle households first on purpose: it is the variable the MTA itself
+# uses to characterize its Equity Areas (65% zero-vehicle inside against 29%
+# outside), which makes it the one need term with an agency definition behind
+# it rather than an argument.
+CENSUS_EXTRA_VARS = {
+    "hh_total": "B08201_001E",     # households, the denominator for below
+    "hh_no_vehicle": "B08201_002E",
+    "pov_universe": "B17001_001E",  # NOT the tract population
+    "pov_below": "B17001_002E",
+    "median_income": "B19013_001E",
+}
 
 # --- Data sources (all verified reachable 2026-10-09) -----------------------
 SOC_SUBWAY = "https://data.ny.gov/resource/39hk-dx4f.csv?$limit=1000"
