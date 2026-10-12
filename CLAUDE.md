@@ -20,7 +20,7 @@ make setup        # .venv (Python 3.14) + requirements; then cp .env.example .en
 make all          # fetch -> network -> service -> distance -> transit -> access
                   #   -> palette -> surface -> build -> verify
 make serve        # static server on :8000 (PORT=xxxx to change)
-make transit      # rail-only transit graph: station-to-station travel time
+make transit      # rail + ferry transit graph: station-to-station time
 make access       # jobs reachable in 45 min, job centers, detour factor
 make verify       # the correctness gate
 make clean        # wipe data/processed and web/data
@@ -76,7 +76,7 @@ downstream of the expensive parse.
 | 5 | `aggregate.py` | `tract_stats.parquet` — per-geography statistics |
 | 6 | `palette.py` | `web/data/palette.json` |
 | 7 | `surface.py` | walk-time raster PNGs + `walksheds.geojson` |
-| 4b | `transit.py` | `rail_station_time.npz` + `transit_graph.parquet` — a rail-only transit graph, solved for every station pair |
+| 4b | `transit.py` | `rail_station_time.npz` + `transit_graph.parquet` — a rail + Staten Island Ferry transit graph, solved for every station pair |
 | 4c | `accessibility.py` | `tract_accessibility.parquet` + `tract_transit_time.npz` — jobs reachable, hub times, detour factor |
 | 8 | `build.py` | `tracts.geojson`, `stations.geojson`, `bus_ftn.geojson`, `hubs.json`, `stats.json` |
 | — | `verify.py` | nothing; checks stages 4 and 4b |
@@ -153,13 +153,29 @@ numbers. Every meter-valued tunable is named `*_METERS`, spelled out, because
 
 **`palette.py` is the only place colors are defined.** Both the raster in stage 7
 and the browser read `palette.json`, so there is exactly one definition of every
-color. The two Phase 4 choropleths stay inside that system rather than beside
-it: `app.js:seqRamp()` samples seven steps out of the same 13-step audited
-`ramps.density` and `ramps.walk`, reversed in dark mode, which is exactly what
-`density_classes_dark` is against `density_classes`. The detour factor has
-**no layer**, deliberately — measured, the middle 80% of tracts run 0.79 to
-1.26, so a choropleth of it is close to one color. It ships in the tooltip,
-and a diverging ramp for it would need new steps through `audit()`'s gates.
+color. The three sequential choropleths stay inside that system rather than
+beside it: `app.js:seqRamp()` samples seven steps out of the same 13-step
+audited `ramps.density` and `ramps.walk`, reversed in dark mode, which is
+exactly what `density_classes_dark` is against `density_classes`. The detour
+factor has **no layer**, deliberately — measured, the middle 80% of tracts
+run 0.79 to 1.28, so a choropleth of it is close to one color. It ships in the
+tooltip, and a diverging ramp for it would need new steps through `audit()`'s
+gates.
+
+**The under-served blocks layer draws the contiguity measure, and shades it by
+the block's population rather than the tract's.** Added 2026-10-11 beside the
+per-tract score, not in place of it — both views ship, because a tract past
+the standard on its own says something different from the same tract inside a
+430-tract band. There is deliberately no categorical fill per block: 58 blocks
+would mean 58 hues, which breaks the rule against generating or cycling them,
+so magnitude gets a sequential ramp and identity goes in the tooltip. Two
+details are load-bearing. `cluid` is **-1** for every tract not past the
+standard and those paint `unpop()`, because "no gap to measure" is not "the
+smallest gap". And `seqBreaks` takes a `positive` flag for this layer, since
+`clupop` is 0 on 1,402 of 2,325 tracts and those zeros would otherwise swallow
+the bottom quantiles whole. Even so the breaks collapse 6 → 4: the largest
+block holds 430 of the 923 clumped tracts, which all share one value, so the
+top band's label reads "and up" rather than "over".
 
 The bivariate matrix is an **OKLCH field** (`FIELD` + `bivariate_field()`),
 not a four-corner bilinear blend — that was tried and provably cannot put the
@@ -171,7 +187,7 @@ raises rather than warns. Load the **dataviz skill** before touching any of this
 `index.html`, `app.js`, `style.css` — reading the payloads in `web/data/`
 (`tracts`, `stations`, `bus_ftn` and `walksheds` GeoJSON, `stats.json`,
 `palette.json`, `hubs.json`, `walk_surface.json` and one of the two surface
-PNGs). `hubs.json` is fetched with a `.catch(() => null)`: it is 34 KB only
+PNGs). `hubs.json` is fetched with a `.catch(() => null)`: it is 39 KB only
 the hub switcher reads, and a build from before Phase 4 has no such file, so a
 rejection must not take the map down with it. `web/data/` is gitignored
 and entirely generated, so a fresh clone must `make all` before `make serve`.
@@ -193,7 +209,7 @@ two were checked to agree to 0.0 on every tract at five weights before shipping.
 The freeze turns a repeat of this into an immediate throw.
 
 **The transit graph's node is a leg, not a station and not a route, and the
-reason is where the wait comes from.** `transit.py` builds a rail-only
+reason is where the wait comes from.** `transit.py` builds a rail-plus-ferry
 frequency graph. One node per *station* lets a shortest path change vehicles
 at no cost, so transfers become free and the graph claims a connectivity the
 city does not have — the opposite of what this measures. One node per
@@ -235,11 +251,52 @@ epistemic decision, not a data one.** Bus service is what the city provides
 *instead of* rail in precisely the places this map exists to find, so letting
 a bus close the gap would hide the finding by construction. The
 frequent-bus-network layer keeps the job of showing what runs today, drawn on
-top of the score rather than netted off it. The consequence to own is that
-Staten Island reads as reaching 18,000 of the city's 4.47M jobs, because the
-Staten Island Railway has no rail connection to the rest of the system and the
-ferry is not rail. `verify.py` *asserts* that pair is unreachable, so adding a
-ferry edge later fails the test and makes someone decide.
+top of the score rather than netted off it.
+
+**The Staten Island Ferry is in, and it is the same rule rather than an
+exception to it.** The bus rule is about substitution, not about vehicles:
+the ferry substitutes for nothing. It is the only fixed-guideway trunk link
+across the harbor, on its own right of way at a published headway, and no
+proposal replaces it. Leaving it out did not produce a conservative number,
+it produced a false one — the rail-only graph answered "how does a Staten
+Islander reach a job" with 18,000 of 4.47M, for 495,000 people, which is true
+of rail and false of transit. The operative line is dedicated-right-of-way
+trunk service against street-running service that shares its lanes with
+traffic. `config.GTFS_FERRY_FEED` carries the argument and the feed facts;
+NYC DOT publishes the feed through NYC Open Data (dataset `b57i-ri22`), and
+not through the nyc.gov URL its own metadata advertises, which 403s anything
+without a browser user agent.
+
+Added 2026-10-11, and three things it changed are worth knowing before
+reading any Staten Island number:
+
+- **It did not move jobs-in-45, and the arithmetic says why.** The crossing is
+  25 minutes on every one of the feed's 416 trips, and the expected wait at
+  the 8–9am headway (four sailings an hour) is 7.5, so the trip costs 32.5
+  minutes before anyone walks anywhere. Measured, the cheapest door-to-door
+  Staten Island → Manhattan trip in the model is 8.5 + 32.5 + 5.4 = **46.4
+  minutes**, just past the 45-minute budget. So Staten Island still reaches
+  ~18,000 jobs — now because the ferry is slow rather than because the model
+  pretended it was absent, which is a different claim and a defensible one.
+- **It did move the detour factor, a lot.** Staten Island's inter-borough
+  pairs used to be unreachable and were therefore *excluded* from its median,
+  so the layer was flattering the borough by construction. Its median detour
+  went 1.17 → **1.39**, making it the worst-detour borough, and station-pair
+  reachability went 89.2% → 94.6%.
+- **It moved a pre-registered result without breaking it.** The largest
+  worst-decile detour block was 56 tracts in Flatlands/Marine Park with 54 of
+  them inside a large under-service block; it is now **57 tracts, all on
+  Staten Island, 44 of them** inside the 105-tract Staten Island
+  under-service block. The two-independent-measures agreement survived and
+  relocated. Note the wording trap this exposed: that cross-check matches
+  against *any* under-service block past 100 tracts, and there are two (430
+  across Brooklyn and Queens, 105 on Staten Island) — calling it "the
+  largest" was accidentally true before and false after.
+
+`verify.py` used to *assert* St George → Atlantic Av was unreachable,
+precisely so that adding a ferry edge would fail the build and force this
+decision. It did. The pair is kept as `ISLAND_LINK` with the sign flipped: it
+now checks that the connection has not quietly disappeared again.
 
 **The accessibility measure has one budget, and the first version had two.**
 `C.JOBS_BUDGET_MINUTES` is 45 minutes door to door. An early pass also capped
@@ -261,7 +318,7 @@ difference is +0.25 min at the median and within 2 minutes for 96.6% of
 tracts, and it leans conservative.
 
 **Payload budgets are asserted, not advisory, and they are measured gzipped.**
-`BUDGET_TRACTS_WIRE_KB = 350` raises a `SystemExit` in `build.py` and
+`BUDGET_TRACTS_WIRE_KB = 420` raises a `SystemExit` in `build.py` and
 `BUDGET_WALKSHEDS_WIRE_KB = 150` does the same in `surface.py`, both against
 `config.wire_kb()` — gzip level 6, which is what a CDN serves. The raw size is
 printed and ignored because the wire size is what a reader downloads, not
@@ -270,16 +327,26 @@ numeric field, they move together at a constant ~5×. (An earlier comment
 claimed 0.3 KB gzipped; that was a measurement error, corrected in
 `config.py`.)
 
-Headroom is finite, and Phase 4 spent most of it: **343 KB against 350**, or
-about one more field. Phase 4's three fields cost 51 KB in this file against
-19 KB measured standalone, which is the interleaving tax made concrete — a
-column costs roughly **2.5x more as a per-feature property than as a
-contiguous array**, because gzip's window cannot span 2,325 features. That is
-the lever for the next field: `hubs.json` carries eight hub columns as
-parallel arrays aligned to an explicit `geoids` list for 34 KB, where the same
-numbers interleaved would have been about 100. `app.js:attachHubs()` joins
-them onto the features **before** `addSource`, which is mandatory and not
-stylistic (see the black-map note below).
+Headroom is finite, and Phase 4 spent all of the old one: 305 KB → **343 KB
+against a 350 KB budget**, which left room for no further field at all.
+Phase 4's three fields cost 51 KB in this file against 19 KB measured
+standalone, which is the interleaving tax made concrete — a column costs
+roughly **2.5x more as a per-feature property than as a contiguous array**,
+because gzip's window cannot span 2,325 features. `hubs.json` carries eight
+hub columns as parallel arrays aligned to an explicit `geoids` list for 39 KB,
+where the same numbers interleaved would have been about 100.
+`app.js:attachHubs()` joins them onto the features **before** `addSource`,
+which is mandatory and not stylistic (see the black-map note below).
+
+**The budget was raised to 420 on 2026-10-11, deliberately and once**, and the
+reasoning matters more than the number. The alternative was to do the
+columnar-sidecar refactor immediately, which is the better answer and is
+written down in `ROADMAP.md` — but doing it in the same commit as the fields
+that provoked it is how a measured lever turns into an unreviewable diff. 420
+is the then-current 345 KB plus roughly five fields of measured headroom. The
+number to watch is not this one; it is **whether the next field arrives as a
+property or as an array**. A second raise without the refactor is the thing
+this note exists to make embarrassing.
 
 **A new float field must join the rounding tuple in `build.py`**:
 unrounded float64 costs 15 KB gzipped instead of 5, and four such fields ate
@@ -308,10 +375,9 @@ not a cap**: capping was measured and fails, because the cap is the point above
 which everything ties and ties break on density alone.
 
 `verify.alignment()` ranks every candidate score by how many of its worst 25
-tracts fall inside the eight corridors agencies have actually proposed, and
-`main()` fails the build if the shipped score drops below
-`ALIGNMENT_MIN_PRECISION`. Two results there are counter-intuitive and both are
-load-bearing, so don't "improve" the score past them without re-running it:
+tracts fall inside the eight corridors agencies have actually proposed. Two
+results there are counter-intuitive and both are load-bearing, so don't
+"improve" the score past them without re-running it:
 
 - **Adding the wait penalty lowers alignment** (80% → 76% at worst-25). Access
   cost is the better measure of a rider's morning and the worse predictor of
@@ -325,32 +391,88 @@ load-bearing, so don't "improve" the score past them without re-running it:
 - **Phase 4 lowers it further, and the prediction was on record in
   `ROADMAP.md` before anything was computed.** Jobs accessibility and the
   detour factor both come in at or *below* the 26% baseline: `pop x jobs out
-  of reach` 16%, `pop x detour` 4%, against 80% for the shipped score. Hub
+  of reach` 16%, `pop x detour` 0%, against 80% for the shipped score. Hub
   minutes do better — `pop x excess hub min` 56% — but still lose.
   **The mechanism is diagnosable and is the useful part:** alignment tracks
   each factor's dynamic range exactly, and monotonically. Coefficient of
   variation, with the Spearman correlation between `pop x factor` and `pop`
-  alone:
+  alone, and the clumped hit rate beside the per-tract one:
 
-  | factor | CoV | rho vs pop | worst-25 |
-  |---|---|---|---|
-  | excess walk min (shipped) | 2.24 | -0.15 | 80% |
-  | excess hub min | 1.34 | -0.05 | 56% |
-  | hub minutes | 0.50 | 0.61 | 48% |
-  | jobs out of reach | 0.33 | 0.71 | 16% |
-  | detour factor | 0.18 | 0.88 | 4% |
+  | factor | CoV | rho vs pop | worst-25 | clumped |
+  |---|---|---|---|---|
+  | excess walk min (shipped) | 2.24 | -0.15 | 80% | 52% |
+  | excess hub min | 1.34 | -0.05 | 56% | 54% |
+  | hub minutes | 0.50 | 0.61 | 48% | 44% |
+  | jobs out of reach | 0.33 | 0.71 | 16% | 29% |
+  | detour factor | 0.19 | 0.88 | 0% | 3% |
 
   A narrow-range factor multiplied by population *is* a population ranking,
   and the city's most populous tracts are its well-served cores, which no
   agency is proposing to serve again. So the shipped score keeps working
   because excess walk minutes span 0 to 100+, not because walking matters
-  more than travel time. The detour factor at CoV 0.18 is near-constant
+  more than travel time. The detour factor at CoV 0.19 is near-constant
   citywide, which is itself the answer to the question the layer was built to
   ask — see the pre-registered ring test in `ROADMAP.md`.
+
+  Two honest wrinkles in that table. The CoV ordering survives the switch to
+  clumps and the rank ordering mostly does, but **`excess hub min` edges ahead
+  of the shipped score once the singletons are dropped** (54% against 52%),
+  which the per-tract figures do not show. That is one block's worth of
+  difference and not a reason to change the score, but it is the kind of thing
+  the clumped measure exists to surface and should be re-read whenever either
+  number moves. And the detour row moved with the ferry edge: it read CoV
+  0.18 and 4% on the rail-only graph, because Staten Island's inter-borough
+  pairs were unreachable and therefore excluded from its own median.
 
 `SHIPPED_SCORE` in `verify.py` names the candidate that `aggregate.add_score`
 implements; if one changes without the other the gate silently measures the
 wrong thing.
+
+**What gates the build is the *clumped* hit rate, not the per-tract one, and
+the floor is derived rather than chosen.** Added 2026-10-11. The per-tract
+measure compares a point measure against corridors that are lines, so a score
+that scatters its worst tracts across five boroughs can tie one that puts them
+all in a single band — and only the second describes something a line could
+fix. Phase 4 made that overdue rather than untidy: sixteen candidates are
+compared this way and six arrived in one commit. So `alignment()` also takes
+each score's worst `CLUSTER_PROBE_K` (100) tracts, groups them with the same
+land adjacency `add_clusters` uses, keeps the blocks of `CLUSTER_MIN_TRACTS`
+(3) or more, and measures the hit rate over **those tracts only** — the same
+statistic against the same 26% baseline, with the singletons dropped. Measured
+for the shipped score: 80% at worst-25 per tract, 43% at worst-100 per tract,
+and **52% clumped** over 8 blocks covering 77 of the worst 100. Clumping
+*raises* agreement, which is the direction it should move if the scattered
+tracts were noise.
+
+The gate is `baseline + ALIGNMENT_CLUSTER_MARGIN` (26% + 10 = 36%), computed
+at runtime, and **never** the shipped score's own number. That is deliberate
+and is the whole design: official plans are need filtered through cost,
+politics, and whether an abandoned right-of-way is lying around, so a floor set
+near where the score already sits would quietly make agreement with the MTA a
+target and import all of it. The gate answers "is this score noise?" and
+refuses to answer "does it agree with the agencies?". `ALIGNMENT_MIN_PRECISION`
+(40%) survives as the per-tract number, reported and used to pick the
+"credible" set for the robustness intersection, but it no longer fails a build.
+
+**The disagreement table is the output worth reading.** `alignment()` prints
+and ships (`stats.alignment.disagree`) every block with its corridor overlap,
+because a block the score ranks badly that nobody has proposed anything for is
+the finding, not the error. Measured: of the shipped score's 8 blocks, Staten
+Island's 40-tract block overlaps 88% and Marine Park-Mill Basin 100%, while
+**five blocks overlap 0–33%, and four of those five are northeastern
+Queens** —
+College Point/Whitestone/Bay Terrace (11 tracts, 59,639 people), Pomonok,
+Oakland Gardens, Glen Oaks/Douglaston/Bellerose — plus Throgs Neck. That
+pattern is consistent with the constraint the test already warns about: the
+plans cluster on existing rights-of-way, and northeastern Queens has none.
+
+**Digitizing the eight corridors as geometry is deliberately not done.** Four
+follow rights-of-way already in the OSM extract (the Bay Ridge Branch, the
+Rockaway Beach Branch, the North Shore right-of-way, the Hell Gate Line) and
+four have no published alignment at all, so half the work would be drawing
+lines by hand — putting the author's judgment back inside the one test built
+to keep it out. If it ever happens it belongs with the rail-lines work, where
+the first four arrive free.
 
 **Contiguity is reported beside the per-tract score**, because a line serves a
 corridor. Connected components over land adjacency — the DCP polygons exclude

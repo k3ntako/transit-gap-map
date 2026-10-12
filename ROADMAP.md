@@ -296,9 +296,10 @@ measurement.
 
 ## What Phase 4 left behind
 
-**Phase 4 shipped.** `pipeline/transit.py` builds a rail-only frequency graph
-— 733 stations, 3,165 legs, 4,631 nodes, solved for every station pair in
-183 ms — and `pipeline/accessibility.py` turns it into jobs reachable in 45
+**Phase 4 shipped.** `pipeline/transit.py` builds a frequency graph over rail
+and the Staten Island Ferry — 735 stations, 3,167 legs, 4,637 nodes, solved
+for every station pair in 194 ms — and `pipeline/accessibility.py` turns it
+into jobs reachable in 45
 minutes, minutes to eight job centers, and the detour factor, in 30 seconds
 for the whole city. The design reasoning now lives in `CLAUDE.md`, which is
 where the things worth not rediscovering go; what is here is the part a plan
@@ -311,11 +312,18 @@ This file committed to three outcomes before the detour factor was computed,
 specifically so the answer could not be chosen after the fact. The result:
 
 **Outcome 3 — no ring. The detour factor is close to flat.** Its coefficient
-of variation is **0.18**; the middle 80% of tracts run 0.79 to 1.26 against a
-full range of 0.61 to 2.09, and the borough medians are 0.76 (Manhattan),
-0.99 (Brooklyn), 1.03 (Bronx and Queens), 1.17 (Staten Island). Outside
-Manhattan there is barely a gradient. The worst decile is 225 tracts in 24
-contiguous blocks, the largest holding 56 of them — 25%, not a band.
+of variation is **0.19**; the middle 80% of tracts run 0.79 to 1.28 against a
+full range of 0.61 to 1.97, and the borough medians are 0.76 (Manhattan),
+1.00 (Brooklyn), 1.03 (Bronx and Queens), 1.39 (Staten Island). Outside
+Manhattan and Staten Island there is barely a gradient. The worst decile is
+225 tracts in 19 contiguous blocks, the largest holding 57 of them — 25%,
+not a band.
+
+*(Figures restated 2026-10-11, after the ferry edge. The conclusion did not
+move; Staten Island's did. Its inter-borough pairs had been unreachable and
+were therefore excluded from its own median, so the original 1.17 was the
+layer flattering the borough by construction. On the pre-ferry graph the
+numbers read CoV 0.18, range 0.61–2.09, 24 blocks, largest 56.)*
 
 So the orbital problem is **a network property rather than a corridor**:
 radial routing taxes lateral trips across the whole city at about the same
@@ -326,13 +334,24 @@ near-constant field drawn as one would be a uniform map pretending to be a
 finding.
 
 **The bonus is outcome 2 in miniature, and it was not predicted.** The largest
-detour block — Flatlands, Marine Park-Mill Basin, East Flatbush — is not
-one of the eight proposed corridors' shapes, and **54 of its 56 tracts also
-sit in the largest contiguous under-service block**. Two measures that share
-no inputs agree there: the under-service score is walk-and-density and knows
-nothing about travel time, and the detour factor is travel time and knows
-nothing about population. `accessibility.py` prints the overlap on every run
-so it stays a measurement rather than a memory.
+detour block is not one of the eight proposed corridors' shapes, and **44 of
+its 57 tracts also sit in a contiguous under-service block past 100 tracts**.
+Two measures that share no inputs agree there: the under-service score is
+walk-and-density and knows nothing about travel time, and the detour factor is
+travel time and knows nothing about population. `accessibility.py` prints the
+overlap on every run so it stays a measurement rather than a memory.
+
+*(Also restated 2026-10-11, and this one relocated. Before the ferry edge the
+block was Flatlands, Marine Park-Mill Basin and East Flatbush, 54 of its 56
+tracts overlapping; it is now 57 tracts entirely on Staten Island with 44 of
+them inside the 105-tract Staten Island under-service block. The agreement
+survived the change in the measure, which is a stronger result than the
+original, since the two measures now coincide somewhere the first version of
+the detour factor could not even see. One wording trap it exposed: the
+cross-check matches against **any** under-service block past 100 tracts and
+there are two of them — 430 across Brooklyn and Queens, 105 on Staten
+Island — so "the largest" was accidentally true before and false after,
+and `accessibility.py` no longer says it.)*
 
 ### Jobs accessibility lowered alignment, as predicted
 
@@ -362,15 +381,34 @@ roughly 0.5 it will lose to population and the alignment test will say so.
   **overstates** under-service on commuter rail, which is the direction this
   project is least entitled to be wrong in — eastern Queens and the Bronx
   are where the thesis lives.
-- **The Staten Island Ferry.** The rail-only graph answers "how does a Staten
-  Islander reach a job" with 18,000 of 4.47M, because the SIR has no rail
-  connection to anything and a ferry is not rail. That is true of *rail* and
-  false of *transit*, and it is a number about 495,000 people that would be
-  quoted. `verify.py` asserts the pair is unreachable so nobody adds the edge
-  by accident. Adding it deliberately needs a headway and a runtime that no
-  feed on disk supplies — the identical reason airports went to Phase 9 —
-  so the honest version is a cited source, not a hand-coded guess. **This is
-  the most load-bearing gap the phase leaves.**
+- ~~**The Staten Island Ferry.**~~ **Done 2026-10-11.** This asked for a
+  cited source rather than a hand-coded guess, and there is one: NYC DOT
+  publishes a GTFS feed for the ferry through NYC Open Data (`b57i-ri22`),
+  current to 2028, and it supplies both numbers the entry said no feed on disk
+  had — a 25-minute crossing on every one of its 416 trips and four
+  sailings an hour each way at the 8–9am peak. So the graph is now rail
+  plus the ferry, and the rule it follows is the bus rule rather than an
+  exception to it: the bus exclusion is about *substitution*, and the ferry
+  substitutes for nothing. See `config.GTFS_FERRY_FEED`.
+
+  **What it changed is not what this entry predicted, and the difference is
+  worth keeping.** The entry assumed the 18,000-jobs figure was the artifact.
+  It was not. The crossing costs 32.5 minutes before anyone walks anywhere
+  (25 + a 7.5-minute expected wait), and the cheapest door-to-door Staten
+  Island → Manhattan trip in the model measures **46.4 minutes** against a
+  45-minute budget, so jobs-in-45 barely moved. The number was right and the
+  *reason* was wrong, which is the distinction this file exists to record.
+
+  What did move: station-pair reachability 89.2% → 94.6%, and Staten
+  Island's median detour **1.17 → 1.39**, making it the worst-detour
+  borough — because its inter-borough pairs had been unreachable and were
+  therefore excluded from its own median, so the layer was flattering the
+  borough by construction. And the pre-registered bonus finding *relocated*
+  rather than breaking: the largest worst-decile detour block was 56 tracts in
+  Flatlands/Marine Park with 54 inside a large under-service block, and is now
+  57 tracts entirely on Staten Island with **44 inside the 105-tract Staten
+  Island under-service block**. Two measures over separate inputs still agree;
+  they now agree somewhere else.
 - **A diverging ramp for the detour factor**, if it ever gets a layer. It is a
   ratio centered on 1.0 and the palette has no diverging pair; adding one
   means new steps through `palette.py`'s `audit()` gates, and the flatness
@@ -383,13 +421,87 @@ roughly 0.5 it will lose to population and the alignment test will say so.
   presentation choice and this is a presentation wobble, not a wrong number,
   but it is the visible edge of the `min_station(median_sample)` coarseness
   `CLAUDE.md` describes.
-- **Payload headroom is gone.** 343 KB against a 350 KB budget. The next
-  per-tract field does not fit, and the lever is measured: a column costs
-  ~2.5x more as a per-feature property than as a parallel array, so the next
-  one should follow `hubs.json` rather than `tracts.geojson`.
-- **Cluster-level precision in the alignment test** is now overdue rather than
-  merely cheap. Sixteen candidate scores are compared on a per-tract hit rate
-  against corridors that are lines, and Phase 4 added six of those sixteen.
+- **Payload headroom.** Phase 4 took the file to 343 KB against a 350 KB
+  budget, which left room for no further field at all. **Deferred once, on
+  2026-10-11, by raising the budget to 420** — and that is the whole of
+  what was decided, so read it as a dated loan rather than a solution. The
+  real answer is measured and unchanged: a column costs ~2.5x more as a
+  per-feature property than as a parallel array, because gzip's window cannot
+  span 2,325 interleaved features, and `hubs.json` carries eight columns for
+  39 KB where interleaving them would have cost about 100. **So the next
+  numeric field should move the existing ones into a columnar sidecar on the
+  way in, not add a ninth property.** A second raise without that refactor is
+  the thing the note in `config.py` exists to make embarrassing.
+- ~~**Cluster-level precision in the alignment test.**~~ **Done 2026-10-11**,
+  and the framing changed on the way: see "What the alignment test is for"
+  below. The unit is fixed and the corridor geometry deliberately is not.
+
+### What the alignment test is for — revised 2026-10-11
+
+This is the only external check the project has, and it was quietly drifting
+into being a target. The revision is a change of purpose, not of code, and it
+came out of a plain objection: **the proposed lines are not optimal routes.**
+They are need filtered through cost, politics, and whether an abandoned
+right-of-way happens to be lying around — two of the eight exist largely
+because one does. The agencies had far more constraints to satisfy than need,
+so a score that matched them perfectly would have inherited every one of those
+constraints. Agreement is evidence the score is measuring something real;
+*more* agreement is not better.
+
+So the test now has two jobs, and the second is the interesting one.
+
+**1. A noise detector, and nothing more ambitious.** What fails the build is
+the clumped hit rate against `baseline + ALIGNMENT_CLUSTER_MARGIN` — 26% +
+10 = 36% — computed at runtime from the baseline and **never** from how
+well the shipped score currently does. A floor set near the score's own number
+is exactly the mechanism that turns agreement into a target, which is why it
+is derived. The gate asks "is this score noise?" and refuses to answer "does
+it agree with the MTA?". `ALIGNMENT_MIN_PRECISION` (40%) survives as the
+per-tract figure and as the filter for the robustness intersection, but it no
+longer fails a build.
+
+**2. A diagnostic: where we disagree, and why.** The unit is now a clump,
+which is the half of the old entry that genuinely needed fixing. A rail line
+serves a strip of neighborhoods, so `alignment()` takes each score's worst 100
+tracts, groups them over the same land adjacency `add_clusters` uses, keeps
+blocks of 3+, and measures the hit rate over those tracts only. Measured, the
+shipped score goes from 43% at worst-100 per tract to **52% clumped** over 8
+blocks covering 77 of the 100 — clumping *raises* agreement, which is the
+direction it should move if the scattered tracts were noise. And the blocks
+are printed with their overlap, because that table is the output:
+
+| block | people | overlap | where |
+|---|---|---|---|
+| 40 tracts | 165,438 | 88% | Staten Island — New Springville, Mariner's Harbor, Westerleigh |
+| 11 tracts | 59,639 | **0%** | Queens — College Point, Whitestone, Bay Terrace |
+| 5 tracts | 30,363 | **0%** | Queens — Pomonok, Kew Gardens Hills, Queensboro Hill |
+| 5 tracts | 25,549 | **0%** | Queens — Oakland Gardens-Hollis Hills |
+| 5 tracts | 26,656 | **0%** | Queens — Glen Oaks, Douglaston, Bellerose |
+| 4 tracts | 18,424 | 100% | Brooklyn — Marine Park-Mill Basin |
+| 4 tracts | 22,086 | **0%** | Bronx — Throgs Neck-Schuylerville |
+| 3 tracts | 18,227 | 33% | Queens — South Ozone Park, Springfield Gardens |
+
+**Five of eight blocks sit almost entirely outside any proposal, and four of
+those five are northeastern Queens.** That is a hypothesis this file should
+state and not yet claim: the plans cluster on existing rights-of-way, and
+northeastern Queens has none — no abandoned branch, no freight line, no
+wide median. If that is the reason, the disagreement is a property of what is
+cheap to build rather than of where people are poorly served, and it is the
+most interesting thing the test has produced. Testing it is what the
+rail-lines work makes possible: with the network drawn, "is there a
+right-of-way here?" becomes a question a reader can answer by looking.
+
+**Digitizing the eight corridors is deliberately not done**, and the same
+objection is why. Precise half-mile boundaries buy precision in a measurement
+we have just decided not to optimize against. Worse, four of the eight have no
+published alignment at all (Utica Ave, the SI West Shore, Red Hook, the 3-train
+extension), so half the work would be drawing lines by hand and a
+"disagreement" could be an artifact of where they were drawn — the NTA-name
+list is coarse, but it is at least somebody else's boundary. If it ever
+happens it belongs with the rail lines, where the other four arrive free: the
+Interborough Express is the Bay Ridge Branch, QueensLink is the Rockaway Beach
+Branch, the SI North Shore BRT is the North Shore right-of-way, and Penn
+Station Access is the Hell Gate Line, all four already in the OSM extract.
 
 ### Airports, and what the graph is still not
 
@@ -1005,25 +1117,35 @@ users with opposite needs.
 
 The score exists, it is measured against something outside itself, and the
 measurement gates the build. That changes what "next" means: every item below
-can now be judged by whether it moves the alignment number, and **eight of
-them have now been measured as moving it the wrong way** — two from phases 2
-and 3, six from Phase 4. That is not a run of bad luck; it is what the test is
-for.
+can be judged by whether it moves the alignment number, and **eight of them
+have now been measured as moving it the wrong way** — two from phases 2 and
+3, six from Phase 4. That is not a run of bad luck; it is what the test is for.
 
-**Revised 2026-10-11, after Phase 4 shipped.** Phase 4 was "the rail transit
-graph, which is a project rather than a feature" and sat fifth in this list. It
-is built, so it is gone from here and its leftovers are their own section
-above. The two items it promoted are both in that section: the **Staten Island
-Ferry**, which is the only thing standing between the accessibility layer and
-a defensible statement about 495,000 people, and **cluster-level precision**,
-which went from cheap to overdue the moment six more candidate scores were
-compared on a per-tract hit rate against corridors that are lines.
+Read that sentence with the 2026-10-11 revision in mind, though. "Moves the
+alignment number" is no longer the same as "is worth doing", because the
+proposed lines are not optimal routes — they are need filtered through cost,
+politics and available rights-of-way, so agreement is evidence a score is real
+and *more* agreement is not better. The test's second job is now to say where
+the map and the agencies disagree and let someone ask why. See "What the
+alignment test is for" above.
+
+**Revised again 2026-10-11, after Phase 4's leftovers were cleared.** Both
+items Phase 4 promoted are done and are written up in that section: the
+**Staten Island Ferry** (a cited DOT feed, and the finding is that the 18,000
+figure was right for the wrong reason) and **cluster-level precision** (the
+unit is a clump, the gate derives its floor from the baseline, and the
+corridor geometry is deliberately not digitized). Payload headroom was
+deferred by raising the budget once, which is a loan and is dated as one.
 
 **The rail lines are first** — revised 2026-10-11, displacing step-free
-access. Phase 4 strengthened this rather than changing it: the map now has a
-*second* reason a reader needs to see the network, which is that the largest
-detour block and the largest under-service block are the same 54 tracts, and
-neither is legible as a shape without the lines drawn.
+access, and now with three reasons rather than one. The map has a finding that
+is only legible as a shape with the network drawn: the largest detour block
+and a large under-service block are the same 44 tracts. It is the cheapest way
+to see whether a corridor has a right-of-way, which is the open question the
+disagreement table just raised about northeastern Queens. And four of the
+eight proposed corridors *are* existing rights-of-way in the OSM extract, so
+drawing the network is also most of the work of digitizing them if that ever
+becomes worth doing.
 
 15.2 KB on the wire, geometry already parsed in every feed, no new source and
 no new model, and it is the only item in this file that changes what
@@ -1051,10 +1173,13 @@ crowding. Read the three measured obstacles first — it is a server-side
 aggregation against 167 million rows, it joins on `station_complex_id`
 rather than `gtfs_stop_id`, and train capacity is in none of the data.
 
-**Then cluster-level precision in the alignment test**, which is cheap now that
-the components exist and which should happen before the 80% figure is quoted
-anywhere load-bearing. A per-tract precision figure compares a point measure
-against a line measure, and the corridors are lines.
+**Then the columnar sidecar for the tract payload**, which is now the oldest
+unpaid debt in this file and the one that blocks fields rather than ideas. The
+budget was raised to 420 KB on 2026-10-11 instead; the measured fix is to move
+the numeric columns out of `tracts.geojson` into parallel arrays aligned to an
+explicit `geoids` list, the way `hubs.json` already does, at ~2.5x less per
+column. Step-free access and ridership both want a field, so whichever lands
+first should carry this.
 
 Orthogonal to all of that, and pickable whenever: **publishing the map**, which
 needs no new data and currently blocks every other reader from seeing any of

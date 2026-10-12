@@ -361,6 +361,9 @@ def main(argv=None) -> int:
         print("Schedules:")
         for mode, url in C.GTFS_FEEDS.items():
             download(url, C.P_GTFS[mode], args.force, kind="gtfs")
+        # The ferry feed is 9 KB and is read only by the transit graph; see
+        # C.GTFS_FERRY_FEED for why it is not a fourth rail feed.
+        download(C.GTFS_FERRY_FEED[1], C.P_GTFS_FERRY, args.force, kind="gtfs")
         if args.skip_bus:
             print("Bus schedules:\n  skipped (--skip-bus)")
         else:

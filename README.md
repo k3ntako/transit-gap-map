@@ -13,10 +13,10 @@ within a 5, 10 and 15-minute walk of a train.
 
 A station is an on-ramp, not a destination, so there is a third measure that
 can contradict the first two: **how many of the city's jobs each tract can
-reach in 45 minutes**, over a rail graph built from the schedules. The average
-New Yorker reaches **1.25M of 4.47M jobs** that way — 28%. Living near a
-train says nothing about whether the train goes anywhere, and these are the
-first numbers here that can disagree rather than merely refine.
+reach in 45 minutes**, over a graph built from the rail and ferry schedules.
+The average New Yorker reaches **1.25M of 4.47M jobs** that way — 28%.
+Living near a train says nothing about whether the train goes anywhere, and
+these are the first numbers here that can disagree rather than merely refine.
 
 Stations counted: all **496 subway stations** (including the 21 Staten Island
 Railway stops), plus **LIRR and Metro-North** stations in or just beyond the
@@ -69,7 +69,7 @@ instead of being treated as sitting exactly on it.
 | 2 | `pipeline/network.py` | `.pbf` → cached undirected walking graph |
 | 3 | `pipeline/service.py` | GTFS → trains per hour per station, frequent bus stops |
 | 4 | `pipeline/distance.py` | Multi-source Dijkstra → walk and walk+wait per node |
-| 4b | `pipeline/transit.py` | Rail GTFS → a frequency graph, solved for every station pair |
+| 4b | `pipeline/transit.py` | Rail + ferry GTFS → a frequency graph, solved for every station pair |
 | 4c | `pipeline/accessibility.py` | Jobs reachable in 45 min, job centers, detour factor |
 | 5 | `pipeline/aggregate.py` | Node distances → per-tract statistics and the score |
 | 6 | `pipeline/palette.py` | Generate and audit the color system |
@@ -197,27 +197,37 @@ specific way of breaking the graph rather than to flatter it.
 Bay Ridge-95 St -> Times Sq (R local)        50.1  PASS (35-65)
 Times Sq -> Grand Central (across complexes)  7.1  PASS (5-15)
 Jamaica -> Penn (LIRR)                       21.7  PASS (15-35)
-St George -> Atlantic Av                      inf  PASS (unreachable)
+St George -> Whitehall (ferry)               32.5  PASS (26-41)
+St George -> Atlantic Av                     52.8  PASS (45-80)
 ```
 
 Times Square to Grand Central is the sharpest of them. The shuttle ride is
 three minutes; the other four are the declared walk across the complex plus
 the wait. A graph with free transfers reports three, so anything under five
 fails — and free transfers are the single most likely way to build this
-wrong. St George is asserted *unreachable* because the Staten Island Railway
-has no rail connection to the rest of the system and a ferry is not rail;
-adding a ferry edge later is supposed to fail this test and make someone
-decide, rather than quietly changing a number about 495,000 people.
+wrong. The ferry band is the next sharpest: 25 minutes of crossing on every
+trip in the feed plus half the peak headway is 32.5, so losing the crossing
+time reads about 8 and losing the wait reads 25.
+
+The last pair has a history worth knowing. Until 2026-10-11 it was asserted
+*unreachable*, because the graph was rail only and the Staten Island Railway
+has no rail connection to the rest of the system — the assertion existed so
+that adding a ferry edge would fail the build and force someone to decide,
+rather than quietly changing a number about 495,000 people. That is what
+happened, and the decision was to add it: the ferry has a published NYC DOT
+schedule, its own right of way and no substitute, so excluding it was not a
+conservative choice but a wrong one. The pair is kept with the sign flipped,
+as the check that the connection has not disappeared again.
 
 Also checked: stations measured from their own coordinates return ~0 (median
 22 m, confirming the virtual-source wiring); dense core tracts come back under
 5 minutes; known thin-coverage areas (Breezy Point, Charleston, Bergen Beach,
-Country Club) come back far; the population join is complete; 89% of station
+Country Club) come back far; the population join is complete; 95% of station
 pairs are reachable, which a graph that lost its transfer edges would fail;
-and the payload budgets hold. `make verify` also prints the 30 cross-feed
+and the payload budgets hold. `make verify` also prints the 33 cross-feed
 interchanges inferred by proximity — the one part of the transfer model that
 is a radius rather than a declaration, so the one part that has to be read by
-a person.
+a person. Three of the 33 are the ferry's, at 115 m, 131 m and 194 m.
 
 The headline number is cross-checked against **its own straight-line
 equivalent** rather than an external figure. Published "share within a half
@@ -313,6 +323,10 @@ numbers, and a table view lists the same data.
 | Census tract geometry | NYC Open Data `63ge-mke6` (water excluded) |
 | Borough boundaries | NYC Open Data `gthc-hcne` |
 | Population | US Census ACS 5-year (`config.CENSUS_DATASET`) |
+| Jobs by workplace | LEHD LODES8 WAC, New York |
+| Rail schedules | MTA GTFS (subway, LIRR, Metro-North) |
+| Staten Island Ferry schedule | NYC Open Data `b57i-ri22` (NYC DOT) |
+| Bus schedules | MTA GTFS, six feeds |
 | Pedestrian network | OpenStreetMap via BBBike NYC extract (ODbL) |
 
 ## License
@@ -399,20 +413,42 @@ beside its **contiguity**: connected components over land adjacency. The largest
 block is **430 contiguous tracts holding 1,313,894 people**, running from
 Canarsie through Flatlands to St. Albans — a finding no per-tract ranking can
 produce. 24 of the 58 blocks are a single isolated tract, which is a complaint
-rather than a project. And across the nine candidate scores that clear the
-floor, **12 tracts stay in the worst 50 under every one** — all Staten Island
-North and West Shore, all inside that borough's 105-tract block, and both of
-those corridors have BRT proposals.
+rather than a project. The map draws this as its own **Under-served blocks**
+layer, shaded by the population of the whole block rather than of the tract,
+beside the per-tract score rather than instead of it. And across the 11 of 16
+candidate scores that clear the floor, **7 tracts stay in the worst 50 under
+every one** — six on the Staten Island North and West Shore, inside that
+borough's 105-tract block, both of which have BRT proposals, and one in Throgs
+Neck, which has no proposal at all.
+
+Contiguity is also what the external-validity test is measured on now. Of the
+shipped score's worst 100 tracts, 77 sit in a block of three or more, and
+**52% of those fall inside a proposed corridor** against a 26% baseline —
+clumping raises agreement, which is what should happen if the scattered tracts
+were noise. The build gates on that number rather than on the per-tract one,
+with the floor derived from the baseline rather than from the score's own
+result, because the proposed lines are need filtered through cost and politics
+and aiming at them would import all of it. Five of the eight blocks sit almost
+entirely *outside* any proposal, four of those five in northeastern Queens,
+and that disagreement is reported rather than penalized: absence of a plan is
+not absence of need.
 
 ## Caveats
 
 - Walk times assume **1.35 m/s** (~3.0 mph) on a flat network. Grades are not
   modeled, which understates the effort of a climb like Grymes Hill.
-- Staten Island looks poorly served because **the access measures count trains
-  only**. Much of the borough depends on buses and the ferry. The frequent-bus
-  layer shows where useful bus service exists — 2,368 of 12,942 stops have a
-  route holding a 10-minute headway through peak, midday and evening — but
-  buses are not in any distance or score calculation.
+- Staten Island looks poorly served because **the access measures count rail
+  and the ferry, and no buses**. Much of the borough depends on buses. The
+  frequent-bus layer shows where useful bus service exists — 2,368 of 12,942
+  stops have a route holding a 10-minute headway through peak, midday and
+  evening — but buses are not in any distance or score calculation, because
+  bus service is what the city provides *instead of* rail in precisely the
+  places this map looks, so crediting it would hide the finding by
+  construction. The ferry is in for the opposite reason: it substitutes for
+  nothing, and it has its own right of way and a published schedule. It does
+  not rescue the borough's numbers, though — the crossing is 25 minutes and
+  the peak wait another 7.5, so the cheapest Staten Island to Manhattan trip
+  in the model is 46.4 minutes against a 45-minute budget.
 - Station **frequency** is measured and shipped, but the walk layers still
   count every station equally. The "Walk + wait for a train" layer is the one
   that charges for a 30-minute headway; the plain walk figures above do not,

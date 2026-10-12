@@ -91,7 +91,7 @@ const query = (layer, point) =>
 // and reads as a list of deliberate choices. Plain key=value with unknown keys
 // ignored, which means a later control is one more key and there is no format
 // to version. `v` is zoom/lat/lon, the order OSM and Mapbox hashes use.
-const CHOROPLETHS = ["bivariate", "gap", "density", "walk", "access",
+const CHOROPLETHS = ["bivariate", "gap", "clump", "density", "walk", "access",
                      "jobs", "hub", "none"];
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -430,10 +430,12 @@ function seqRamp(name) {
 // palest band. Computed in the browser from the shipped column, so no breaks
 // have to be shipped and a field can be added without touching stats.json.
 const seqCache = new Map();
-function seqBreaks(key) {
-  if (seqCache.has(key)) return seqCache.get(key);
+function seqBreaks(key, positive) {
+  const ck = positive ? key + "+" : key;
+  if (seqCache.has(ck)) return seqCache.get(ck);
   const vals = tracts.features.map((f) => f.properties[key])
-    .filter((v) => v != null && isFinite(v)).sort((a, b) => a - b);
+    .filter((v) => v != null && isFinite(v) && (!positive || v > 0))
+    .sort((a, b) => a - b);
   const raw = [];
   for (let i = 1; i < SEQ_STEPS; i++)
     raw.push(vals[Math.floor(i * vals.length / SEQ_STEPS)]);
@@ -441,8 +443,28 @@ function seqBreaks(key) {
   // band unreachable and leave a color unused. Dropping the duplicate leaves
   // fewer bands, which is the honest picture of a column with a big tie in it.
   const out = raw.filter((v, i) => i === 0 || v > raw[i - 1]);
-  seqCache.set(key, out);
+  seqCache.set(ck, out);
   return out;
+}
+
+// The under-served blocks layer. Shaded by the population of the whole block
+// rather than of the tract, which is the whole point: the question a block
+// answers is "how many people would one project reach", and a tract cannot
+// answer it. `cluid` is -1 for every tract that is not past the standard, and
+// those are drawn as the unpopulated color rather than as the palest step --
+// "no gap to measure" is not "the smallest gap", and `clupop` is 0 for all of
+// them, which would otherwise swallow the bottom quantiles whole. That is
+// also why the breaks are computed over the positive values only.
+function clumpFill() {
+  const b = seqBreaks("clupop", true);
+  const colors = seqRamp("walk");
+  if (!b.length)
+    return ["case", ["<", ["get", "cluid"], 0], unpop(), colors[0]];
+  const stops = [];
+  b.forEach((v, i) => stops.push(v, colors[i + 1]));
+  return ["case",
+    ["<", ["get", "cluid"], 0], unpop(),
+    ["step", ["get", "clupop"], colors[0], ...stops]];
 }
 
 // Which property the hub layer reads: the precomputed nearest-center column,
@@ -457,7 +479,7 @@ const hubKey = () =>
     ? `h${state.hub}` : "hub";
 
 // A `step` expression over quantile breaks, with nulls handled before it --
-// `step` needs a numeric input, and a tract with no rail path to any center
+// `step` needs a numeric input, and a tract with no path to any center
 // is null rather than large.
 function seqFill(key, ramp, invert) {
   const b = seqBreaks(key);
@@ -477,6 +499,7 @@ const unpop = () => pal.unpopulated[state.theme];
 
 function fillColor() {
   if (state.choropleth === "gap") return gapColor();
+  if (state.choropleth === "clump") return clumpFill();
   if (state.choropleth === "bivariate") {
     const c = biFlat();
     return ["match", ["get", "bi"],
@@ -843,14 +866,23 @@ function wireHover() {
         : (stats.accessibility?.hubs?.[state.hub]?.name ?? "job center");
       if (hv != null) html += row(`To ${hubName}`, `${fmt(hv, 0)} min`);
       else if (p.j45 != null)
-        html += `<div class="tnote">No rail path to a job center.</div>`;
+        html += `<div class="tnote">No train or ferry path to a job
+                 center.</div>`;
       // The detour factor has no layer of its own: measured, it is nearly
-      // flat -- the middle 80% of tracts run 0.79 to 1.26, against a full
-      // range of 0.61 to 2.09 -- so a choropleth of it is close to one color.
+      // flat -- the middle 80% of tracts run 0.79 to 1.28, against a full
+      // range of 0.61 to 1.97 -- so a choropleth of it is close to one color.
       // That flatness is the finding, and it belongs in a sentence rather
       // than in a legend.
       if (p.det != null)
         html += row("Detour factor", `${fmt(p.det, 2)}\u00d7 typical`);
+      // The block, on every layer and not only the blocks one, because it is
+      // a property of the tract. A tract past the standard on its own says
+      // something different from the same tract inside a 430-tract band, and
+      // that difference is the whole argument for having this measure.
+      if (p.cluid != null && p.cluid >= 0)
+        html += row("Under-served block",
+                    p.clu === 1 ? "on its own"
+                      : `${fmt(p.clu)} tracts · ${fmt(p.clupop)} people`);
 
       // The access measure often prefers a further station with more trains.
       // Naming it only when it differs keeps the common case quiet and makes
@@ -866,6 +898,13 @@ function wireHover() {
     // Says what the fill means, so the color does not have to be matched
     // against the legend by eye. The gap layer shows its decomposition
     // instead: a score nobody can interrogate persuades nobody.
+    if (state.choropleth === "clump") {
+      html += p.cluid != null && p.cluid >= 0
+        ? `<div class="tclass">Block ${p.cluid + 1} of `
+          + `${fmt(stats.clusters?.n_clusters)}, by population</div>`
+        : `<div class="tclass">Within the ${fmt(floorMin(), 0)}-minute `
+          + `standard — not in a block</div>`;
+    }
     if (state.choropleth === "gap" && p.rd != null) {
       const s = gapScore(p, state.gapWeight);
       const fl = floorMin();
@@ -1030,6 +1069,45 @@ function renderLegend() {
     return;
   }
 
+  if (state.choropleth === "clump") {
+    const brk = seqBreaks("clupop", true);
+    const ramp = seqRamp("walk");
+    // Read from stats.json rather than recounted here. The browser has the
+    // `cluid` and `clu` columns and could group them itself, but then the
+    // block count would have two definitions -- aggregate.add_clusters and
+    // this loop -- and the one that drifts is always the copy.
+    const cl = stats.clusters ?? {};
+    const big = cl.largest?.[0] ?? {};
+    const k = (v) => v >= 1e6 ? `${fmt(v / 1e6, 2)}M` : `${fmt(v / 1e3, 0)}k`;
+    const rows = ramp.slice(0, brk.length + 1).map((hex, i) => {
+      // "and up" rather than "over": the top break is the largest block's own
+      // population, because 430 of the 923 tracts share that one value, so a
+      // band labeled "over" would describe a set whose only member sits
+      // exactly on the boundary.
+      const lab = i === 0 ? `under ${k(brk[0])}`
+        : i === brk.length ? `${k(brk[i - 1])} and up`
+        : `${k(brk[i - 1])} – ${k(brk[i])}`;
+      return `<div class="ramprow"><i data-cls="${i}"
+              style="background:${hex}"></i>
+              <span class="lab">${lab} in the block</span></div>`;
+    });
+    el.innerHTML = rows.join("")
+      + `<div class="ramprow"><i style="background:${unpop()}"></i>
+         <span class="lab">no gap to measure</span></div>`
+      + `<div class="sub" style="margin-top:9px">${fmt(cl.n_tracts_beyond)}
+         tracts are past the ${fmt(stats.score?.floor_minutes ?? 10, 0)}-minute
+         standard, in ${fmt(cl.n_clusters)} contiguous blocks. The largest
+         holds <strong>${fmt(big.n_tracts)} tracts and ${fmt(big.pop)}
+         people</strong> — ${esc((big.where ?? []).join(", "))} —
+         while ${fmt(cl.n_single_tract_clusters)} of the blocks are a single
+         tract, which is a complaint rather than a project.</div>`
+      + `<div class="sub" style="margin-top:6px">Shaded by the population of
+         the whole block, not of the tract — a block is what one line could
+         serve, so that is the quantity worth comparing. Blocks stop at water:
+         these polygons exclude it, so no bridge counts as a walk.</div>`;
+    return;
+  }
+
   if (state.choropleth === "jobs" || state.choropleth === "hub") {
     const jobs = state.choropleth === "jobs";
     const key = jobs ? "j45" : hubKey();
@@ -1056,17 +1134,19 @@ function renderLegend() {
     el.innerHTML = rows.join("")
       + `<div class="ramprow"><i style="background:${unpop()}"></i>
          <span class="lab">${jobs ? "no residents"
-           : "no rail path to a center"}</span></div>`
+           : "no path to a center"}</span></div>`
       + `<div class="sub" style="margin-top:9px">` + (jobs
         ? `Jobs reachable in <strong>${fmt(stats.accessibility?.budget_min, 0)}
-           minutes</strong> by rail and on foot, out of
-           ${fmt(total / 1e6, 2)}M in the city. Buses are not in this graph —
-           see the note below. It is a <em>commute</em> measure: school,
+           minutes</strong> by train, the Staten Island Ferry and on foot, out
+           of ${fmt(total / 1e6, 2)}M in the city. Buses are not in this graph
+           — see the note below. It is a <em>commute</em> measure: school,
            hospitals and family are not jobs.`
         : `Minutes to ${hubName ? `<strong>${esc(hubName)}</strong>`
-           : "the nearest of the eight job centers"}, by rail, including the
-           walk at both ends and the wait. Staten Island has no rail link to
-           the other four boroughs, so its centers are its own.`)
+           : "the nearest of the eight job centers"} by train or ferry,
+           including the walk at both ends and the wait. Staten Island's own
+           centers stay separate: the ferry links it to the system, but the
+           crossing plus the peak wait is 32.5 minutes before anyone walks
+           anywhere.`)
       + `</div>`
       + `<div class="sub" style="margin-top:6px">This does
          <strong>not</strong> feed the under-service score. Measured against
@@ -1179,17 +1259,31 @@ function renderStats() {
   const av = $("#validity");
   if (av && al) {
     const pc = al.precision[al.shipped];
+    const cl = al.clump?.[al.shipped];
+    const off = (al.disagree ?? []).filter((d) => d.overlap < 0.25);
+    const offPop = off.reduce((a, d) => a + d.pop, 0);
     av.innerHTML =
       `<strong>Does this agree with the agencies?</strong>
-       ${fmt(100 * pc["25"], 0)}% of the 20 worst-scoring tracts sit inside one
+       ${fmt(100 * pc["25"], 0)}% of the 25 worst-scoring tracts sit inside one
        of eight corridors the MTA and partners have actually proposed, against
        a ${fmt(100 * al.baseline, 0)}% baseline — the share a score with no
        predictive value would hit. ${fmt(al.robust.n_all)} tracts stay in the
        worst 50 under every one of ${fmt(al.robust.n_scores)} alternative
        weightings; those are the findings that survive the weighting rather
-       than depending on it. Official plans are not need, though: they are need
-       filtered through cost, politics, and whether an abandoned right-of-way
-       happens to be lying around.`;
+       than depending on it.`
+      + (cl?.precision == null ? "" :
+      ` Grouped into contiguous blocks — the unit a line could actually serve
+        — the worst ${fmt(al.clump_rule?.probe_k)} tracts form
+        ${fmt(cl.n_blocks)} blocks and ${fmt(100 * cl.precision, 0)}% of their
+        tracts fall in a proposed corridor.`)
+      + (off.length === 0 ? "" :
+      ` <strong>${fmt(off.length)} of those blocks sit almost entirely outside
+        any proposal</strong> (${fmt(offPop)} people), and that disagreement is
+        the point rather than a defect:`)
+      + ` official plans are not need. They are need filtered through cost,
+       politics, and whether an abandoned right-of-way happens to be lying
+       around — so a place with no plan is not a place with no need, and this
+       test never counts one against the score.`;
   }
 
   const r = stats.commuter_rail_dependence;
@@ -1283,6 +1377,8 @@ function repaint() {
 // The weight slider is meaningless unless the gap layer is the one on screen.
 function showGapWeight() {
   $("#gapweight").hidden = state.choropleth !== "gap";
+  const cn = $("#clumpnote");
+  if (cn) cn.hidden = state.choropleth !== "clump";
 }
 
 function showHubPick() {

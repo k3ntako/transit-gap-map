@@ -7,13 +7,25 @@ hourly, and Bay Ridge is a short walk from the R, which is a long local ride
 to Midtown. Only time-to-somewhere separates those, and this stage is what
 makes time-to-somewhere computable.
 
-**Rail only, deliberately.** Buses are in neither this graph nor the score,
-and the reason is about what the map claims rather than what data exists: bus
-service is what the city provides *instead of* rail in precisely the places
-this map exists to find, so letting a bus close the gap would hide the finding
-by construction. `config.TRANSIT_WINDOW` and ROADMAP.md Phase 4 carry the
-argument; the frequent-bus-network layer keeps the job of showing what runs
-today, drawn on top of the score rather than netted off it.
+**Rail plus the Staten Island Ferry; no buses.** Buses are in neither this
+graph nor the score, and the reason is about what the map claims rather than
+what data exists: bus service is what the city provides *instead of* rail in
+precisely the places this map exists to find, so letting a bus close the gap
+would hide the finding by construction. The frequent-bus-network layer keeps
+the job of showing what runs today, drawn on top of the score rather than
+netted off it.
+
+The ferry is the one exception and it is not a softening of that rule, it is
+the rule applied: the Staten Island Ferry substitutes for nothing. It is the
+only fixed-guideway trunk link across the harbor, on its own right of way at
+a published headway, and no proposal replaces it. Leaving it out does not
+produce a conservative number, it produces a false one -- the rail-only graph
+answered "how does a Staten Islander reach a job" with 18,000 of 4.47M for
+495,000 people, which is true of rail and false of transit. The operative
+line is dedicated right-of-way trunk service against street-running service
+sharing its lanes with traffic; `config.GTFS_FERRY_FEED` carries the argument
+and the measured feed facts, and `verify.py` probes the crossing so the edge
+cannot drift.
 
 Four things in here decide whether the numbers mean anything:
 
@@ -70,6 +82,20 @@ from pipeline.service import _read, active_services, feed_window, pick_dates
 # the keys join straight onto stations.parquet and station_service.parquet.
 RAIL_AGENCY = {"lirr": "LIRR", "mnr": "MNR"}
 
+# The ferry has no row in the station table -- it is not rail, and stage 3
+# does not measure it -- so its keys are this stage's own and are prefixed
+# distinctly rather than borrowed from either scheme above.
+FERRY_MODE = "siferry"
+
+
+def _prefix(mode: str) -> str:
+    """The station_key prefix for one feed's stop ids."""
+    if mode == "subway":
+        return "sub-"
+    if mode == FERRY_MODE:
+        return "ferry-SIF-"
+    return f"rail-{RAIL_AGENCY[mode]}-"
+
 # A single consecutive-stop runtime longer than this is a data error, not a
 # slow train: the longest real gap on the system is Jamaica to Penn Station on
 # an express, well under 30 minutes.
@@ -114,6 +140,10 @@ def _station_ids(zf: zipfile.ZipFile, mode: str) -> pd.DataFrame:
         parent = stops["parent_station"].fillna("").astype(str)
         root = [p or s for s, p in zip(sid, parent)]
         key = ["sub-" + r for r in root]
+    elif mode == FERRY_MODE:
+        # Two stops, flat, no parent hierarchy and no stop_code worth using:
+        # the ids are already the public names of the two terminals.
+        key = [_prefix(mode) + s for s in sid]
     else:
         agency = RAIL_AGENCY[mode]
         has_code = "stop_code" in stops.columns
@@ -252,13 +282,12 @@ def _transfers(zfs: dict, stations: pd.DataFrame) -> pd.DataFrame:
         t = _read(zf, "transfers.txt")
         if t.empty or "min_transfer_time" not in t.columns:
             continue
-        agency = RAIL_AGENCY.get(mode, "")
-        pre = "sub-" if mode == "subway" else f"rail-{agency}-"
+        pre = _prefix(mode)
         mt = pd.Series(np.asarray(
             pd.to_numeric(t["min_transfer_time"], errors="coerce"),
             dtype="float64"), index=t.index)
         keep = mt.notna()
-        if mode != "subway":
+        if mode not in ("subway", FERRY_MODE):
             # LIRR and Metro-North declare trip-to-trip timed transfers, which
             # a frequency graph cannot represent. Only the handful of rows
             # carrying a plain minimum time are usable.
@@ -380,6 +409,7 @@ def compute(force: bool = False) -> TransitGraph:
         return TransitGraph(st, z["ride"], str(z["date"]))
 
     zfs = {m: zipfile.ZipFile(p) for m, p in C.P_GTFS.items()}
+    zfs[FERRY_MODE] = zipfile.ZipFile(C.P_GTFS_FERRY)
     windows = {m: feed_window(z) for m, z in zfs.items()}
     weekday, _sat = pick_dates(windows)
     print(f"  sampled {weekday} ({weekday:%A}), the same day stage 3 uses")

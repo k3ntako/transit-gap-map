@@ -413,6 +413,7 @@ def add_clusters(gdf: gpd.GeoDataFrame, df: pd.DataFrame) -> dict:
     if idx.size == 0:
         df["cluster_tracts"] = 0
         df["cluster_pop"] = 0
+        df["cluster_id"] = -1
         return {}
 
     # Reset the index first: sjoin reports both sides by index *label*, and a
@@ -432,10 +433,20 @@ def add_clusters(gdf: gpd.GeoDataFrame, df: pd.DataFrame) -> dict:
 
     df["cluster_tracts"] = 0
     df["cluster_pop"] = 0
+    df["cluster_id"] = -1
     df.iloc[idx, df.columns.get_loc("cluster_tracts")] = sizes[labels]
     df.iloc[idx, df.columns.get_loc("cluster_pop")] = pops[labels].astype(int)
 
     order = np.argsort(-pops)
+    # A stable, meaningful id: 0 is the most populous block, and -1 is "not
+    # past the standard at all". `connected_components` numbers its labels by
+    # discovery order, which is row order, which would reshuffle the whole
+    # column the next time a tract crosses the threshold. Ranking by
+    # population instead makes the id comparable between builds and makes it
+    # directly useful to the map, where the legend is "the biggest blocks".
+    rank = np.empty(n_comp, dtype=np.int64)
+    rank[order] = np.arange(n_comp)
+    df.iloc[idx, df.columns.get_loc("cluster_id")] = rank[labels]
     print(f"  clusters {n_comp} contiguous blocks of tracts beyond the "
           f"{C.ACCESS_FLOOR_MINUTES:.0f}-minute standard "
           f"({len(idx)} tracts in all):")

@@ -79,20 +79,36 @@ TRANSIT_PROBES = [
     ("sub-A41", "sub-127", 14, 32, "Jay St-MetroTech -> Times Sq"),
     ("rail-LIRR-JAM", "rail-LIRR-NYK", 15, 35, "Jamaica -> Penn (LIRR)"),
     ("rail-MNR-1FO", "rail-MNR-0NY", 18, 45, "Fordham -> Grand Central (MNR)"),
+    # The ferry. 25 minutes of crossing on every trip in the feed, plus an
+    # expected wait of half the 8-9am headway (four sailings an hour, so 7.5),
+    # is 32.5 -- and this band fails if either half is dropped: lose the
+    # crossing time and it reads ~8, lose the wait and it reads 25.
+    ("ferry-SIF-stgeorge", "ferry-SIF-whitehall", 26, 41,
+     "St George -> Whitehall (ferry)"),
+    # And the interchange at each end, which is what actually connects Staten
+    # Island to the system. Fails if either 130 m walk stops being inferred.
+    ("sub-S31", "sub-418", 40, 75, "St George SIR -> Fulton St (via ferry)"),
 ]
 
-# The Staten Island Railway has no rail connection to the rest of the system
-# and the ferry is not rail, so this pair must come back unreachable. It is
-# asserted rather than merely noted because it is the single most surprising
-# number the accessibility layer produces -- Staten Island reaching 18,000 of
-# the city's 4.47M jobs -- and a reader is owed the guarantee that it is the
-# stated consequence of a rail-only graph rather than a bug. Adding a ferry
-# edge later should fail this test and make someone decide.
-RAIL_ISLAND = ("sub-S31", "sub-235", "St George -> Atlantic Av")
+# **This used to assert the opposite.** Until 2026-10-11 the graph was rail
+# only, so St George -> Atlantic Av had to come back *unreachable*, and the
+# assertion existed to guarantee that Staten Island reaching 18,000 of the
+# city's 4.47M jobs was the stated consequence of a rail-only graph rather
+# than a bug. It also existed to make exactly this decision deliberate: the
+# comment said adding a ferry edge should fail the test and make someone
+# decide. It did, and the decision was to add it -- see config.GTFS_FERRY_FEED
+# for why a ferry belongs in a graph that excludes buses, and ROADMAP.md for
+# what it changed. The pair is kept, with the sign flipped: it is now the
+# check that the connection did not quietly disappear again.
+ISLAND_LINK = ("sub-S31", "sub-235", 45, 80,
+               "St George -> Atlantic Av (was asserted unreachable)")
 
 # A graph that quietly lost its transfer edges still routes within each line
-# and would drop far below this.
-REACHABLE_PAIR_BAND = (0.85, 0.95)
+# and would drop far below this. Raised from 0.85-0.95 when the ferry edge
+# took the measured share from 89.2% to 94.6%: with Staten Island attached
+# there is no longer a disconnected island of any size in the graph, so the
+# residual is end-of-line commuter-rail pairs that genuinely have no path.
+REACHABLE_PAIR_BAND = (0.90, 0.98)
 
 
 def _setup():
@@ -182,16 +198,29 @@ def main() -> int:
         hits = alignment(df)
         got = hits[SHIPPED_SCORE][25]
         base = hits["_baseline"][25]
+        cl = hits["_clump"][SHIPPED_SCORE]["precision"]
+        floor = base + ALIGNMENT_CLUSTER_MARGIN
         print(f"\n  shipped score ({SHIPPED_SCORE}) hits "
-              f"{100 * got:.0f}% at worst-25, against a {100 * base:.0f}% "
-              f"baseline and a {100 * ALIGNMENT_MIN_PRECISION:.0f}% floor")
-        if got < ALIGNMENT_MIN_PRECISION:
+              f"{100 * got:.0f}% at worst-25 per {C.GEO_LEVEL} and "
+              f"{100 * cl:.0f}% over its clumps,\n  against a "
+              f"{100 * base:.0f}% baseline. The clump figure is the one that "
+              f"gates, at\n  baseline + {100 * ALIGNMENT_CLUSTER_MARGIN:.0f} "
+              f"= {100 * floor:.0f}%: a rail line serves a strip of "
+              f"neighborhoods, not a\n  {C.GEO_LEVEL}, and the floor is set "
+              f"from the baseline rather than from how well\n  this score "
+              f"does, so the gate asks whether the score is noise and not "
+              f"whether\n  it agrees with the agencies.")
+        if not np.isfinite(cl) or cl < floor:
             failures.append(
-                f"the shipped score hits only {100 * got:.0f}% of its worst 25 "
-                f"inside a proposed corridor, under the "
-                f"{100 * ALIGNMENT_MIN_PRECISION:.0f}% floor. A score at the "
-                f"{100 * base:.0f}% baseline has no predictive value; check "
-                f"what changed in aggregate.add_score or in the need terms.")
+                f"the shipped score's clumped hit rate is "
+                f"{100 * cl:.0f}%, under the {100 * floor:.0f}% floor "
+                f"(baseline {100 * base:.0f}% + "
+                f"{100 * ALIGNMENT_CLUSTER_MARGIN:.0f}). A score at the "
+                f"baseline has no predictive value; check what changed in "
+                f"aggregate.add_score or in the need terms. A non-finite "
+                f"value instead means the worst {CLUSTER_PROBE_K} "
+                f"{C.GEO_LEVEL}s formed no contiguous block of "
+                f"{CLUSTER_MIN_TRACTS}, which is itself the finding.")
 
     print()
     if failures:
@@ -232,15 +261,17 @@ def transit_checks() -> list:
         if not ok:
             bad.append(f"{label}: {v:.1f} min outside the {lo}-{hi} band")
 
-    a, b, label = RAIL_ISLAND
+    a, b, lo, hi, label = ISLAND_LINK
     i, j = idx.get(a), idx.get(b)
-    isolated = i is not None and j is not None and not np.isfinite(ride[i, j])
-    print(f"  {label[:52]:52} {'inf' if isolated else ride[i, j]:>8}  "
-          f"{'PASS' if isolated else 'FAIL'} (expected unreachable)")
-    if not isolated:
-        bad.append(f"{label}: expected no rail path, got one. If a ferry or "
-                   f"light-rail edge was added deliberately, update "
-                   f"RAIL_ISLAND and say so in ROADMAP.md.")
+    v = float(ride[i, j]) if i is not None and j is not None else float("inf")
+    ok = lo <= v <= hi
+    print(f"  {label[:52]:52} {v:8.1f}  {'PASS' if ok else 'FAIL'} "
+          f"(expected {lo}-{hi})")
+    if not ok:
+        bad.append(f"{label}: {v:.1f} min outside the {lo}-{hi} band. This "
+                   f"pair was unreachable before the ferry edge, so an inf "
+                   f"here means the ferry feed or one of its two 130 m "
+                   f"interchanges is gone.")
 
     share = float(np.isfinite(ride).mean())
     lo, hi = REACHABLE_PAIR_BAND
@@ -308,7 +339,48 @@ CORRIDORS = {
 # about 26%, so a score at 26% has no predictive value at all. This margin is
 # deliberately modest: the test is coarse enough that a near-miss should not
 # fail a build, while a score scoring *at* the baseline should.
+#
+# **This is reported, not gated, as of 2026-10-11.** See the cluster measure
+# below for which number fails the build and why the per-tract one stopped.
 ALIGNMENT_MIN_PRECISION = 0.40
+
+# --- the same test, with a clump as the unit ---------------------------------
+# A rail line serves a strip of neighborhoods, not a tract, and the measure
+# above counts tracts one at a time. So a score that scatters its worst tracts
+# across five boroughs can tie a score that puts all of them in one solid
+# band, even though only the second describes something a line could fix.
+# Phase 4 made that overdue rather than merely untidy: sixteen candidate
+# scores are now compared this way and six of them arrived in one commit.
+#
+# The fix is to ignore the singletons. Take each score's worst
+# CLUSTER_PROBE_K tracts, group them into contiguous blocks over the same
+# land adjacency `aggregate.add_clusters` uses, keep the blocks of at least
+# CLUSTER_MIN_TRACTS, and measure the corridor hit rate over *those* tracts
+# only. The statistic stays directly comparable to the per-tract one --
+# it is a share of tracts against the same baseline -- while the unit being
+# judged is a clump.
+#
+# What is deliberately *not* done here: digitizing the eight corridors as
+# geometry. Four of them follow rights-of-way that are already in the OSM
+# extract (the Bay Ridge Branch, the Rockaway Beach Branch, the North Shore
+# right-of-way, the Hell Gate Line) and four have no published alignment at
+# all, so half the work would be drawing lines by hand and the test would
+# partly be measuring the drawing. ROADMAP.md carries the decision.
+CLUSTER_PROBE_K = 100
+CLUSTER_MIN_TRACTS = 3
+
+# **What this gate is for, and what it is deliberately not for.** Official
+# plans are not need: they are need filtered through cost, politics, and
+# whether an abandoned right-of-way happens to be lying around. Aiming the
+# score at them would import all of that, so the floor here is set from the
+# *baseline* -- the share of all tracts that sit in some corridor -- plus a
+# margin, and never from how well the shipped score currently does. The gate
+# answers "is this score noise?" and refuses to answer "does this score agree
+# with the MTA?", because a floor set near the shipped score's own number is
+# precisely the mechanism that would turn agreement into a target. Measured,
+# the shipped score clears this by a wide margin, and the interesting output
+# is the disagreement table underneath it rather than the pass.
+ALIGNMENT_CLUSTER_MARGIN = 0.10
 
 # The score the pipeline actually ships, by name in `candidate_scores`. Named
 # here rather than inline so the gate and the shipped definition cannot drift
@@ -331,8 +403,12 @@ def candidate_scores(df: pd.DataFrame) -> dict:
     excess_walk = (d["walk_min"] - C.ACCESS_FLOOR_MINUTES).clip(lower=0)
     excess_acc = (d["access_min"] - C.ACCESS_FLOOR_MINUTES).clip(lower=0)
     return {
-        # What shipped: a geometric mean of two percentile ranks.
-        "ranks (shipped)": (rd * rw) ** 0.5,
+        # What shipped until 2026-10-10: a geometric mean of two percentile
+        # ranks. Named "original" and not "shipped", because SHIPPED_SCORE is
+        # `pop x excess walk` and a table with two rows claiming to be the
+        # shipped one is a table nobody can read -- least of all now that the
+        # clump column puts this row last at 12%.
+        "ranks (original)": (rd * rw) ** 0.5,
         # The 2026-10-10 proposal: population times excess walk minutes.
         "pop x excess walk": d["pop"] * excess_walk,
         # The same, once the wait is counted.
@@ -385,6 +461,44 @@ def _phase4(d: pd.DataFrame) -> dict:
     }
 
 
+def _adjacency(scored: pd.DataFrame, crs):
+    """Land adjacency over the scored geographies, as a sparse matrix.
+
+    The same relation `aggregate.add_clusters` uses, and for the same reason:
+    the DCP polygons exclude water, so tracts facing each other across the
+    East River do not touch and no bridge edges are invented. One sjoin over
+    the whole set here, rather than per score, because every score reuses it.
+    """
+    from scipy.sparse import coo_matrix
+
+    geom = gpd.GeoSeries(scored["geometry"].to_numpy(), crs=crs)
+    sub = gpd.GeoDataFrame(geometry=geom.reset_index(drop=True))
+    pairs = gpd.sjoin(sub, sub, how="inner", predicate="touches")
+    r = pairs.index.to_numpy()
+    c = pairs["index_right"].to_numpy()
+    n = len(sub)
+    return coo_matrix((np.ones(len(r)), (r, c)), shape=(n, n)).tocsr()
+
+
+def _clumps(adj, order: np.ndarray, k: int, min_tracts: int):
+    """The contiguous blocks among a score's worst `k` geographies.
+
+    Returns the selected rows that sit in a block of at least `min_tracts`,
+    and the block sizes. A block below that size is a complaint rather than a
+    project -- a tract ringed by well-served ones is a bus-stop problem, a
+    park, or a measurement artifact -- and the whole point of this measure is
+    to stop counting those as evidence for or against a score.
+    """
+    from scipy.sparse.csgraph import connected_components
+
+    sel = order[:k]
+    n_comp, labels = connected_components(adj[sel][:, sel], directed=False)
+    sizes = np.bincount(labels, minlength=n_comp)
+    big = np.flatnonzero(sizes >= min_tracts)
+    keep = np.isin(labels, big)
+    return sel[keep], labels[keep], sizes[big]
+
+
 def alignment(df: pd.DataFrame, verbose: bool = True) -> dict:
     """Hit rate of each candidate score against the proposed corridors."""
     keep = (np.asarray(df["is_populated"], dtype=bool)
@@ -403,23 +517,45 @@ def alignment(df: pd.DataFrame, verbose: bool = True) -> dict:
               f"({100 * base:.0f}%) sit in one of {len(CORRIDORS)} corridors "
               f"agencies have proposed. That share is the baseline a score with "
               f"no predictive value would hit.")
-        print(f"\n  {'score':<24}{'worst 25':>10}{'worst 50':>10}"
-              f"{'worst 100':>11}")
-        print("  " + "-" * 55)
+        print(f"\n  {'score':<24}{'worst 25':>9}{'worst 50':>9}"
+              f"{'worst 100':>9}{'clumped':>9}{'blocks':>8}{'largest':>8}")
+        print("  " + "-" * 76)
+        print(f"  the last three columns are the same test with a clump as "
+              f"the unit: of this\n  score's worst {CLUSTER_PROBE_K} "
+              f"{C.GEO_LEVEL}s, the ones in a contiguous block of "
+              f"{CLUSTER_MIN_TRACTS}+,\n  how many sit in a proposed "
+              f"corridor -- and how many such blocks there are.")
 
+    adj = _adjacency(scored, getattr(df, "crs", None))
+    orders = {}
     out = {}
+    clump = {}
     for name, s in cands.items():
         v = s.to_numpy()
         order = np.argsort(-np.where(np.isfinite(v), v, -np.inf))
+        orders[name] = order
         hits = {k: float(inside[order[:k]].mean()) for k in (25, 50, 100)}
         out[name] = hits
+        rows, _lab, sizes = _clumps(adj, order, CLUSTER_PROBE_K,
+                                   CLUSTER_MIN_TRACTS)
+        clump[name] = {
+            "precision": (float(inside[rows].mean()) if rows.size
+                          else float("nan")),
+            "n_blocks": int(sizes.size),
+            "n_tracts": int(rows.size),
+            "largest": int(sizes.max()) if sizes.size else 0,
+        }
         if verbose:
+            c = clump[name]
+            pc = "-" if rows.size == 0 else f"{100 * c['precision']:.0f}%"
             print(f"  {name:<24}" + "".join(
-                f"{100 * hits[k]:>9.0f}%" if k == 25
-                else f"{100 * hits[k]:>9.0f}%" for k in (25, 50, 100)))
+                f"{100 * hits[k]:>9.0f}%" for k in (25, 50, 100))
+                + f"{pc:>9}{c['n_blocks']:>8}{c['largest']:>8}")
     if verbose:
-        print(f"  {'baseline (random)':<24}" + f"{100 * base:>9.0f}%" * 3)
+        print(f"  {'baseline (random)':<24}" + f"{100 * base:>9.0f}%" * 3
+              + f"{100 * base:>8.0f}%")
     out["_baseline"] = {k: float(base) for k in (25, 50, 100)}
+    out["_clump"] = clump
 
     # Robustness: a tract in the worst 50 under one score is an artifact of
     # that score; a tract there under every *credible* score is a finding.
@@ -453,6 +589,50 @@ def alignment(df: pd.DataFrame, verbose: bool = True) -> dict:
                   f"{int(r.get('cluster_tracts', 0) or 0)}")
     out["_robust"] = {"n_any": len(worst), "n_all": len(robust),
                       "n_scores": len(credible), "n_candidates": len(cands)}
+
+    # --- where we disagree with the agencies, and roughly why ---------------
+    # This is the output the cluster measure exists for. An agency's plan is
+    # need filtered through cost, politics, and whether a right-of-way is
+    # lying around, so a block the score ranks badly and nobody has proposed
+    # anything for is not a failure of the score -- it is the thing worth
+    # looking at. Printing it per block, with the overlap, is what turns the
+    # hit rate from a target into a diagnostic.
+    rows, labels, sizes = _clumps(adj, orders[SHIPPED_SCORE],
+                                  CLUSTER_PROBE_K, CLUSTER_MIN_TRACTS)
+    out["_disagree"] = []
+    if verbose and rows.size:
+        print(f"\n  The shipped score's worst {CLUSTER_PROBE_K} "
+              f"{C.GEO_LEVEL}s form {sizes.size} blocks of "
+              f"{CLUSTER_MIN_TRACTS}+ ({rows.size} {C.GEO_LEVEL}s;\n  the "
+              f"other {CLUSTER_PROBE_K - rows.size} are scattered and are "
+              f"left out). Per block, overlap with a proposed corridor:")
+    seen = sorted(set(labels.tolist()),
+                  key=lambda b: -int((labels == b).sum()))
+    for b in seen:
+        m = rows[labels == b]
+        ov = float(inside[m].mean())
+        where = (scored.iloc[m]["ntaname"].value_counts().head(3)
+                 .index.tolist())
+        boro = str(scored.iloc[m]["boroname"].mode().iat[0])
+        rec = {"n_tracts": int(m.size),
+               "pop": int(scored.iloc[m]["pop"].sum()),
+               "overlap": round(ov, 3), "boro": boro,
+               "where": [str(w) for w in where]}
+        out["_disagree"].append(rec)
+        if verbose:
+            print(f"    {m.size:3} {C.GEO_LEVEL}s  {rec['pop']:8,} people  "
+                  f"corridor overlap {100 * ov:3.0f}%  {boro[:13]:13} "
+                  f"{', '.join(str(w)[:20] for w in where)}")
+    if verbose:
+        unplanned = [r for r in out["_disagree"] if r["overlap"] < 0.25]
+        if unplanned:
+            pop = sum(r["pop"] for r in unplanned)
+            print(f"\n  {len(unplanned)} of those blocks sit mostly outside "
+                  f"any proposed corridor ({pop:,} people).\n  That is the "
+                  f"disagreement, and it is not a defect in either measure: "
+                  f"absence of a\n  plan is not absence of need, and this "
+                  f"test never penalizes a score for\n  ranking an "
+                  f"unplanned {C.GEO_LEVEL} highly.")
     return out
 
 

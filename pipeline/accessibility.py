@@ -92,7 +92,8 @@ class _Samples:
     Sorting the samples by graph node once turns every later lookup from a
     1.2M-element gather into a pair of `searchsorted` calls against the few
     thousand nodes a bounded walk actually reaches -- which matters because
-    this is done 733 times for the stations and 2,325 more for the walk-only
+    this is done once per station -- 735 of them -- and 2,325 more times for
+    the walk-only
     legs.
     """
 
@@ -243,7 +244,8 @@ def _min_plus(A: np.ndarray, B: np.ndarray, budget_mb: float = 128.0):
     The shortest-path composition this needs is a min-plus product, which
     numpy has no primitive for, so it is broadcast in blocks of origins. The
     whole reason Phase 4 is affordable is that these matrices are small: the
-    rail graph has 733 stations, not 14,608 stops, because buses are not in it.
+    rail graph has 735 stations, not 14,608 stops, because buses are not in
+    it.
     """
     n, k = A.shape
     m = B.shape[1]
@@ -542,9 +544,14 @@ def _report(gdf, out, hubs, jobs, measured_kmh, total) -> dict:
             band = set()
         if band:
             hit = sum(1 for gid in gdf.iloc[members]["geoid"] if gid in band)
-            print(f"    {hit} of those {len(members)} tracts also sit in the "
-                  f"largest contiguous\n    under-service block, which is a "
-                  f"separate measure over separate inputs")
+            # Not "the largest" block: `band` is every under-service block
+            # past 100 tracts, and there are two of them -- 430 tracts across
+            # Brooklyn and Queens, and 105 on Staten Island. That distinction
+            # was invisible while the largest detour block was in Brooklyn
+            # and became load-bearing the moment the ferry edge moved it.
+            print(f"    {hit} of those {len(members)} tracts also sit in a "
+                  f"contiguous under-service\n    block past 100 tracts, "
+                  f"which is a separate measure over separate inputs")
 
     iso = ~np.isfinite(out["hub_min"].to_numpy())
     isolated = int(iso.sum())
@@ -559,10 +566,13 @@ def _report(gdf, out, hubs, jobs, measured_kmh, total) -> dict:
         for b, r in by.sort_values("sum", ascending=False).iterrows():
             print(f"    {str(b):14} {int(r['size']):4} {C.GEO_LEVEL}s, "
                   f"{int(r['sum']):9,} people")
-        print(f"  Staten Island is the irreducible part of this -- the Staten "
-              f"Island Railway\n  has no rail connection to the rest of the "
-              f"system and the ferry is not rail,\n  so no walk budget can "
-              f"fix it. Elsewhere it is distance to a station.")
+        print(f"  This is distance to a station, not isolation from the "
+              f"network: the ferry edge\n  connects Staten Island, and what "
+              f"these {C.GEO_LEVEL}s lack is a station inside the\n  walk "
+              f"budget at all. The crossing itself is "
+              f"{C.FERRY_CROSSING_MINUTES:.0f} minutes on every one\n  of "
+              f"the feed's trips, so reaching the network and reaching a job "
+              f"center\n  are different questions on Staten Island.")
 
     return {
         "jobs_total": int(jobs.sum()),

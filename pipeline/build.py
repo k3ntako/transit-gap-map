@@ -39,6 +39,7 @@ FIELDS = {
     # derivable column is 5 KB spent to save a multiplication.
     "no_vehicle_pct": "nveh", "poverty_pct": "pov",
     "cluster_tracts": "clu", "cluster_pop": "clupop",
+    "cluster_id": "cluid",
     # Phase 4, in the three tightest encodings that still say something.
     # `jobs_share` ships in place of the raw reachable count because a
     # percentage with one decimal is 4.3 KB where a seven-digit count is 4.8,
@@ -87,10 +88,14 @@ SCHEMA_DOC = {
     "clu": "tracts in this tract's contiguous block beyond the 10-minute "
            "standard, 0 if it is inside the standard",
     "clupop": "population of that block",
-    "j45": "percent of the city's jobs reachable in 45 minutes by rail and "
-           "on foot; multiply by accessibility.jobs_total for a count",
-    "hub": "minutes to the nearest of the eight job centers, by rail, to the "
-           "nearest minute; null where no rail path reaches one",
+    "cluid": "which contiguous block, 0 = the most populous, -1 = not past "
+             "the standard. Stable between builds because the ids are ranked "
+             "by population rather than by row order",
+    "j45": "percent of the city's jobs reachable in 45 minutes by rail, the "
+           "Staten Island Ferry and on foot; multiply by "
+           "accessibility.jobs_total for a count",
+    "hub": "minutes to the nearest of the eight job centers, by rail or "
+           "ferry, to the nearest minute; null where no path reaches one",
     "det": "detour factor: transit time over straight-line time at the "
            "measured citywide median speed, so 1.0 is a typical trip",
 }
@@ -125,7 +130,7 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
     for col in ("walk", "swalk", "wlo", "whi", "acc", "wait", "stph",
                 "nveh", "pov"):
         out[col] = out[col].replace([np.inf, -np.inf], np.nan).round(1)
-    # Two decimals, because the detour factor's whole spread is 0.79 to 1.26 --
+    # Two decimals, because the detour factor's middle 80% is 0.79 to 1.28 --
     # rounding it to one would quantize the layer into four values. Three
     # decimals costs 8.0 KB against 4.6 and shows nothing.
     out["det"] = out["det"].replace([np.inf, -np.inf], np.nan).round(2)
@@ -138,6 +143,7 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
     out["j45"] = (100.0 * out["j45"].astype("float64")).round(1)
     for col in ("clu", "clupop"):
         out[col] = out[col].fillna(0).astype("int32")
+    out["cluid"] = out["cluid"].fillna(-1).astype("int16")
     out["dens"] = out["dens"].replace([np.inf, -np.inf], np.nan).round(0)
     out["pop"] = out["pop"].round(0).astype("int64")
     for col in ("bi", "dc", "wc"):
@@ -245,7 +251,7 @@ def build_hubs(df, stats: dict) -> dict:
         "hubs": [{k: h[k] for k in ("name", "mode", "borough", "lat", "lon",
                                     "jobs_near")} for h in hubs],
         "geoids": df["geoid"].astype(str).tolist(),
-        # One array per hub, minutes, one decimal, null where no rail path
+        # One array per hub, minutes, one decimal, null where no path
         # reaches it. Rounded here for the same reason every other float in
         # this stage is: unrounded float64 is 15 digits of nothing.
         "minutes": [[None if not np.isfinite(v) else round(float(v), 1)
@@ -311,15 +317,35 @@ def main(argv=None) -> int:
     # The alignment numbers go into the payload so the map can state its own
     # external validity rather than leaving it in a terminal nobody reads.
     # `verify.py` owns the test; this only embeds the result.
-    from pipeline.verify import ALIGNMENT_MIN_PRECISION, SHIPPED_SCORE, alignment
+    from pipeline.verify import (ALIGNMENT_CLUSTER_MARGIN,
+                                 ALIGNMENT_MIN_PRECISION, CLUSTER_MIN_TRACTS,
+                                 CLUSTER_PROBE_K, SHIPPED_SCORE, alignment)
     hits = alignment(df, verbose=False)
+    base = round(hits["_baseline"][25], 3)
     stats["alignment"] = {
         "shipped": SHIPPED_SCORE,
-        "baseline": round(hits["_baseline"][25], 3),
+        "baseline": base,
         "floor": ALIGNMENT_MIN_PRECISION,
         "precision": {k: {str(d): round(v, 3) for d, v in h.items()}
                       for k, h in hits.items() if not k.startswith("_")},
         "robust": hits["_robust"],
+        # The clumped measure, which is what actually gates the build: a rail
+        # line serves a strip of neighborhoods rather than a tract. Its floor
+        # is the baseline plus a margin and never the shipped score's own
+        # number, because a floor set near that would make agreement with the
+        # agencies a target rather than a check. `disagree` is the per-block
+        # table, and it is the output worth reading -- a block the score ranks
+        # badly that nobody has proposed anything for is not an error.
+        "clump": {k: {"precision": (None if not np.isfinite(v["precision"])
+                                    else round(v["precision"], 3)),
+                      "n_blocks": v["n_blocks"], "n_tracts": v["n_tracts"],
+                      "largest": v["largest"]}
+                  for k, v in hits["_clump"].items()},
+        "clump_rule": {"probe_k": CLUSTER_PROBE_K,
+                       "min_tracts": CLUSTER_MIN_TRACTS,
+                       "margin": ALIGNMENT_CLUSTER_MARGIN,
+                       "floor": round(base + ALIGNMENT_CLUSTER_MARGIN, 3)},
+        "disagree": hits["_disagree"],
     }
 
     print("\nWeb payloads:")

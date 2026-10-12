@@ -99,13 +99,26 @@ WAIT_WINDOW = "am_peak"
 # raw and wire move together and either basis would fire at about the same time;
 # the wire one is just the honest unit.
 #
-# The headroom is real but finite: 305 KB against 350 is about nine more fields,
-# not ninety. What these numbers catch immediately is the three things that
-# genuinely blow the payload up -- finer geometry, a string column that forgot
-# to join INTERNED, and switching GEO_LEVEL to block groups. And note that a new
-# float field must be added to the rounding tuple in build.py: unrounded float64
+# What these numbers catch immediately is the three things that genuinely blow
+# the payload up -- finer geometry, a string column that forgot to join
+# INTERNED, and switching GEO_LEVEL to block groups. And note that a new float
+# field must be added to the rounding tuple in build.py: unrounded float64
 # costs 15 KB gzipped per field instead of 5.
-BUDGET_TRACTS_WIRE_KB = 350.0      # now 305 KB
+#
+# **Raised from 350 to 420 on 2026-10-11, deliberately and once.** Phase 4
+# took the file from 305 KB to 343 against a 350 budget, which left room for
+# no further field at all, and the next three items in the roadmap each want
+# one. The alternative was to move the numeric columns into a parallel-array
+# sidecar, which is measured at ~2.5x cheaper per column than a per-feature
+# property, because gzip's window cannot span 2,325 interleaved features --
+# `hubs.json` carries eight such columns for 34 KB where interleaving them
+# would have cost about 100. That refactor is still the right answer at the
+# *next* wall and it is written down in ROADMAP.md; what it is not is a thing
+# to do in the same commit as the fields that provoked it. 420 is 343 plus
+# five fields of measured headroom (5.1 KB gzipped each, plus the interleaving
+# tax), and the number to watch is not this one -- it is whether the next
+# field arrives as a property or as an array.
+BUDGET_TRACTS_WIRE_KB = 420.0      # was 350; see the note above
 BUDGET_WALKSHEDS_WIRE_KB = 150.0   # now 111 KB
 
 # The surface raster is budgeted raw: a PNG is already compressed, so gzip
@@ -207,6 +220,51 @@ GTFS_FEEDS = {
     "lirr": "https://rrgtfsfeeds.s3.amazonaws.com/gtfslirr.zip",
     "mnr": "https://rrgtfsfeeds.s3.amazonaws.com/gtfsmnr.zip",
 }
+
+# The Staten Island Ferry, and it is a separate entry rather than a fourth
+# member of GTFS_FEEDS on purpose: stage 3 attaches scheduled service to rows
+# of the *station* table, which has no ferry terminals in it, so a feed added
+# above would be joined against nothing. Only the transit graph reads this.
+#
+# **Why a ferry is in a graph that excludes buses.** The bus exclusion is not
+# about vehicles, it is about substitution: a bus route is what the city runs
+# *instead of* rail in precisely the places this map exists to find, so
+# crediting it would hide the finding by construction. The Staten Island Ferry
+# substitutes for nothing. It is the only fixed-guideway trunk link across the
+# harbor, it runs on its own right of way at a published headway, no proposal
+# replaces it, and the alternative to including it is a published claim that
+# 495,000 people reach 18,000 of the city's 4.47M jobs -- which is true of
+# rail and false of transit. The operative line is dedicated right-of-way
+# trunk service against street-running service that shares its lanes with
+# traffic, and the ferry is plainly on the first side of it.
+#
+# Measured from the feed rather than assumed: 416 trips, all of them exactly
+# two stops and exactly a **25-minute** crossing, 4 departures an hour each
+# way in the 8-9am window and 2 an hour off-peak, fare-free, and
+# `direction_id` is empty on every trip -- direction lives in `shape_id`.
+# The empty direction is harmless here because a leg is keyed on its from-
+# and to-station as well, which separates the two directions anyway.
+#
+# Sourced through NYC Open Data rather than the nyc.gov path the dataset's own
+# metadata advertises, because that one answers 403 to anything without a
+# browser user agent. Dataset b57i-ri22, published by NYC DOT; the feed on it
+# declares 2026-01-01 to 2028-01-17, so it covers the window stage 4b samples.
+GTFS_FERRY_FEED = ("siferry",
+                   "https://data.cityofnewyork.us/download/b57i-ri22/"
+                   "application%2Fx-zip-compressed")
+
+# The crossing, read off the feed rather than set here: every one of its 416
+# trips is exactly 25 minutes, so this is a published fact and not a tunable.
+# It is in config only because two stages quote it in their output and one
+# probes it, and a number quoted in three places belongs in one.
+#
+# Worth keeping in view when reading any Staten Island figure: 25 minutes of
+# crossing plus a 7.5-minute expected wait at the 8-9am headway is 32.5
+# minutes before anyone has walked anywhere, against a 45-minute budget. The
+# ferry therefore connects Staten Island to the network without bringing
+# Manhattan's jobs inside the budget -- measured, the cheapest such trip is
+# 8.5 min of walking plus 32.5 plus 5.4 at the far end, which is 46.4.
+FERRY_CROSSING_MINUTES = 25.0
 
 # Workplace-area job counts: LEHD LODES8, WAC segment S000 (all jobs), job
 # type JT00 (all jobs). Keyed on the 15-digit census *block* of the
@@ -374,6 +432,7 @@ P_PBF = RAW / "NewYork.osm.pbf"
 P_CENSUS = RAW / f"census_{GEO_LEVEL}_pop.csv"
 
 P_GTFS = {k: RAW / f"gtfs_{k}.zip" for k in GTFS_FEEDS}
+P_GTFS_FERRY = RAW / f"gtfs_{GTFS_FERRY_FEED[0]}.zip"
 P_GTFS_BUS = {k: RAW / f"gtfs_bus_{k}.zip" for k in GTFS_BUS_FEEDS}
 
 P_GRAPH = PROCESSED / "walk_graph.npz"
