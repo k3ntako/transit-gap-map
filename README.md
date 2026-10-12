@@ -306,16 +306,39 @@ so more classes would need a wider lightness range or a lower gate.
 `bivariate_field()` takes `levels` if you want to re-check that.
 
 The **under-service score** layer is the real answer to that resolution question:
-one ordered ramp carries 7 steps where a matrix could not carry 16, because the
+one ordered ramp carries 6 steps where a matrix could not carry 16, because the
 reader only has to see the order rather than identify a cell. It is violet —
 slot 7 of the documented palette — and not a shade of either data ramp, since
 blue already means density and warm already means walk time. Its gates are the
 ones for an ordered ramp and not for a matrix: monotone lightness, at least
-0.06 lightness per step, and a near-surface step that still clears 2:1 against
-the page, measured at 0.068 and 2.23:1 light, 0.067 and 2.44:1 dark. Sampling
-the bivariate field's own diagonal was tried first and rejected: it crosses
-from cool grey to dark red, which reads as a diverging scale with a midpoint
-the score does not have, and its pale end sits at 1.35:1 on the light surface.
+0.06 lightness per step, and every step clearing 2:1 against the page.
+Sampling the bivariate field's own diagonal was tried first and rejected: it
+crosses from cool grey to dark red, which reads as a diverging scale with a
+midpoint the score does not have, and its pale end sits at 1.35:1 on the light
+surface.
+
+**Darker means worse served, and it means that in both themes.** Every ordered
+ramp used to be stepped twice, once per background, so the well-served end
+receded toward the page in each. That kept the *emphasis* on the finding and
+inverted the *direction* — dark meant under-served on a light basemap and
+light meant under-served on a dark one, so the map changed meaning when the
+reader changed theme. One palette now serves both, which is a real constraint
+rather than a preference: a color clearing 2:1 against both `#fcfcfb` and
+`#1a1a19` has to sit in a middle band of lightness, because "away from the
+surface" points in opposite directions on the two surfaces. The band is
+measured, not assumed, and it costs the deep ends — the score ramp stops at
+OKLCH L 0.435 where it used to reach 0.338, and its worst step reads 2.01:1
+against the dark basemap where the old inverted ramp gave it 12.5:1. In dark
+mode the finding is clearly visible rather than loud. It also cost a step: 7
+steps inside the band are 0.055 of lightness apart against a 0.06 gate, so the
+ramp is 6.
+
+The **bivariate matrix is the one exception**, and it is measured rather than
+assumed: it is the only layer where lightness carries two variables, so it
+needs twice the range. Inside the band its best achievable separation among
+populated cells is 12.3 against a 15.0 floor, and the contrast floor has to
+fall to 1.2:1 before it passes — which is where a cell starts dissolving
+into the page. So that one layer is still stepped per theme.
 
 Stations carry identity by **size and ring rather than hue**, since more hues
 there would collide with the choropleth ramps underneath. Walksheds are an

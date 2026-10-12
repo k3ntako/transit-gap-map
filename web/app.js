@@ -385,8 +385,13 @@ function gapPercentile(s) {
   return lo / sorted.length;
 }
 
-const gapRamp = () =>
-  state.theme === "dark" ? pal.gap_classes_dark : pal.gap_classes;
+// One ramp, both modes. See palette.py's CONTRAST_FLOOR note: every step of
+// every ordered ramp now clears 2:1 against *both* the light and the dark
+// surface, which is what lets the direction be the same in both -- darker is
+// always further from the standard. It cost the deep ends of the ramps and one
+// step of resolution, and it bought a map that does not change meaning when
+// the reader changes theme.
+const gapRamp = () => pal.gap_classes;
 
 function gapColor() {
   const ramp = gapRamp();
@@ -414,24 +419,26 @@ function gapColor() {
 // --- paint expressions ------------------------------------------------------
 
 const biFlat = () => state.theme === "dark" ? pal.bivariate_dark.flat() : pal.bivariate.flat();
-const densCls = () => state.theme === "dark" ? pal.density_classes_dark : pal.density_classes;
-const walkCls = () => state.theme === "dark" ? pal.walk_classes_dark : pal.walk_classes;
+const densCls = () => pal.density_classes;
+const walkCls = () => pal.walk_classes;
 
 // --- the Phase 4 layers ------------------------------------------------------
 
-// Seven steps sampled from the same 13-step OKLCH ramps palette.py already
-// audits, rather than two new palettes: the three-step class colors are
-// sampled from these ramps too, so this stays inside the validated system
-// instead of inventing colors beside it. Dark mode reverses the ramp, which
-// is exactly what `density_classes_dark` is against `density_classes` -- on a
-// dark surface the high end has to be the light one or it disappears.
-const SEQ_STEPS = 7;
+// The banded ramps palette.py audits, read as shipped rather than resampled
+// here. `pal.bands` is deliberately not `pal.ramps`: the latter are the full
+// documented families and reaching for them would get steps outside the
+// dual-surface band and lose the guarantee silently, which is why the two
+// have different names. No dark-mode reversal any more -- that reversal is
+// precisely what made the map mean the opposite thing in the other theme.
+//
+// SEQ_STEPS must equal palette.py's: it also sets the number of quantile
+// breaks, and asking for more bands than the ramp has colors would repeat a
+// color and silently merge two bands.
+const SEQ_STEPS = 6;
 function seqRamp(name) {
-  const r = pal.ramps[name];
-  const idx = Array.from({ length: SEQ_STEPS },
-    (_, i) => Math.round(i * (r.length - 1) / (SEQ_STEPS - 1)));
-  const out = idx.map((i) => r[i]);
-  return state.theme === "dark" ? out.slice().reverse() : out;
+  const r = pal.bands?.[name];
+  if (!r?.length) throw new Error(`palette.json has no band "${name}"`);
+  return r;
 }
 
 // Quantile breaks, for the same reason the gap layer uses them: jobs reachable
@@ -504,7 +511,7 @@ function seqFill(key, ramp, invert) {
     ["<", ["get", "dc"], 0], unpop(),
     ["step", ["get", key], colors[0], ...stops]];
 }
-const shedCls = () => state.theme === "dark" ? pal.walkshed_dark : pal.walkshed;
+const shedCls = () => pal.walkshed;
 const unpop = () => pal.unpopulated[state.theme];
 
 function fillColor() {

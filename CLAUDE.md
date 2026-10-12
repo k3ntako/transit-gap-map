@@ -154,13 +154,59 @@ numbers. Every meter-valued tunable is named `*_METERS`, spelled out, because
 **`palette.py` is the only place colors are defined.** Both the raster in stage 7
 and the browser read `palette.json`, so there is exactly one definition of every
 color. The four sequential choropleths stay inside that system rather than
-beside it: `app.js:seqRamp()` samples seven steps out of the same 13-step
-audited `ramps.density` and `ramps.walk`, reversed in dark mode, which is
-exactly what `density_classes_dark` is against `density_classes`. The detour
-factor has **no layer**, deliberately — measured, the middle 80% of tracts
-run 0.79 to 1.28, so a choropleth of it is close to one color. It ships in the
-tooltip, and a diverging ramp for it would need new steps through `audit()`'s
-gates.
+beside it: `app.js:seqRamp()` reads `pal.bands`, the ramps `palette.py`
+audits, as shipped. The detour factor has **no layer**, deliberately —
+measured, the middle 80% of tracts run 0.79 to 1.28, so a choropleth of it is
+close to one color. It ships in the tooltip, and a diverging ramp for it would
+need new steps through `audit()`'s gates.
+
+**One palette serves both themes, and the arithmetic of why is worth keeping.**
+Revised 2026-10-11. Every ordered ramp used to be stepped twice, once per
+surface, so that the well-served end receded toward the page in both modes.
+That preserved *emphasis* and inverted *direction*: dark meant under-served on
+a light basemap and light meant under-served on a dark one, so **the map
+changed meaning when the reader changed theme**. Direction won.
+
+The constraint is not a matter of taste. A color clearing
+`CONTRAST_FLOOR` (2:1) against both `#fcfcfb` and `#1a1a19` must sit in a
+middle band — measured on these hues, OKLCH L roughly **0.42 to 0.78** —
+because "away from the surface" points in opposite directions on the two
+surfaces. `dual_band()` solves it by scan rather than algebra, since the
+chroma a hue can carry varies with lightness and `_fit_chroma` is what
+decides it. Four consequences, all measured:
+
+- **Six steps, not seven.** Seven inside the band are 0.055 of lightness
+  apart against a 0.06 gate; six are 0.067. The step count gave way rather
+  than the gate. `app.js:SEQ_STEPS` must match `palette.py:SEQ_STEPS` —
+  asking for more bands than the ramp has colors repeats one and silently
+  merges two.
+- **The deep ends are gone.** The violet score ramp ran to L 0.338 and now
+  stops at 0.435; its worst step reads 2.01:1 against the dark basemap where
+  the old inverted dark ramp gave it 12.5:1. In dark mode the finding is
+  clearly visible rather than loud. That is the price of the change.
+- **The band anchors are not the categorical anchors.** `banded()` reads the
+  anchor's *hue*, and sRGB cannot hold every hue across the band: measured,
+  `ANCHOR_ORANGE` drifts **7.7 degrees** of hue over six banded steps and
+  would fail `HUE_SPREAD_MAX`, while `warm[10]` drifts 0.3 and `blue[3]` 0.4.
+  So `BAND_ANCHOR` indexes into the families rather than reusing the anchors
+  they were derived from.
+- **The raster is one PNG now**, not a light one and its reverse, which also
+  dropped 63 KB from the payload. `walk_surface.json` still carries both keys
+  so a stale cache does not 404.
+
+`audit_ordinal` takes a *sequence* of surfaces as of this change, and the
+plural is the gate: a shared ramp checked against one surface is checked
+against half of what it claims. All seven shared ramps land at 2.01:1.
+
+**The bivariate matrix is the one exception, and it is measured rather than
+conceded.** It stays stepped per mode (`FIELD` keeps both entries) because it
+is the only layer where lightness carries *two* variables and therefore needs
+twice the range. Searched inside the band: its best achievable
+`among_populated_delta_e` is **12.3 against a 15.0 floor**, and the
+dual-surface floor has to fall to **1.2:1** before it passes — which is
+where a cell genuinely starts dissolving into the page. So the headline layer
+still flips direction with the theme while the other eight do not. Anyone
+revisiting this should re-run the search before assuming it is possible.
 
 **The under-served blocks layer draws the contiguity measure, and shades it by
 the block's population rather than the tract's.** Added 2026-10-11 beside the
@@ -186,8 +232,9 @@ raises rather than warns. Load the **dataviz skill** before touching any of this
 **The web map is static and dumb on purpose.** `web/` is three source files —
 `index.html`, `app.js`, `style.css` — reading the payloads in `web/data/`
 (`tracts`, `stations`, `bus_ftn` and `walksheds` GeoJSON, `stats.json`,
-`palette.json`, `hubs.json`, `walk_surface.json` and one of the two surface
-PNGs). `hubs.json` is fetched with a `.catch(() => null)`: it is 39 KB only
+`palette.json`, `hubs.json`, `walk_surface.json` and `walk_surface.png`, which
+is one image for both themes since the ramps stopped flipping). `hubs.json` is
+fetched with a `.catch(() => null)`: it is 39 KB only
 the hub switcher reads, and a build from before Phase 4 has no such file, so a
 rejection must not take the map down with it. `web/data/` is gitignored
 and entirely generated, so a fresh clone must `make all` before `make serve`.
@@ -553,7 +600,7 @@ one.
 For a refactor, the expected standard in this repo is a **byte-identical
 proof**: force a full recompute through every changed call site and confirm
 `node_distance.npz`, `tracts.geojson`, `stations.geojson`, `walksheds.geojson`,
-both surface PNGs and `palette.json` reproduce exactly. The outputs are
+the surface PNG and `palette.json` reproduce exactly. The outputs are
 deterministic, so anything less is a weaker claim than the repo already makes in
 its own commit messages.
 

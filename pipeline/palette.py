@@ -36,15 +36,88 @@ ANCHOR_AQUA = "#1baf7a"     # categorical slot 3: distinct from both data ramps
 # two axes mix, which is what the score is.
 ANCHOR_VIOLET = "#6250d6"
 
-# Endpoints of the gap ramp, as OKLCH lightness, nearest-the-surface first.
-# That first step is the binding constraint: it must still clear 2:1 against
-# the surface, which on the violet ramp means L 0.753 light (2.22:1) and
-# L 0.479 dark (2.44:1). The far end runs to the edge of the ramp family.
-GAP_L = {"light": (0.753, 0.338), "dark": (0.479, 0.894)}
-GAP_STEPS = 7
-
 SURFACE_LIGHT = "#fcfcfb"
 SURFACE_DARK = "#1a1a19"
+
+# --- one palette for both modes, and what it costs -------------------------
+# Revised 2026-10-11. Every ordered ramp used to be stepped twice, once per
+# surface, so that the well-served end receded toward the page in both modes.
+# That preserved *emphasis* and inverted *direction*: dark meant under-served
+# on a light basemap and light meant under-served on a dark one, so the map
+# changed meaning when the reader changed theme. Direction won.
+#
+# The constraint is arithmetic. A color clearing CONTRAST_FLOOR against both
+# #fcfcfb and #1a1a19 has to sit in a middle band of lightness -- measured on
+# these hues, OKLCH L roughly 0.42 to 0.78 -- because "away from the surface"
+# points in opposite directions on the two surfaces. So one ramp means giving
+# up the deep ends: the violet score ramp ran to L 0.338 and now stops at
+# 0.435, and its darkest step reads 2.01:1 against the dark basemap instead of
+# the 12.5:1 the inverted dark ramp gave it. The finding is clearly visible in
+# dark mode rather than loud. That is the trade, stated rather than hidden.
+#
+# Three consequences worth knowing before editing any of this:
+#
+#   1. **The score ramp is 6 steps, not 7.** Seven steps inside the band are
+#      0.055 of lightness apart, under the 0.06 an ordered ramp needs; six are
+#      0.067 apart. The gate is the project's credibility mechanism, so the
+#      step count gave way rather than the gate.
+#   2. **The bivariate matrix is still stepped per mode.** It is the only
+#      layer where lightness carries *two* variables, so it needs twice the
+#      range. Searched: inside the band its best achievable
+#      `among_populated_delta_e` is 12.3 against a 15.0 floor, and it needs
+#      the dual-surface floor relaxed to 1.2:1 before it passes -- which is
+#      where a cell genuinely starts dissolving into the page. FIELD keeps
+#      both entries for that measured reason.
+#   3. **Chrome stays per mode.** `INK`, `station` and `unpopulated` are
+#      surface-matched by definition: the unpopulated color has to *be* near
+#      the page or it stops reading as "no data". Only the data ramps are
+#      shared.
+CONTRAST_FLOOR = 2.0
+
+# Steps in a ramp the reader sees as discrete bands. Six, not seven, and the
+# reason is the band: seven steps inside it are 0.055 of lightness apart and
+# an ordered ramp needs 0.06, so the step count gave way rather than the gate.
+# `app.js:SEQ_STEPS` must match -- it samples these, and sampling 7 out of a
+# 6-step ramp would repeat a color and lose a band silently.
+GAP_STEPS = 6
+SEQ_STEPS = 6
+
+# The raster ramp is interpolated into a continuous image rather than read as
+# bands, so the per-step lightness gate does not apply to it and it keeps a
+# fine-grained family. It is still held to the dual-surface contrast floor,
+# because it is drawn over the same two basemaps as everything else.
+SURFACE_RAMP_STEPS = 13
+
+
+def dual_band(anchor: str, floor: float = CONTRAST_FLOOR,
+              step: float = 0.005) -> tuple[float, float]:
+    """The OKLCH lightness range at `anchor`'s hue that stays visible on both
+    surfaces. Returned light-end-first, which is the served -> under-served
+    direction every ordered ramp now runs in.
+
+    Solved by scan rather than algebra because the chroma a hue can carry
+    varies with lightness, and `_fit_chroma` is what decides it -- so the
+    luminance of "the violet at L" is not a closed form.
+    """
+    _, c, h = oklab_to_lch(rgb_to_oklab(hex_to_rgb(anchor)))
+    ok = []
+    for L in np.arange(0.15, 0.99, step):
+        hx = rgb_to_hex(_fit_chroma(float(L), c, h, tol=0.002, tries=240))
+        if (contrast(hx, SURFACE_LIGHT) >= floor
+                and contrast(hx, SURFACE_DARK) >= floor):
+            ok.append(float(L))
+    if not ok:
+        raise AssertionError(
+            f"no lightness at {anchor}'s hue clears {floor}:1 against both "
+            f"surfaces; the band is empty and a shared ramp is impossible")
+    return max(ok), min(ok)
+
+
+def banded(anchor: str, n: int) -> list[str]:
+    """`n` steps of one hue, served (light) -> under-served (dark), inside the
+    band that works on both surfaces."""
+    lo, hi = dual_band(anchor)
+    return ordinal_ramp(anchor, lo, hi, n)
 
 INK = {
     "light": {"primary": "#0b0b0b", "secondary": "#52514e", "muted": "#898781",
@@ -296,7 +369,7 @@ def audit(matrix, rising: bool = False) -> dict:
     }
 
 
-def audit_ordinal(ramp: list[str], surface: str) -> dict:
+def audit_ordinal(ramp: list[str], surfaces) -> dict:
     """Checks for an ordered ramp, which are not the checks for a matrix.
 
     Adjacent CVD separation is deliberately not the test: a ramp's neighbors
@@ -305,7 +378,14 @@ def audit_ordinal(ramp: list[str], surface: str) -> dict:
     lightness, with steps even enough to see), that nothing dissolves into the
     page, and that it is one hue -- a ramp that drifts across hues reads as
     diverging, which implies a midpoint this score does not have.
+
+    `surfaces` is a sequence as of 2026-10-11, and the plural is the point:
+    one ramp now serves both modes, so "nothing dissolves into the page" has
+    to hold against both pages at once. Passing a single surface would leave
+    the gate measuring half of what it claims to.
     """
+    if isinstance(surfaces, str):
+        surfaces = (surfaces,)
     L = [lightness(h) for h in ramp]
     deltas = [abs(b - a) for a, b in zip(L, L[1:])]
     rising = L[-1] > L[0]
@@ -314,7 +394,8 @@ def audit_ordinal(ramp: list[str], surface: str) -> dict:
         "steps": len(ramp),
         "min_delta_l": round(min(deltas), 3),
         "min_delta_e": round(min(delta_e(a, b) for a, b in zip(ramp, ramp[1:])), 1),
-        "surface_contrast": round(min(contrast(h, surface) for h in ramp), 2),
+        "surface_contrast": round(min(contrast(h, s)
+                                      for h in ramp for s in surfaces), 2),
         "hue_spread_deg": round(max(hues) - min(hues), 1),
         "lightness_monotone": bool(all((b > a) == rising for a, b in zip(L, L[1:]))),
     }
@@ -329,26 +410,49 @@ def build() -> dict:
     blue = list(BLUE.values())
     warm = derive_ramp(ANCHOR_ORANGE, blue)
 
+    # One banded ramp per hue family, served (light) -> under-served (dark),
+    # shared by both modes. See CONTRAST_FLOOR for why the band exists and
+    # what it costs; `ramps` keeps the untrimmed documented families because
+    # they are what the warm and aqua ramps are derived *from*.
+    # Which member of each family supplies the *hue* the band is built at.
+    # `banded` refits chroma per step, so the anchor only has to name a hue --
+    # but which one matters, because sRGB cannot hold every hue across the
+    # band and the drift shows up as a ramp that reads as diverging. Measured
+    # hue spread across the 6 banded steps, by anchor:
+    #
+    #   warm family:  index 3-8 drift 7.0-7.8 deg, index 10 drifts 0.3
+    #   blue family:  index 7-8 drift 2.5,         index 3  drifts 0.4
+    #
+    # So the anchors are the family members whose hue survives the band, not
+    # the categorical anchors the families were *derived* from. ANCHOR_ORANGE
+    # itself drifts 7.7 degrees and would fail HUE_SPREAD_MAX.
+    BAND_ANCHOR = {"blue": 3, "warm": 10}
+    blue_band = banded(blue[BAND_ANCHOR["blue"]], SEQ_STEPS)
+    warm_band = banded(warm[BAND_ANCHOR["warm"]], SEQ_STEPS)
+    aqua_band = banded(ANCHOR_AQUA, 3)
+
     pal = {
         "ink": INK,
         "ramps": {"density": blue, "walk": warm},
-        # Discrete choropleth classes: skip the two lightest steps so each
-        # class clears the 2:1 floor against the light surface.
-        "density_classes": sample(blue[2:], 3),
-        "walk_classes": sample(warm[2:], 3),
-        # Dark mode is stepped for the dark surface, not an inverted light ramp:
-        # the near-zero class recedes toward the surface in both modes, which on
-        # a dark basemap means the ramp runs dark -> light.
-        "density_classes_dark": sample(blue[:-2], 3)[::-1],
-        "walk_classes_dark": sample(warm[:-2], 3)[::-1],
+        # What the sequential choropleths sample. Separate from `ramps` above
+        # because those are the full documented families and these are the
+        # part of them that works on both surfaces -- a consumer that reaches
+        # for `ramps` by mistake would get steps outside the band and lose the
+        # guarantee silently, so the two are named differently.
+        "bands": {"density": blue_band, "walk": warm_band},
+        # Discrete choropleth classes, three steps inside the band. No
+        # `_dark` counterpart any more: the direction of the ramp is now the
+        # same in both modes, which is the whole point of the change.
+        "density_classes": sample(blue_band, 3),
+        "walk_classes": sample(warm_band, 3),
         "bivariate": bivariate_field("light"),
         "bivariate_dark": bivariate_field("dark"),
-        "surface_ramp": warm,
+        "surface_ramp": banded(warm[BAND_ANCHOR["warm"]],
+                               SURFACE_RAMP_STEPS),
         # Walksheds are an ORDERED magnitude (5 / 10 / 15 min), so they get one
         # hue in three steps -- contour lines, not categories. Aqua keeps them
         # clear of the blue density ramp and the warm walk ramp underneath.
-        "walkshed": sample(derive_ramp(ANCHOR_AQUA, blue)[3:], 3),
-        "walkshed_dark": sample(derive_ramp(ANCHOR_AQUA, blue)[:-3], 3)[::-1],
+        "walkshed": aqua_band,
         # Stations sit on top of a choropleth, so they carry identity by SIZE
         # and RING rather than hue: four more hues here would collide with the
         # data ramps and blow past the all-pairs categorical cap for map forms.
@@ -356,12 +460,13 @@ def build() -> dict:
             "light": {"fill": "#fcfcfb", "stroke": "#0b0b0b"},
             "dark": {"fill": "#1a1a19", "stroke": "#ffffff"},
         },
-        # The walk-access gap score: one ordered ramp, 7 steps. This is the
-        # resolution a 4x4 matrix was asked for and could not pass the gates
-        # for -- an ordered ramp carries more steps than a matrix because the
-        # reader only has to see the order, not identify a cell.
-        "gap_classes": ordinal_ramp(ANCHOR_VIOLET, *GAP_L["light"], GAP_STEPS),
-        "gap_classes_dark": ordinal_ramp(ANCHOR_VIOLET, *GAP_L["dark"], GAP_STEPS),
+        # The walk-access gap score: one ordered ramp, GAP_STEPS steps. This
+        # is the resolution a 4x4 matrix was asked for and could not pass the
+        # gates for -- an ordered ramp carries more steps than a matrix
+        # because the reader only has to see the order, not identify a cell.
+        # Six rather than the original seven, because seven inside the shared
+        # band are 0.055 of lightness apart and the gate is 0.06.
+        "gap_classes": banded(ANCHOR_VIOLET, GAP_STEPS),
         "unpopulated": {"light": "#e4e3dd", "dark": "#232322"},
     }
     return pal
@@ -409,33 +514,48 @@ def main() -> int:
                 f"{key} {gate} is {rep[gate]}, below the {floor} floor")
 
     # Ordinal-ramp gates: see audit_ordinal(). The lightness floor is the
-    # dataviz spec's 0.06 per step; the contrast floor is its 2:1 for the step
-    # nearest the surface; and the hue spread keeps it a single hue, so it
-    # cannot be read as diverging.
-    ORDINAL_GATES = {"min_delta_l": 0.06, "surface_contrast": 2.0}
+    # dataviz spec's 0.06 per step; the contrast floor is its 2:1, now
+    # measured against **both** surfaces because one ramp serves both modes;
+    # and the hue spread keeps it a single hue, so it cannot be read as
+    # diverging.
+    #
+    # Every shared ramp goes through this, not just the score: the whole claim
+    # of the 2026-10-11 change is that one palette works on both pages, and a
+    # claim that is only checked on one ramp is not checked.
+    ORDINAL_GATES = {"min_delta_l": 0.06, "surface_contrast": CONTRAST_FLOOR}
     HUE_SPREAD_MAX = 2.0
-    print("\nwalk-access gap ramp (violet, ordinal):")
+    BOTH = (SURFACE_LIGHT, SURFACE_DARK)
+    print("\nshared ordered ramps (one palette, both modes):")
     pal["gap_audit"] = {}
-    for key, surface in (("gap_classes", SURFACE_LIGHT),
-                         ("gap_classes_dark", SURFACE_DARK)):
-        rep = audit_ordinal(pal[key], surface)
+    # `banded` is True where the reader sees discrete steps and has to read
+    # their order, which is what the lightness and hue gates are for. The
+    # raster is interpolated, so only its contrast is gated.
+    for key, stepped in (("gap_classes", True), ("bands.density", True),
+                         ("bands.walk", True), ("walkshed", True),
+                         ("density_classes", True), ("walk_classes", True),
+                         ("surface_ramp", False)):
+        ramp = (pal["bands"][key.split(".")[1]] if key.startswith("bands.")
+                else pal[key])
+        rep = audit_ordinal(ramp, BOTH)
         pal["gap_audit"][key] = rep
         print(f"  {key}:")
-        print("    " + " ".join(pal[key]))
+        print("    " + " ".join(ramp))
         for k, v in rep.items():
             print(f"    {k:22} {v}")
+        assert rep["surface_contrast"] >= CONTRAST_FLOOR, (
+            f"{key} drops to {rep['surface_contrast']}:1 against one of the "
+            f"two surfaces, below the {CONTRAST_FLOOR} floor. Shared ramps "
+            f"are gated on the WORSE of the two, so a ramp that passed when "
+            f"dark mode had its own stepping can fail here -- that is the "
+            f"gate working, not a regression.")
+        if not stepped:
+            continue
         assert rep["lightness_monotone"], f"{key} lightness is not monotone"
         assert rep["hue_spread_deg"] <= HUE_SPREAD_MAX, (
             f"{key} spans {rep['hue_spread_deg']} degrees of hue, not one hue")
-        for gate, floor in ORDINAL_GATES.items():
-            assert rep[gate] >= floor, (
-                f"{key} {gate} is {rep[gate]}, below the {floor} floor")
-
-    print("\nsequential classes:")
-    print("  density light:", " ".join(pal["density_classes"]))
-    print("  density dark :", " ".join(pal["density_classes_dark"]))
-    print("  walk    light:", " ".join(pal["walk_classes"]))
-    print("  walk    dark :", " ".join(pal["walk_classes_dark"]))
+        assert rep["min_delta_l"] >= ORDINAL_GATES["min_delta_l"], (
+            f"{key} min_delta_l is {rep['min_delta_l']}, below the "
+            f"{ORDINAL_GATES['min_delta_l']} floor")
     out.write_text(json.dumps(pal, indent=2))
     print(f"\nsaved {out.relative_to(C.ROOT)}")
     return 0

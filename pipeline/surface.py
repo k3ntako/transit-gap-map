@@ -207,15 +207,22 @@ def run(force: bool = False):
     grid, xs, ys, step = distance_field(
         C.SURFACE_RESOLUTION_METERS, dist, serviceable, land)
 
-    meta = {}
-    for mode in ("light", "dark"):
-        ramp = pal["ramps"]["walk"] if mode == "light" else pal["ramps"]["walk"][::-1]
-        path = C.WEB_DATA / f"walk_surface_{mode}.png"
-        kb = render_png(grid, ramp, vmax, path)
-        if kb > C.BUDGET_SURFACE_KB:
-            print(f"  WARNING {path.name} is {kb:.0f} KB, over the "
-                  f"{C.BUDGET_SURFACE_KB:.0f} KB budget")
-        meta[mode] = path.name
+    # One image for both themes as of 2026-10-11, where there used to be a
+    # light one and its reverse. `surface_ramp` is banded to clear 2:1 against
+    # both surfaces (palette.py's CONTRAST_FLOOR), so the raster no longer has
+    # to flip to stay visible -- and flipping it was what made a long walk
+    # read dark in one theme and light in the other. Still written under both
+    # keys so `walk_surface.json` keeps its shape and a stale browser cache
+    # does not 404.
+    ramp = pal["surface_ramp"]
+    path = C.WEB_DATA / "walk_surface.png"
+    kb = render_png(grid, ramp, vmax, path)
+    if kb > C.BUDGET_SURFACE_KB:
+        print(f"  WARNING {path.name} is {kb:.0f} KB, over the "
+              f"{C.BUDGET_SURFACE_KB:.0f} KB budget")
+    for stale in ("walk_surface_light.png", "walk_surface_dark.png"):
+        (C.WEB_DATA / stale).unlink(missing_ok=True)
+    meta = {"light": path.name, "dark": path.name}
 
     # Four corners in lon/lat: TL, TR, BR, BL (the order MapLibre expects).
     to_geo = Transformer.from_crs(MERCATOR, C.CRS_GEO, always_xy=True)

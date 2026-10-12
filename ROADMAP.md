@@ -55,16 +55,22 @@ and the sections below all refer to it.
 Everything here reads fields that are already in `tracts.geojson` or touches
 only `web/`. None of it depends on a phase below.
 
-- **Filter by class, and a minimum-walk floor.** The display floors fade tracts
-  under a density or population threshold; the same mechanism should fade by
-  *class* — show only the worst two score bands, or only tracts over N minutes'
-  walk. `belowFloor()` is already an expression consumed by both
-  `fillOpacity()` and `lineOpacity()`, so a minute floor is a third clause and
-  a class filter is an `["in", ["get", "bi"], …]` test; the permalink gains one
-  key and ignores it when absent. Two cautions: **fade, never hide**, for the
-  same reason the density floor fades — a missing tract reads as missing data,
-  not as a filtered one; and a class filter stacked on a floor can empty the
-  map, so the legend should state how many tracts are currently showing.
+- **Filter by class, and a minimum-walk floor.** *Half done 2026-10-11.* The
+  "fade areas meeting the standard" checkbox is the third clause this entry
+  predicted, built the way it predicted — `belowFloor()` gains a test, the
+  permalink gains `served=1`, and `showCount()` reports how many tracts are
+  left, because the caution about stacked floors emptying the map was right.
+  It fades rather than hides, for the reason given here: a missing tract reads
+  as missing data rather than as filtered data.
+
+  What is **not** done is the per-class version. The shipped control uses one
+  definition across all nine layers — `exc <= 0`, the project's own
+  10-minute standard, which the score, the contiguity blocks and the clump
+  layer are already built on — rather than each layer's own good end,
+  because one control that means nine different things is worse than one
+  that means one. A genuine `["in", ["get", "bi"], …]` class filter and a
+  minute floor are still open, and the argument for doing them before the
+  zoning work is unchanged.
 - **Collapse the panels.** The panels occupy two fixed columns, 310 px on the
   left and 232 px on the right, and the title card is the largest of them and
   the least re-read. Making each a `<details>` is
@@ -1229,8 +1235,9 @@ first should carry this.
 
 Orthogonal to all of that, and pickable whenever: **publishing the map**, which
 needs no new data and currently blocks every other reader from seeing any of
-this, and the **small no-new-data items** — the class filter, the collapsible
-panels, the legend width. The class filter is worth doing before the zoning
+this, and the **small no-new-data items** — the per-class filter (the
+standard-based half shipped 2026-10-11), the collapsible panels, the legend
+width. The class filter is worth doing before the zoning
 work, because naming the low-density/short-walk corner of the matrix is most of
 that question's cheap version.
 
@@ -1255,8 +1262,9 @@ shipping them early would produce confident answers from the weaker model.
 
 Deliberately *not* first: more color classes — settled 2026-10-10, a 4×4
 bivariate matrix measures 10.0 on its weakest pair against a 15.1 floor, and
-the resolution belongs on a one-axis ramp (now 7 steps) rather than in more
-cells; and **anything that adds a term to the score without a row in the
+the resolution belongs on a one-axis ramp (6 steps as of 2026-10-11, down
+from 7 — see below) rather than in more cells; and **anything that adds a
+term to the score without a row in the
 alignment table**. Two such terms have now been tried and both lowered it: the
 wait penalty, and the equity variables. Neither is a reason not to measure
 something — both are shipped and visible — but the score itself is now
