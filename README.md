@@ -18,6 +18,17 @@ The average New Yorker reaches **1.25M of 4.47M jobs** that way — 28%.
 Living near a train says nothing about whether the train goes anywhere, and
 these are the first numbers here that can disagree rather than merely refine.
 
+That figure has a ceiling in it, so there is a fourth measure without one:
+**how long until a resident can reach a tenth of the city's jobs.** Same data,
+axes swapped — fix the jobs, measure the time. It matters because a
+45-minute cutoff *censors*: 1,062 of 2,325 tracts need longer than that to
+reach a tenth of the city's jobs, so they all bunch near zero and stop being
+distinguishable. Breezy Point reaches 0.13% of jobs in 45 minutes and Arden
+Heights 0.12%, which looks like a tie and hides **86 minutes against 121**.
+Measured without the cutoff: the average New Yorker needs **44 minutes**, and
+the worst tenth of tracts are past 69. This is the measure to read at the bad
+end, which is the end this project is about.
+
 Stations counted: all **496 subway stations** (including the 21 Staten Island
 Railway stops), plus **LIRR and Metro-North** stations in or just beyond the
 city — 557 in total.
@@ -70,7 +81,7 @@ instead of being treated as sitting exactly on it.
 | 3 | `pipeline/service.py` | GTFS → trains per hour per station, frequent bus stops |
 | 4 | `pipeline/distance.py` | Multi-source Dijkstra → walk and walk+wait per node |
 | 4b | `pipeline/transit.py` | Rail + ferry GTFS → a frequency graph, solved for every station pair |
-| 4c | `pipeline/accessibility.py` | Jobs reachable in 45 min, job centers, detour factor |
+| 4c | `pipeline/accessibility.py` | Jobs reachable in 45 min, time to reach a tenth of them, job centers, detour factor |
 | 5 | `pipeline/aggregate.py` | Node distances → per-tract statistics and the score |
 | 6 | `pipeline/palette.py` | Generate and audit the color system |
 | 7 | `pipeline/surface.py` | Walk-time raster + network walkshed polygons |

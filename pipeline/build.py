@@ -51,7 +51,8 @@ FIELDS = {
     # four fields cost 51 KB in this file against 19 KB measured standalone,
     # because gzip's window cannot span 2,325 interleaved features, and the
     # reachable number is the finding while the local one is only context.
-    "jobs_share": "j45", "hub_min": "hub", "detour": "det",
+    "jobs_share": "j45", "jobs_time": "jt10",
+    "hub_min": "hub", "detour": "det",
 }
 
 # These columns hold a small number of long, highly repeated strings -- NTA
@@ -94,6 +95,11 @@ SCHEMA_DOC = {
     "j45": "percent of the city's jobs reachable in 45 minutes by rail, the "
            "Staten Island Ferry and on foot; multiply by "
            "accessibility.jobs_total for a count",
+    "jt10": "minutes until a tenth of the city's jobs are reachable, to the "
+            "nearest minute; null where the reachable set never holds that "
+            "many. The uncensored companion to j45: a fixed time budget "
+            "saturates near zero for the 1,062 geographies that cannot reach "
+            "that many jobs inside it, and this one does not",
     "hub": "minutes to the nearest of the eight job centers, by rail or "
            "ferry, to the nearest minute; null where no path reaches one",
     "det": "detour factor: transit time over straight-line time at the "
@@ -137,6 +143,9 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
     # Whole minutes to a hub: 4.5 KB at one decimal against 2.9 at none, for a
     # number nobody reads to the tenth of a minute over a 40-minute trip.
     out["hub"] = out["hub"].replace([np.inf, -np.inf], np.nan).round(0)
+    # Whole minutes: the field spans 11 to 132, so a decimal place would be
+    # three characters per feature to say nothing a reader can act on.
+    out["jt10"] = out["jt10"].replace([np.inf, -np.inf], np.nan).round(0)
     # float64 before rounding: the column arrives as float32, where 100 * 0.758
     # is 75.800003 and `.round(1)` leaves it that way -- seven digits per
     # feature of pure float noise, which the budget pays for.

@@ -238,6 +238,48 @@ def _walk_only(gdf, samples: _Samples, serviceable: np.ndarray) -> np.ndarray:
     return out
 
 
+def _time_to_jobs(total: np.ndarray, jobs: np.ndarray, share: float,
+                  budget_mb: float = 128.0) -> np.ndarray:
+    """Minutes until `share` of the city's jobs are reachable, per geography.
+
+    The cumulative-opportunity measure with its axes swapped: instead of
+    fixing the time and counting the jobs, fix the jobs and measure the time.
+    That one change removes the right-censoring, which is the defect that
+    makes a fixed budget useless at the end of the distribution this project
+    exists to describe. `config.JOBS_THRESHOLD_SHARE` carries the measured
+    argument; the short version is that 46% of tracts cannot reach a tenth of
+    the city's jobs inside 45 minutes, so for all of them the budgeted field
+    saturates near zero and two tracts 35 minutes apart read as a tie.
+
+    Computed by sorting each origin's destinations by time, accumulating the
+    jobs in that order, and taking the time at which the running total first
+    crosses the threshold. Chunked over origins for the same reason
+    `_min_plus` is: the sort wants three temporaries the size of the matrix.
+
+    Unreachable destinations sort last, carrying infinite time, so a geography
+    whose reachable set simply does not contain enough jobs comes back `inf`
+    rather than with a misleadingly large finite number. Measured, that is 79
+    geographies -- exactly the set that can reach no job center either, which
+    is to say the ones with no station inside the walk budget at all.
+    """
+    want = share * float(jobs.sum())
+    n, m = total.shape
+    out = np.full(n, np.inf, dtype=np.float32)
+    # Per row: the sort keys (4 B), the index permutation (8 B) and the
+    # running job total (8 B).
+    chunk = max(1, int(budget_mb * 1e6 / (20.0 * m)))
+    for i in range(0, n, chunk):
+        blk = total[i:i + chunk]
+        order = np.argsort(blk, axis=1, kind="stable")
+        when = np.take_along_axis(blk, order, axis=1)
+        cum = np.cumsum(jobs[order], axis=1)
+        reached = cum >= want
+        at = reached.argmax(axis=1)
+        out[i:i + chunk] = np.where(reached.any(axis=1),
+                                    when[np.arange(len(blk)), at], np.inf)
+    return out
+
+
 def _min_plus(A: np.ndarray, B: np.ndarray, budget_mb: float = 128.0):
     """out[i, j] = min_k (A[i, k] + B[k, j]), chunked to a memory budget.
 
@@ -424,6 +466,21 @@ def compute(force: bool = False) -> tuple[pd.DataFrame, dict]:
           f"p10 {np.percentile(jobs_reach, 10):,.0f}, "
           f"p90 {np.percentile(jobs_reach, 90):,.0f}")
 
+    jobs_time = _time_to_jobs(total, jobs, C.JOBS_THRESHOLD_SHARE)
+    fin = np.isfinite(jobs_time)
+    censored = int((jobs_time > C.JOBS_BUDGET_MINUTES).sum())
+    print(f"  time    to {100 * C.JOBS_THRESHOLD_SHARE:.0f}% of the city's "
+          f"jobs ({C.JOBS_THRESHOLD_SHARE * jobs.sum() / 1e3:,.0f}k): median "
+          f"{np.median(jobs_time[fin]):.0f} min, "
+          f"p90 {np.percentile(jobs_time[fin], 90):.0f}, "
+          f"max {jobs_time[fin].max():.0f}; "
+          f"{int((~fin).sum())} never reach it")
+    print(f"          {censored:,} of {len(gdf):,} {C.GEO_LEVEL}s need more "
+          f"than the {C.JOBS_BUDGET_MINUTES:.0f}-minute budget, so for those "
+          f"jobs{C.JOBS_BUDGET_MINUTES:.0f}\n          is reporting the "
+          f"censored tail rather than the trip -- which is why this field "
+          f"exists")
+
     hubs = pick_hubs(W, jobs, tg.stations)
     hub_min = arrive[:, hubs["station_row"].to_numpy()]
     # inf already means "no rail path", so a plain min is correct and a
@@ -466,6 +523,7 @@ def compute(force: bool = False) -> tuple[pd.DataFrame, dict]:
         "jobs": jobs.astype("int64"),
         "jobs_reach": jobs_reach.astype("int64"),
         "jobs_share": share.astype("float32"),
+        "jobs_time": jobs_time.astype("float32"),
         "hub_min": nearest_hub.astype("float32"),
         "detour": detour.astype("float32"),
     })
@@ -491,6 +549,19 @@ def _report(gdf, out, hubs, jobs, measured_kmh, total) -> dict:
     print(f"  in {C.JOBS_BUDGET_MINUTES:.0f} minutes by rail -- "
           f"{100 * weighted / jobs.sum():.1f}% of the city's "
           f"{jobs.sum():,.0f}.")
+    # The uncensored companion, stated in the same breath on purpose: the
+    # sentence above is the one that gets quoted, and on its own it implies a
+    # precision the budget does not have for the half of the city that falls
+    # outside it.
+    jt = out["jobs_time"].to_numpy(dtype=np.float64)
+    fin = np.isfinite(jt)
+    jt_w = float((jt[fin] * pop[fin]).sum() / max(pop[fin].sum(), 1))
+    print(f"  Put the other way round, which does not censor: that same "
+          f"average New Yorker\n  needs {jt_w:.0f} minutes to reach "
+          f"{100 * C.JOBS_THRESHOLD_SHARE:.0f}% of the city's jobs, and "
+          f"{int((jt > C.JOBS_BUDGET_MINUTES).sum()):,} of "
+          f"{len(gdf):,}\n  {C.GEO_LEVEL}s need longer than the budget "
+          f"above to get there.")
 
     worst = out.assign(boro=gdf["boroname"].to_numpy(),
                        nta=gdf["ntaname"].to_numpy(),
@@ -574,9 +645,19 @@ def _report(gdf, out, hubs, jobs, measured_kmh, total) -> dict:
               f"the feed's trips, so reaching the network and reaching a job "
               f"center\n  are different questions on Staten Island.")
 
+    jt = out["jobs_time"].to_numpy(dtype=np.float64)
+    fin = np.isfinite(jt)
     return {
         "jobs_total": int(jobs.sum()),
         "budget_min": C.JOBS_BUDGET_MINUTES,
+        "threshold_share": C.JOBS_THRESHOLD_SHARE,
+        "threshold_jobs": int(C.JOBS_THRESHOLD_SHARE * jobs.sum()),
+        "weighted_jobs_time": round(
+            float((jt[fin] * pop[fin]).sum() / max(pop[fin].sum(), 1)), 1),
+        "median_jobs_time": round(float(np.median(jt[fin])), 1),
+        "p90_jobs_time": round(float(np.percentile(jt[fin], 90)), 1),
+        "n_past_budget": int((jt > C.JOBS_BUDGET_MINUTES).sum()),
+        "n_no_threshold": int((~fin).sum()),
         "weighted_jobs_reach": round(weighted),
         "weighted_share": round(weighted / float(jobs.sum()), 4),
         "median_jobs_reach": int(np.median(reach)),

@@ -92,7 +92,7 @@ const query = (layer, point) =>
 // ignored, which means a later control is one more key and there is no format
 // to version. `v` is zoom/lat/lon, the order OSM and Mapbox hashes use.
 const CHOROPLETHS = ["bivariate", "gap", "clump", "density", "walk", "access",
-                     "jobs", "hub", "none"];
+                     "jobs", "jobtime", "hub", "none"];
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 // Reads the hash into `state` and returns the camera it asked for, if any.
@@ -523,6 +523,13 @@ function fillColor() {
   // worth finding on the map is the tracts that reach the fewest.
   if (state.choropleth === "jobs")
     return seqFill("j45", seqRamp("density"), true);
+  // The same jobs data with the axes swapped: minutes rather than a count, so
+  // more is worse and it shares the walk ramp's direction. This is the layer
+  // that still says something where the one above saturates -- a fixed time
+  // budget bottoms out at zero for the 1,062 tracts that cannot reach a tenth
+  // of the city's jobs inside it, and minutes keep counting.
+  if (state.choropleth === "jobtime")
+    return seqFill("jt10", seqRamp("walk"), false);
   // More minutes is worse, which is the same direction walk time already runs
   // in, so it gets the same ramp.
   if (state.choropleth === "hub")
@@ -861,6 +868,14 @@ function wireHover() {
         html += row(`Jobs in ${fmt(stats.accessibility?.budget_min, 0)} min`,
                     `${fmt(p.j45 * total / 100 / 1e6, 2)}M`);
       }
+      // Beside the count, not instead of it: the count answers "how much is
+      // near me" and this answers "how far to enough", and the second one is
+      // the one that still separates two badly served tracts.
+      if (p.jt10 != null)
+        html += row("To a tenth of the city's jobs", `${fmt(p.jt10, 0)} min`);
+      else if (p.j45 != null)
+        html += `<div class="tnote">Never reaches a tenth of the city's
+                 jobs.</div>`;
       const hv = p[hubKey()];
       const hubName = state.hub < 0 ? "nearest job center"
         : (stats.accessibility?.hubs?.[state.hub]?.name ?? "job center");
@@ -1108,9 +1123,11 @@ function renderLegend() {
     return;
   }
 
-  if (state.choropleth === "jobs" || state.choropleth === "hub") {
+  if (state.choropleth === "jobs" || state.choropleth === "hub"
+      || state.choropleth === "jobtime") {
     const jobs = state.choropleth === "jobs";
-    const key = jobs ? "j45" : hubKey();
+    const jt = state.choropleth === "jobtime";
+    const key = jobs ? "j45" : jt ? "jt10" : hubKey();
     const ramp = jobs ? seqRamp("density").slice().reverse() : seqRamp("walk");
     const brk = seqBreaks(key);
     const total = stats.accessibility?.jobs_total ?? 0;
@@ -1134,13 +1151,31 @@ function renderLegend() {
     el.innerHTML = rows.join("")
       + `<div class="ramprow"><i style="background:${unpop()}"></i>
          <span class="lab">${jobs ? "no residents"
+           : jt ? "never reaches that many"
            : "no path to a center"}</span></div>`
-      + `<div class="sub" style="margin-top:9px">` + (jobs
+      + `<div class="sub" style="margin-top:9px">` + (jt
+        ? `How long until a resident can reach
+           <strong>${fmt(stats.accessibility?.threshold_jobs)}
+           jobs</strong> — a tenth of the city's — by train, the ferry
+           and on foot. This is the layer above with its axes swapped, and the
+           one to trust at the bad end: a fixed 45-minute budget bottoms out
+           near zero for the
+           ${fmt(stats.accessibility?.n_past_budget)} tracts that need longer
+           than that, so two places 35 minutes apart can read as a tie. The
+           median is ${fmt(stats.accessibility?.median_jobs_time, 0)} minutes
+           and the worst tenth is past
+           ${fmt(stats.accessibility?.p90_jobs_time, 0)}.`
+        : jobs
         ? `Jobs reachable in <strong>${fmt(stats.accessibility?.budget_min, 0)}
            minutes</strong> by train, the Staten Island Ferry and on foot, out
            of ${fmt(total / 1e6, 2)}M in the city. Buses are not in this graph
            — see the note below. It is a <em>commute</em> measure: school,
-           hospitals and family are not jobs.`
+           hospitals and family are not jobs. It is also
+           <strong>censored</strong>:
+           ${fmt(stats.accessibility?.n_past_budget)} tracts
+           cannot reach a tenth of the city's jobs inside the budget at
+           all, so they bunch near zero — the next layer down is the
+           uncensored version.`
         : `Minutes to ${hubName ? `<strong>${esc(hubName)}</strong>`
            : "the nearest of the eight job centers"} by train or ferry,
            including the walk at both ends and the wait. Staten Island's own
@@ -1152,7 +1187,8 @@ function renderLegend() {
          <strong>not</strong> feed the under-service score. Measured against
          the corridors agencies have proposed it scores
          ${fmt(100 * (stats.alignment?.precision?.[jobs
-           ? "pop x jobs out of reach" : "pop x excess hub min"]?.["25"] ?? 0),
+           ? "pop x jobs out of reach" : jt ? "pop x excess time to jobs"
+           : "pop x excess hub min"]?.["25"] ?? 0),
            0)}%, against ${fmt(100 * (stats.alignment?.baseline ?? 0), 0)}% for
          random and ${fmt(100 * (stats.alignment?.precision?.[
            stats.alignment?.shipped]?.["25"] ?? 0), 0)}% for the shipped
@@ -1235,6 +1271,15 @@ function renderStats() {
     [`Jobs reachable in ${fmt(ac.budget_min, 0)} min`,
      `${fmt(ac.weighted_jobs_reach / 1e6, 2)}M`],
     ["\u2026 of the city's jobs", `${fmt(100 * ac.weighted_share, 0)}%`],
+  );
+  // The same thing uncensored, right under it, because the row above is the
+  // one that gets quoted and on its own it implies a precision the budget
+  // does not have for the half of the city that falls outside it.
+  if (ac?.weighted_jobs_time != null) rows.push(
+    ["Minutes to a tenth of those jobs",
+     `${fmt(ac.weighted_jobs_time, 0)} min`],
+    ["\u2026 tracts needing longer than the budget",
+     `${fmt(ac.n_past_budget)} of ${fmt(stats.n_geographies)}`],
   );
   $("#statlist").innerHTML = rows.map(([k, v]) =>
     `<div class="statrow"><span class="k">${k}</span><span class="v">${v}</span></div>`).join("");

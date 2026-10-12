@@ -353,10 +353,10 @@ there are two of them — 430 across Brooklyn and Queens, 105 on Staten
 Island — so "the largest" was accidentally true before and false after,
 and `accessibility.py` no longer says it.)*
 
-### Jobs accessibility lowered alignment, as predicted
+### Jobs accessibility lowered alignment, as predicted — for the wrong reason
 
 The prediction was on record here before anything was computed, and it held:
-`pop x jobs out of reach` hits **16%** at worst-25 and `pop x detour` **4%**,
+`pop x jobs out of reach` hits **16%** at worst-25 and `pop x detour` **0%**,
 against a 26% random baseline and 80% for the shipped score. Hub minutes do
 better — `pop x excess hub min` 56% — and still lose. None of them enters
 the score; all ship as layers.
@@ -368,6 +368,52 @@ tracts are the well-served cores no agency proposes to serve again. The table
 is in `CLAUDE.md`. The practical rule it leaves behind: before proposing any
 `pop x factor` score, measure the factor's coefficient of variation. Under
 roughly 0.5 it will lose to population and the alignment test will say so.
+
+**Corrected 2026-10-11, and the correction is more useful than the original
+finding.** The rule above is right. The *diagnosis* attached to it was wrong,
+and it was wrong in a way worth recording because the number looked so
+convincing: 16% is below a random baseline, which reads as a factor with
+nothing in it.
+
+Take the same jobs data and swap the axes — fix the jobs, measure the time,
+"how long until a resident can reach a tenth of the city's jobs" — and it
+scores **56%**, with the unweighted version at 60% at worst-25 and 62% at
+worst-50, the highest of any candidate in the table. Nothing about the data
+changed. What changed is that the measure stopped truncating.
+
+A fixed time budget **right-censors**. Measured: 1,062 of 2,325 tracts —
+**46% of the city** — need longer than 45 minutes to reach a tenth of the
+city's jobs, so for nearly half the map `jobs45` reports the censored tail
+rather than the trip. Breezy Point reads 0.13% of jobs and Arden Heights
+0.12%, which looks like a tie and conceals 86 minutes against 121. The budget
+also sits at the *median* of the quantity it thresholds (median time to a
+tenth of the jobs: 42.6 minutes), which is the worst place available to cut
+when the far side is the entire subject of the project.
+
+So the CoV rule survives and is strengthened — uncensoring widened the
+factor's CoV from 0.33 to 0.48 and alignment followed, exactly as predicted.
+But "this factor has a narrow range" was a statement about the *field* that
+got written down as a statement about the *world*. The transferable version:
+**before concluding a factor is weak, check whether the measure of it is
+censored**, because a ceiling in a field is indistinguishable from a narrow
+distribution in reality until you remove it.
+
+Shipped as a result: `jobs_time` / `jt10`, minutes to reach a tenth of the
+city's jobs, with its own layer, tooltip row and stats-panel rows beside the
+budgeted ones. `JOBS_BUDGET_MINUTES` stays — cumulative opportunity at a
+fixed budget is what every peer analysis publishes, and it answers a real
+question about opportunity *available* — but it is no longer the number
+quoted about the worst-served places. A 30/45/60 budget toggle was considered
+and dropped: moving the cutoff only moves where the censoring happens, and
+measured, the ranking barely responds (Spearman 0.967 at 30, 0.983 at 60),
+so the control would mostly have moved the legend.
+
+One general distinction this left behind, which is the part to reuse: a
+threshold on **the axis you measure along** truncates, and a threshold on
+**the axis you measure** rescales. The 15-minute walk cap and the 45-minute
+trip budget were the first kind. The jobs share is the second, which is
+exactly why its value turns out not to matter — Spearman 0.968 to 0.991
+across thresholds from 2% to 25% of the city's jobs.
 
 ### The work this phase revealed
 

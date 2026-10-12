@@ -12,7 +12,7 @@ help:
 	@echo "make service  scheduled trains and buses per hour, from GTFS"
 	@echo "make distance multi-source Dijkstra: nearest station per graph node"
 	@echo "make transit  rail transit graph: station-to-station travel time"
-	@echo "make access   jobs reachable in 45 min, hubs, detour factor"
+	@echo "make access   jobs reachable, time to a tenth, hubs, detour"
 	@echo "make palette  generate the validated color system (web/data/palette.json)"
 	@echo "make surface  walk-time raster + network walkshed polygons"
 	@echo "make build    aggregate to tracts and write web/data/ (runs the above)"

@@ -451,7 +451,7 @@ def _phase4(d: pd.DataFrame) -> dict:
     worst = np.nanmax(np.where(np.isfinite(hub), hub, np.nan))
     hub = np.where(np.isfinite(hub), hub, worst)
     detour = d["detour"].fillna(d["detour"].median()).to_numpy()
-    return {
+    out = {
         "pop x jobs out of reach": d["pop"] * jobs_short,
         "need x jobs out of reach": need * jobs_short,
         "pop x need x jobs oor": d["pop"] * need * jobs_short,
@@ -459,6 +459,32 @@ def _phase4(d: pd.DataFrame) -> dict:
         "pop x excess hub min": d["pop"] * np.clip(hub - 30.0, 0, None),
         "pop x detour": d["pop"] * detour,
     }
+    if "jobs_time" not in d.columns:
+        return out
+    # The same jobs data with the axes swapped -- fix the jobs, measure the
+    # time -- and it is in the table for a specific reason. The three
+    # `jobs out of reach` rows above are built on a *censored* field: 1,062
+    # of 2,325 tracts cannot reach a tenth of the city's jobs inside the
+    # budget at all, so their values saturate near zero and stop ordering.
+    # The prediction Phase 4 recorded -- that jobs accessibility would lower
+    # alignment -- held, but the mechanism it inferred was the factor's
+    # dynamic range, and the censoring is what was crushing the range.
+    # Uncensor it and the same data goes from 16% to 56%. `config` carries
+    # the numbers. Infinite values are capped at the worst finite one for the
+    # same reason hub minutes are: those tracts are the worst cases, not
+    # missing data.
+    jt = d["jobs_time"].to_numpy(dtype=float)
+    cap = np.nanmax(np.where(np.isfinite(jt), jt, np.nan))
+    jt = np.where(np.isfinite(jt), jt, cap)
+    out["pop x time to jobs"] = d["pop"] * jt
+    out["pop x excess time to jobs"] = d["pop"] * np.clip(
+        jt - C.JOBS_BUDGET_MINUTES, 0, None)
+    # The only candidate in the table with no population term at all. It is
+    # here because it scores like the shipped score without one, which is
+    # the single most surprising row the test has produced: Spearman -0.22
+    # against population, so it is not a population ranking in disguise.
+    out["time to jobs alone"] = pd.Series(jt, index=d.index)
+    return out
 
 
 def _adjacency(scored: pd.DataFrame, crs):

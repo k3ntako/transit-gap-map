@@ -21,7 +21,7 @@ make all          # fetch -> network -> service -> distance -> transit -> access
                   #   -> palette -> surface -> build -> verify
 make serve        # static server on :8000 (PORT=xxxx to change)
 make transit      # rail + ferry transit graph: station-to-station time
-make access       # jobs reachable in 45 min, job centers, detour factor
+make access       # jobs reachable, time to a tenth, hubs, detour factor
 make verify       # the correctness gate
 make clean        # wipe data/processed and web/data
 ```
@@ -77,7 +77,7 @@ downstream of the expensive parse.
 | 6 | `palette.py` | `web/data/palette.json` |
 | 7 | `surface.py` | walk-time raster PNGs + `walksheds.geojson` |
 | 4b | `transit.py` | `rail_station_time.npz` + `transit_graph.parquet` — a rail + Staten Island Ferry transit graph, solved for every station pair |
-| 4c | `accessibility.py` | `tract_accessibility.parquet` + `tract_transit_time.npz` — jobs reachable, hub times, detour factor |
+| 4c | `accessibility.py` | `tract_accessibility.parquet` + `tract_transit_time.npz` — jobs reachable, time to a tenth of them, hub times, detour factor |
 | 8 | `build.py` | `tracts.geojson`, `stations.geojson`, `bus_ftn.geojson`, `hubs.json`, `stats.json` |
 | — | `verify.py` | nothing; checks stages 4 and 4b |
 
@@ -153,7 +153,7 @@ numbers. Every meter-valued tunable is named `*_METERS`, spelled out, because
 
 **`palette.py` is the only place colors are defined.** Both the raster in stage 7
 and the browser read `palette.json`, so there is exactly one definition of every
-color. The three sequential choropleths stay inside that system rather than
+color. The four sequential choropleths stay inside that system rather than
 beside it: `app.js:seqRamp()` samples seven steps out of the same 13-step
 audited `ramps.density` and `ramps.walk`, reversed in dark mode, which is
 exactly what `density_classes_dark` is against `density_classes`. The detour
@@ -308,6 +308,27 @@ nothing, so long access walks drop out on their own. Walking the whole way
 stays a competing option, because a Financial District tract can walk to
 several hundred thousand jobs without touching a train.
 
+**And the budget that survived is itself a truncation — the same mistake, one
+level up, which took until 2026-10-11 to notice.** The paragraph above catches
+a cap on the *walk* and congratulates itself; the cap on the *trip* was sitting
+right beside it doing a milder version of the same thing. A 45-minute
+cumulative-opportunity cutoff right-censors: 1,062 of 2,325 tracts cannot
+reach a tenth of the city's jobs inside it, so they saturate near zero and stop
+being distinguishable from each other — and they are precisely the tracts
+this map exists to find. The fix is the same shape as the one above: stop
+truncating. `C.JOBS_THRESHOLD_SHARE` swaps the axes (fix the jobs, measure the
+time), ships as `jobs_time` / `jt10`, and is the primary accessibility measure
+now. `JOBS_BUDGET_MINUTES` stays, because cumulative opportunity at a fixed
+budget is what every peer analysis publishes and it answers a real question
+about opportunity *available*; it is no longer the number quoted about the
+worst-served places. `config.py` has both arguments and the measurements.
+
+The lesson generalizes past this field and is why both halves are written down:
+a threshold on the *axis you are measuring along* truncates, and a threshold on
+the *axis you are measuring* rescales. The walk cap and the trip budget were
+the first kind. The jobs share is the second, which is why its exact value
+turns out not to matter — Spearman 0.968 to 0.991 from 2% to 25%.
+
 Access and egress both read the same `W[station, tract]` matrix — the walk
 graph is undirected, so one bounded pass per station serves both ends, and the
 measure on the two ends of a trip is identical. It is a per-tract median over
@@ -405,6 +426,7 @@ results there are counter-intuitive and both are load-bearing, so don't
   | hub minutes | 0.50 | 0.61 | 48% | 44% |
   | jobs out of reach | 0.33 | 0.71 | 16% | 29% |
   | detour factor | 0.19 | 0.88 | 0% | 3% |
+  | *time to a tenth of the jobs* | *0.48* | *0.71* | *56%* | *40%* |
 
   A narrow-range factor multiplied by population *is* a population ranking,
   and the city's most populous tracts are its well-served cores, which no
@@ -423,6 +445,43 @@ results there are counter-intuitive and both are load-bearing, so don't
   number moves. And the detour row moved with the ferry edge: it read CoV
   0.18 and 4% on the rail-only graph, because Staten Island's inter-borough
   pairs were unreachable and therefore excluded from its own median.
+
+**The `jobs out of reach` row is a warning about measures, not about jobs, and
+the Phase 4 write-up got the diagnosis wrong.** Corrected 2026-10-11. That row
+sits at 16%, *below* the 26% random baseline, and Phase 4 recorded it as "jobs
+accessibility is a weak predictor of where agencies build". The last row of the
+table is the same jobs data with its axes swapped — fix the jobs, measure the
+time — and it hits **56%**. So job accessibility is not the weak part. **The
+cutoff is.**
+
+A fixed time budget *right-censors*: every geography that cannot reach much of
+anything inside it saturates near zero and stops being ordered. Measured, 1,062
+of 2,325 tracts — 46% of the city — need longer than 45 minutes to reach a
+tenth of the city's jobs, so for nearly half the map `j45` reports the censored
+tail rather than the trip. Breezy Point reads 0.13% and Arden Heights 0.12%,
+which looks like a tie and hides 86 minutes against 121. And the budget sits at
+the *median* of the quantity it thresholds (the median time to a tenth of the
+jobs is 42.6 min), which is the worst available place to cut when the far side
+is the subject.
+
+The dynamic-range rule the phase inferred is **not** weakened by this — it is
+confirmed by it, which is the useful part. Uncensoring widened the factor's CoV
+from 0.33 to 0.48 and alignment followed, exactly as the rule predicts. The
+correction is to the sentence "this factor has a narrow range", which was true
+of the *field* and not of the thing it was measuring. The general lesson, worth
+more than the specific fix: **before concluding a factor is weak, check whether
+the measure of it is censored.** A ceiling in a field looks exactly like a
+narrow distribution in the world.
+
+`time to jobs alone` is the one candidate in the table with no population term
+at all, and it scores 60% at worst-25, **62% at worst-50 — the highest of any
+candidate** — and 51% clumped, against the shipped score's 52%. Its Spearman
+against population is −0.22, so it is not a population ranking in disguise,
+and its worst 100 form only 7 blocks, the largest holding 69 tracts, the most
+spatially coherent of anything tested. None of that makes it the score: it says
+nothing about how many people are affected, which is what `pop ×` is for. It
+does mean a pure travel-time measure matches a population-weighted walk measure
+on this test, which was not expected and is worth not forgetting.
 
 `SHIPPED_SCORE` in `verify.py` names the candidate that `aggregate.add_score`
 implements; if one changes without the other the gate silently measures the

@@ -333,8 +333,52 @@ TRANSIT_WINDOW = WAIT_WINDOW       # which hour's headways set the boarding wait
 # The cumulative-opportunity budget. Forty-five minutes is the usual
 # commute-tolerance threshold in the accessibility literature, and it is a
 # far weaker choice than naming a destination: measured here, the map's shape
-# rescales rather than reorders between 30 and 60 minutes.
+# rescales rather than reorders between 30 and 60 minutes -- Spearman 0.967
+# at 30 and 0.983 at 60 against the 45-minute ranking.
+#
+# **Read that alongside JOBS_THRESHOLD_SHARE below, because this constant has
+# one serious defect and it is not arbitrariness.** A fixed time budget
+# *right-censors*: every geography that cannot reach much of anything inside
+# it piles up near zero and stops being distinguishable. Measured, 1,062 of
+# 2,325 tracts -- 46% of the city -- need more than 45 minutes to reach even
+# a tenth of the city's jobs, so for nearly half the map this field is
+# reporting the censored tail rather than the trip. Breezy Point reads 0.13%
+# and Arden Heights 0.12%, which looks like a tie and hides a 35-minute
+# difference in what those trips actually cost.
+#
+# The threshold also sits at the *median* of the quantity it thresholds (the
+# median time to reach a tenth of the city's jobs is 42.6 minutes), which is
+# the worst place to cut if the far side is what you care about -- and the
+# far side is the whole subject of this project.
+#
+# So this stays, because cumulative opportunity at a fixed budget is the
+# comparable measure every peer analysis publishes and it answers a real
+# question (how much opportunity is *available* near a home). It is no longer
+# the primary one.
 JOBS_BUDGET_MINUTES = 45.0
+
+# The same data with the axes swapped, and the primary accessibility measure
+# as of 2026-10-11: fix the *jobs* and measure the *time*. "How long until a
+# resident can reach a tenth of the city's jobs" has no ceiling, so it keeps
+# discriminating exactly where the budget above saturates -- Breezy Point and
+# Arden Heights separate into 86 and 121 minutes.
+#
+# A tenth (about 447,000 jobs) is round rather than derived, and measurement
+# says the exact figure does not matter: the per-tract ranking holds at
+# Spearman 0.968 to 0.991 across thresholds from 2% to 25%. That is the
+# difference between this threshold and the time budget -- a *vertical*
+# threshold rescales the answer, a horizontal one truncates it.
+#
+# It earned the promotion on the project's own test rather than on taste.
+# `pop x jobs out of reach` hits 16% at worst-25, *below* the 26% random
+# baseline; the uncensored version hits 56%, and unweighted "time to a tenth
+# of the jobs" hits 60% at worst-25 and 51% clumped, which ties the shipped
+# under-service score at 52% -- with no population term and a Spearman of
+# -0.22 against population, so it is not a population ranking in disguise.
+# Phase 4 recorded "jobs accessibility is a weak predictor" on the strength
+# of that 16%. The dynamic-range rule it inferred was right; the diagnosis
+# was wrong. The cutoff was the weak part, not the data.
+JOBS_THRESHOLD_SHARE = 0.10
 
 # How far a rider will walk to reach a train, and the same budget on the far
 # end. **There is deliberately no separate cap: the total budget is the only
