@@ -125,9 +125,16 @@
           <output id="o-pop"></output></div>
         <input type="range" id="f-pop" min="0" max="3000" step="100" value="0">
       </div>
+      <label class="opt"><input type="checkbox" id="t-served">
+        Fade areas meeting the standard</label>
+      <p class="sub" style="margin:5px 0 0">Leaves only the tracts further than
+        the 10-minute standard from a train &mdash; the same set the score and
+        the blocks layer are built on &mdash; so the finding is not competing
+        with two thirds of the city for attention.</p>
       <p class="sub" style="margin-top:9px">Tracts under a floor fade out rather
         than disappearing &mdash; they stay in the tooltip and in every number
         on this page.</p>
+      <p class="sub" id="showing" style="margin-top:9px"></p>
     </details>
 
     <hr class="rule">

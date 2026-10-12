@@ -62,6 +62,12 @@ const state = {
   hoveredStation: null,
   densFloor: 0,
   popFloor: 0,
+  // Fade everything that already meets the standard, so the finding is not
+  // competing with two thirds of the city for attention. A *floor*, like the
+  // two above, and not a filter: the tracts stay in the tooltip and in every
+  // published statistic, because a polygon that disappears reads as missing
+  // data rather than as excluded data.
+  servedFaded: false,
   // Which job center the "time to a job center" layer shows. -1 is the
   // nearest of all of them, which is the polycentric question and the
   // default; 0..N-1 picks one, which is the question a reader who thinks in
@@ -107,6 +113,7 @@ function applyHash() {
 
   if (CHOROPLETHS.includes(q.get("c"))) state.choropleth = q.get("c");
   if (q.has("bus")) state.busFtn = q.get("bus") === "1";
+  if (q.has("served")) state.servedFaded = q.get("served") === "1";
   const dens = num("dens", 0, 30000);
   if (dens != null) state.densFloor = dens;
   const pop = num("pop", 0, 3000);
@@ -142,6 +149,7 @@ function syncHash() {
     if (state.choropleth !== "bivariate") q.push(`c=${state.choropleth}`);
     if (state.densFloor) q.push(`dens=${state.densFloor}`);
     if (state.popFloor) q.push(`pop=${state.popFloor}`);
+    if (state.servedFaded) q.push("served=1");
     if (state.gapWeight) q.push(`w=${state.gapWeight}`);
     if (state.hub >= 0) q.push(`hub=${state.hub}`);
     if (state.themePinned) q.push(`t=${state.theme}`);
@@ -169,12 +177,14 @@ function reflectState() {
   $("#t-stations").checked = state.stations;
   $("#f-dens").value = state.densFloor;
   $("#f-pop").value = state.popFloor;
+  if ($("#t-served")) $("#t-served").checked = state.servedFaded;
   $("#f-weight").value = state.gapWeight;
   showGapWeight();
   if ($("#f-hub")) $("#f-hub").value = String(state.hub);
   showHubPick();
   // Open the panel when a floor is in force, or the faded tracts look like a bug.
-  if (state.densFloor || state.popFloor) $("#settings").open = true;
+  if (state.densFloor || state.popFloor || state.servedFaded)
+    $("#settings").open = true;
 }
 
 // --- the under-service score -------------------------------------------------
@@ -549,12 +559,48 @@ const accessClass = (p) => {
 
 // The floors are a display filter, not a change to the data: a faded tract is
 // still in the tooltip and still in every published statistic.
-const belowFloor = () => ["any",
-  ["<", ["coalesce", ["get", "dens"], 0], state.densFloor],
-  ["<", ["coalesce", ["get", "pop"], 0], state.popFloor]];
+const belowFloor = () => {
+  const any = ["any",
+    ["<", ["coalesce", ["get", "dens"], 0], state.densFloor],
+    ["<", ["coalesce", ["get", "pop"], 0], state.popFloor]];
+  // "Meets the standard" is one definition across every layer, and it is the
+  // project's own: within C.ACCESS_FLOOR_MINUTES of a station, so `exc` is 0.
+  // Using the showing layer's own good end instead would mean the control
+  // meant something different on each of the nine, and `exc` is the threshold
+  // the score, the contiguity blocks and the clump layer all already use.
+  // `coalesce` because `exc` is only written onto scored tracts -- an
+  // unpopulated one has no excess and should fade with the rest.
+  if (state.servedFaded) any.push(["<=", ["coalesce", ["get", "exc"], 0], 0]);
+  return any;
+};
+
+// How many populated tracts are still drawn at full opacity. The roadmap asks
+// for this by name, and the reason is specific: floors stack, and three of
+// them together can empty the map without any single one looking wrong.
+function showCount() {
+  const el = $("#showing");
+  if (!el || !tracts) return;
+  let shown = 0, pop = 0, total = 0;
+  for (const f of tracts.features) {
+    const p = f.properties;
+    if (!p.pop) continue;
+    total++;
+    if (isBelowFloor(p)) continue;
+    shown++;
+    pop += p.pop;
+  }
+  const none = shown === 0;
+  el.innerHTML = none
+    ? `<strong>No tracts are showing.</strong> The floors together exclude
+       every populated tract — ease one of them.`
+    : `Showing <strong>${fmt(shown)}</strong> of ${fmt(total)} populated
+       tracts, holding ${fmt(pop)} people.`;
+  el.style.color = none ? "var(--warn, #b4541a)" : "";
+}
 
 const isBelowFloor = (p) =>
-  (p.dens ?? 0) < state.densFloor || (p.pop ?? 0) < state.popFloor;
+  (p.dens ?? 0) < state.densFloor || (p.pop ?? 0) < state.popFloor
+  || (state.servedFaded && (p.exc ?? 0) <= 0);
 
 const fillOpacity = () => ["case",
   belowFloor(), FADED_OPACITY,
@@ -645,9 +691,11 @@ function addLayers() {
   // more than once.
   const LAYERS = ["tracts-fill", "tracts-line", "tracts-hover", "surface-img",
     "bus-ftn", "stations-hit", "stations-rail", "stations-subway",
+    "hub-ring", "hub-core",
     ...stats.thresholds_min.map((t) => `shed-${t}`)];
   LAYERS.forEach((l) => { if (map.getLayer(l)) map.removeLayer(l); });
-  ["tracts", "stations", "walksheds", "surface", "busftn"].forEach((sr) => {
+  ["tracts", "stations", "walksheds", "surface", "busftn",
+   "hubpoints"].forEach((sr) => {
     if (map.getSource(sr)) map.removeSource(sr);
   });
 
@@ -757,6 +805,86 @@ function addLayers() {
         ["boolean", ["feature-state", "hover"], false], 0.16, 0],
     },
   }, "stations-rail");
+
+  addHubMarks(st);
+}
+
+// The job centers, drawn where they are. A layer that colors every tract by
+// "minutes to a job center" and never says where the center *is* asks the
+// reader to hold eight coordinates in their head, and the nearest-center mode
+// is worse: the field is a minimum over eight places none of which is named.
+//
+// Drawn as an open ring rather than a filled dot so it cannot be mistaken for
+// a station -- the stations layer is small filled circles and the hubs are a
+// subset of it, so two filled dots at the same point would read as one. Two
+// layers because MapLibre circles take a single stroke and this needs the
+// 2 px surface separation the mark specs ask for between overlapping marks.
+function addHubMarks(st) {
+  const list = hubs?.hubs ?? stats.accessibility?.hubs ?? [];
+  if (!list.length) return;
+  map.addSource("hubpoints", {
+    type: "geojson",
+    data: {
+      type: "FeatureCollection",
+      features: list.map((h, i) => ({
+        type: "Feature",
+        properties: { i, name: h.name, borough: h.borough },
+        geometry: { type: "Point", coordinates: [h.lon, h.lat] },
+      })),
+    },
+  });
+  const p = hubPaint(st);
+  const vis = state.choropleth === "hub" ? "visible" : "none";
+  map.addLayer({ id: "hub-ring", type: "circle", source: "hubpoints",
+    layout: { visibility: vis }, paint: p.ring });
+  map.addLayer({ id: "hub-core", type: "circle", source: "hubpoints",
+    layout: { visibility: vis }, paint: p.core });
+}
+
+// The selected center is larger and opaque; the others stay visible but
+// recede, because "which of these is the one I picked" is the question and
+// hiding the rest would lose the fact that the layer has eight. With no
+// selection -- the nearest-center mode -- nothing matches `sel`, so all eight
+// draw at the same weight, which is exactly what that mode means.
+//
+// One function for both the initial add and every later selection change,
+// because the paint depends on `state.hub` and two copies of these
+// expressions would drift the first time one of them was edited.
+function hubPaint(st) {
+  const sel = state.hub;
+  const pick = (on, off) => ["case", ["==", ["get", "i"], sel], on, off];
+  const dim = (on, off) => (sel < 0 ? on : pick(on, off));
+  return {
+    ring: {
+      "circle-radius": ["interpolate", ["linear"], ["zoom"],
+        9, pick(10, 7), 13, pick(17, 12)],
+      "circle-color": "rgba(0,0,0,0)",
+      "circle-stroke-color": st.stroke,
+      "circle-stroke-width": ["interpolate", ["linear"], ["zoom"],
+        9, pick(3, 2), 13, pick(4.5, 2.5)],
+      "circle-stroke-opacity": dim(0.95, 0.4),
+    },
+    core: {
+      "circle-radius": ["interpolate", ["linear"], ["zoom"],
+        9, pick(4, 2.6), 13, pick(6.5, 4)],
+      "circle-color": st.stroke,
+      "circle-stroke-color": st.fill,
+      "circle-stroke-width": 2,
+      "circle-opacity": dim(1, 0.4),
+      "circle-stroke-opacity": dim(1, 0.4),
+    },
+  };
+}
+
+// Visibility and emphasis, for a layer switch or a change of center.
+function syncHubMarks() {
+  if (!map.getLayer("hub-ring")) return;
+  const vis = state.choropleth === "hub" ? "visible" : "none";
+  const p = hubPaint(pal.station[state.theme]);
+  for (const [id, paint] of [["hub-ring", p.ring], ["hub-core", p.core]]) {
+    map.setLayoutProperty(id, "visibility", vis);
+    for (const [k, v] of Object.entries(paint)) map.setPaintProperty(id, k, v);
+  }
 }
 
 // --- hover ------------------------------------------------------------------
@@ -1178,10 +1306,12 @@ function renderLegend() {
            uncensored version.`
         : `Minutes to ${hubName ? `<strong>${esc(hubName)}</strong>`
            : "the nearest of the eight job centers"} by train or ferry,
-           including the walk at both ends and the wait. Staten Island's own
-           centers stay separate: the ferry links it to the system, but the
-           crossing plus the peak wait is 32.5 minutes before anyone walks
-           anywhere.`)
+           including the walk at both ends and the wait. The rings mark the
+           centers themselves${hubName ? ", with the selected one emphasized"
+           : " \u2014 all eight, since this is the nearest of them"}. Staten
+           Island's own centers stay separate: the ferry links it to the
+           system, but the crossing plus the peak wait is 32.5 minutes before
+           anyone walks anywhere.`)
       + `</div>`
       + `<div class="sub" style="margin-top:6px">This does
          <strong>not</strong> feed the under-service score. Measured against
@@ -1416,6 +1546,7 @@ function clusterTable() {
 
 function repaint() {
   map.setPaintProperty("tracts-fill", "fill-color", fillColor());
+  syncHubMarks();
   renderLegend();
 }
 
@@ -1513,18 +1644,28 @@ function wireControls() {
 
   // The floors repaint from fields already on every feature: no pipeline round
   // trip, which is the roadmap's "ship metrics, score in the browser" rule.
+  const applyFloors = () => {
+    map.setPaintProperty("tracts-fill", "fill-opacity", fillOpacity());
+    map.setPaintProperty("tracts-line", "line-opacity", lineOpacity());
+    showCount();
+  };
   const floor = (id, out, key, label) => {
     const input = $(id), output = $(out);
     const show = () => { output.textContent = label(state[key]); };
     input.addEventListener("input", () => {
       state[key] = Number(input.value);
       show();
-      map.setPaintProperty("tracts-fill", "fill-opacity", fillOpacity());
-      map.setPaintProperty("tracts-line", "line-opacity", lineOpacity());
+      applyFloors();
       syncHash();
     });
     show();
   };
+  const served = $("#t-served");
+  if (served) served.addEventListener("change", () => {
+    state.servedFaded = served.checked;
+    applyFloors();
+    syncHash();
+  });
   floor("#f-dens", "#o-dens", "densFloor", (v) => v ? `${fmt(v)} /km²` : "off");
   floor("#f-pop", "#o-pop", "popFloor", (v) => v ? `${fmt(v)} people` : "off");
 
@@ -1697,6 +1838,7 @@ async function main() {
     renderTable();
     reflectState();
     wireControls();
+    showCount();
     map.on("moveend", syncHash);
     syncHash();
     wireHover();          // bound once, so theme switches don't stack handlers
