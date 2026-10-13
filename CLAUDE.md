@@ -13,6 +13,27 @@ emits a handful of small payloads; the browser only draws them.
 reasoning behind choices already made — read it before proposing a feature, and
 check whether an idea is already there (often with an argument against it).
 
+## Working with the owner
+
+Asked for on 2026-10-12.
+
+- **Explain things in plain terms.** The owner does not have a data science
+  background. When reporting a result, proposing a change or answering a
+  question, say what it means in everyday words first, then give the
+  technical detail if it helps. Define a statistical term the first time it
+  comes up (quantile, Spearman correlation, coefficient of variation,
+  censoring) or avoid it. The design record below can stay technical, but
+  anything said *to* the owner should not need it to be understood.
+- **Best results come first.** A slower build or a slower page load is
+  acceptable when it buys a more accurate or more useful map. When a speed or
+  size limit and result quality pull against each other, favor quality and
+  say what it costs. Two things this does *not* change: the payload budgets
+  stay as tripwires, so going over one is still a stated decision rather
+  than a silent one (this preference makes "raise it" a legitimate answer
+  when the extra bytes buy something real); and extra computation past the
+  point where results stop changing is not a better result — the 25 m grid
+  spacing below is the example.
+
 ## Commands
 
 ```bash

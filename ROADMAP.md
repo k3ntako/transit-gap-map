@@ -87,6 +87,29 @@ only `web/`. None of it depends on a phase below.
   of `renderLegend()`'s cases first, then pick the width — and check the
   under-service legend, which has the most rows and now the longest labels,
   since the bands are numbers in person-minutes rather than percentiles.
+- **A metric / imperial switch.** Raised 2026-10-12. Smaller than it sounds,
+  because almost everything on the map is already in **minutes**, which need
+  no conversion. What does change is a short list, checked 2026-10-12:
+  - **Density**, which is people per km² in four places on the map — the
+    tooltip, the bivariate legend's corner sentence, the legend breaks and the
+    minimum-density slider — and in one fact on the stats page (`density_km2`
+    on the longest dense-tract walk). Imperial is people per square mile,
+    2.59 times the per-km² figure. American planning sources quote per square
+    mile, so for this map's likely readers imperial is arguably the better
+    default.
+  - **The half mile**, which runs the other way: it is the planning rule's own
+    unit, so in metric it should read "half a mile (805 m)" rather than be
+    rounded to a metric number that is not the rule.
+
+  Three things to get right. **Keep one stored unit.** The pipeline, the
+  payloads and the permalink's `dens` value stay in km², and only the display
+  converts, so a link copied in one unit opens correctly in the other. **The
+  slider needs its own steps per unit** — 500 /km² is about 1,295 /sq mi, so
+  converting the steps gives ugly labels; give each unit round steps and
+  convert the value. **Carry it between pages the way the theme is carried**
+  (`u=imperial` beside `t=dark` in the hash and the query string, rewritten
+  by `syncPageLinks()` and `doc.js`), and convert in `stats.js` by passing the
+  unit in, so the rule that no figure is a literal in prose still holds.
 - ~~**The title card is getting long.**~~ **Done 2026-10-11, and not the way
   this entry proposed.** The suggestion here was a `<details>` for the
   caveats; the card had by then reached fifteen stat rows and three
@@ -289,6 +312,67 @@ rule was tested on 2026-10-11 and failed on its own candidates — it is
 circular, because the subway is radial, so its busiest stations are the radial
 ones. Phase 4 picks hubs by jobs instead. Ridership's remaining jobs are the
 crowding numerator and a check that a jobs-derived hub is reachable today.
+
+**Relief as a second reason for a line — raised 2026-10-12.** The
+Lexington Avenue line (4/5/6) is the standard example. The Upper East Side is
+already within a short walk of a station, so this map scores it as
+well served, and that is true. But the Second Avenue Subway was justified
+largely by *relief*: taking riders off a line that is too full. Walking
+distance cannot see that benefit at all. So crowding should do two jobs, and
+they should be reported side by side rather than added together:
+
+- **Coverage:** people who are far from a train (what the map does now).
+- **Relief:** people who have a train but cannot comfortably get on it.
+
+Relief needs crowding on the *line between stations*, not just at the
+station, and the station-level data above cannot give that: a packed train
+passing a quiet station is invisible to it. The way to get it is to take
+trips from where they start to where they end, route each one over the
+transit graph Phase 4 built, and count how many riders cross each stretch of
+track per hour. That count divided by the line's capacity is how packed it is.
+The trip data to check first is the MTA's published subway origin-destination
+ridership estimates on `data.ny.gov`. Two cautions. Routing every rider on
+the single fastest path puts everyone on the express and no one on the local,
+which overstates crowding on the express, so the result is a rough estimate
+and should be labeled as one. And full trains change how people travel, which
+a fixed routing ignores.
+
+Once loads exist, the line simulation in Phase 7 can report how much a
+proposed line takes off the most crowded stretch, next to how many people it
+brings within walking distance.
+
+### Street pressure: buses and cars
+
+Raised 2026-10-12: *where could a new line take pressure off the streets?*
+This is a third benefit beside coverage and relief, and the data for it
+exists:
+
+- **Bus speeds** by route and segment, which the MTA publishes on
+  `data.ny.gov`. A slow, full bus route is the clearest sign that a street is
+  carrying a trip that wants a train.
+- **Traffic speeds and volume counts** from NYC DOT on NYC Open Data.
+- **How people get to work**, per tract, from the Census: ACS `B08301_003E`
+  (drove alone) beside the transit share already listed in Phase 5. The LEHD
+  origin-destination file (`ny_od_main_JT00_<year>.csv.gz`, from the same
+  LODES8 release as the jobs data) says where those commutes go.
+
+Put together, they would show corridors where many people drive or sit on
+slow buses for trips that a rail line could carry. Three rules keep this
+honest:
+
+- **It stays out of the score**, for the same reason buses do: it is a
+  separate lens, drawn on top, like step-free access. The score measures
+  missing rail access. This measures street congestion, which has other
+  causes too.
+- **Driving is partly a result of poor transit, and partly of income and car
+  ownership.** That is the same trap noted for the transit commute share,
+  just mirrored. Read the driving share together with income, the way Phase 6
+  proposes for car ownership, rather than alone.
+- **A traffic count says where cars are, not where their trips started.** A
+  lot of New York's street traffic is people passing through from New Jersey,
+  Long Island and Westchester. A new subway line in Queens would not take
+  those cars off the road. Only the commute data says which trips start and
+  end inside the city.
 
 ### The spatial statistic, after the component count
 
@@ -588,6 +672,31 @@ transfer that holds. Both commuter-rail feeds declare their transfers as
 trip-to-trip timed transfers, which a frequency graph cannot use at all; a
 RAPTOR over `stop_times` is the upgrade, and a project of its own.
 
+### The Roosevelt Island Tram, and a penalty per mode
+
+Raised 2026-10-12, as a maybe. The tram passes the same test the Staten
+Island Ferry passed: it runs on its own right of way, on a published
+schedule, and shares no lanes with traffic. So by the existing rule it
+belongs in the transit graph, as two stations and one edge. It is not in any
+of the feeds this project reads (RIOC runs it, not the MTA), so like the
+airport links in Phase 9 it would be a hand-entered edge, with its trip time,
+headway and fare rules taken from RIOC's published ones and dated.
+
+**Expect it to move very little.** Roosevelt Island already has an F station,
+so its tracts are already close to a train. The tram's real value is as a
+second link to Manhattan, which is mainly a backup when the F is down.
+
+**The harder question comes first, which is why this waits.** A tram minute
+is not the same as a subway minute: the cabin is small, it stops in high
+wind, and it may have its own fare. Charging that properly needs a general
+rule for **how much worse each kind of service counts per minute**, and that
+rule would apply to the ferry, the commuter railroads and the airport links
+too, not just the tram. Today the graph has no such rule. Every mode is
+charged its schedule time plus half its headway, plus a separate disclosure
+for the commuter-rail fare. Decide that rule once, for every mode, and then
+the tram is a cheap first test of it. Adding a one-off penalty just for the
+tram would be a number nobody could defend.
+
 
 ## Phase 5 — who lives there
 
@@ -848,6 +957,34 @@ description, and the architecture makes it unusually cheap.
   Dijkstra already returns the *existing* nearest-station distance for every
   node, the marginal calculation is a comparison against a vector you already
   have — not a re-run from scratch.
+- **Show proposed stations on the map, before scoring them.** Raised
+  2026-10-12. This is the display half of the toggles below, without the
+  recompute: draw where each agency proposes to put stations, on top of the
+  existing layers, so a reader can see whether a proposal lands in the gap
+  the map shows. It needs no pipeline change beyond one small new payload, so
+  it can ship long before the before/after numbers do.
+
+  There is no machine-readable source for this, so it is a **hand-entered
+  file of station points**, checked in, with a project name, a source
+  document and a date on every row. Four rules, most of them inherited from
+  the toggles entry:
+  - **Only stations a project has actually published.** Four of the eight
+    corridors the alignment test uses have no published alignment at all,
+    so they have no station list either. They are left off rather than
+    guessed — a guessed station is the
+    author's opinion drawn as if it were the agency's.
+  - **Hollow markers and a legend line saying "proposed — not counted in any
+    figure"**, so a screenshot cannot be mistaken for the network as it is.
+    The layer should be off by default.
+  - **It must never feed `verify.alignment()`.** That test deliberately
+    matches by neighborhood name rather than digitized geometry, to keep the
+    author's judgment out of it (see "Digitizing the eight corridors"
+    above). A file of hand-entered points is exactly that judgment, so it is
+    for display only.
+  - **Remove a station when it opens.** Penn Station Access's four Bronx
+    stations are Metro-North stations, so once they are in the GTFS feed the
+    pipeline picks them up as real stations; a proposed marker left on top
+    would count them twice in the reader's eye.
 - **Proposed-project toggles.** The concrete near-term version of the above, and
   the single most compelling thing on this list — it turns every finding into a
   question with an answer:
@@ -910,6 +1047,84 @@ description, and the architecture makes it unusually cheap.
   the browser (too big) or a small local endpoint — so the pre-computed marginal
   surface is the better default, with the interactive version as a `make serve`
   extra rather than a feature of the static deployment.
+- **Simulate a line: how much would it help commutes?** Raised 2026-10-12.
+  The toggles above only ask whether a line brings people within walking
+  distance of a station. A line also makes trips *faster*, and the transit
+  graph from Phase 4 can measure that. Add the proposed line to the graph as
+  new legs, then re-run the job-access stage. Each leg needs a run time
+  between stations and a headway. Where the project publishes those, use
+  them. Where it does not, estimate from distance at a stated speed, and say
+  so on the page. Report per tract, before and after:
+  - **minutes to reach a tenth of the city's jobs** (`jt10`), the measure
+    that does not cut off the worst-served places;
+  - **minutes to the hubs**, such as Midtown and Downtown Brooklyn;
+  - **actual commutes made faster**, using the LEHD origin-destination file
+    (where people live against where they work, see *Street pressure*
+    above). This is the closest answer to "how would this line help *my*
+    commute?", because it counts real home-to-work trips rather than
+    possible ones.
+  - Once loads exist, **relief**: how much the line takes off the most
+    crowded stretch of existing track (see *Ridership and crowding*).
+
+  Keep coverage, commute time, relief and street pressure as separate
+  numbers. Adding them into one total would mean choosing weights between
+  them, and that choice is the political part of transit planning, not a
+  measurement.
+- **Use AI to suggest lines and gather cost research — as an assistant,
+  never as the source of a number.** Raised 2026-10-12. A language model is
+  good at two jobs here. It can propose candidate alignments to test,
+  including ones a person might not think of. And it can find and summarize
+  published cost studies and project documents. Both are only useful if the
+  output goes through the same checks as everything else:
+  - **A suggested line is a candidate, not a result.** It goes through the
+    simulation above like any other, and its numbers come from the pipeline,
+    not from the model.
+  - **Every cost figure needs a source document a person has opened.** This
+    file already refuses dollar figures from memory (see the express-bus
+    entry). A model's memory is the same thing, and a model can produce a
+    confident, specific, wrong number. So the model finds and quotes the
+    source, and a person checks that the source says it.
+  - **Results should be repeatable.** Save the prompt, the model version and
+    the sources with the output, so a suggestion can be traced and rerun.
+    That is the same standard as `config.py` for every other input.
+  - The *Research* section below is the natural first use: the questions
+    there are mostly literature, and a model is a good first pass at finding
+    it.
+
+### Choke points, and where a new crossing would help most
+
+Raised 2026-10-12. Two questions that share one method, and the method is
+the one the marginal-station surface uses: change the network, re-run the
+fast shortest-path pass, and count how many people's trips change.
+
+**Which existing links matter most?** Remove one link at a time and measure
+the damage. On the walking network that means a bridge or an underpass. On
+the transit graph it means a river tunnel or a key transfer. Report how many
+people get pushed past the 10-minute walk, and how much the job-access time
+rises. The 2019 plan to shut the L train's Canarsie tunnel is the real-world
+version of this question. This is also a resilience map: it shows where one
+closure strands the most people.
+
+**Where would a new crossing help most, for the least money?** Find places
+that are close in a straight line but far apart on foot. The walking graph
+already has the raw material for this: the barrier probes in `verify.py`
+(Newtown Creek, Hunts Point, Coney Island Creek) are exactly these places.
+Candidates are pairs of points within a short distance of each other whose
+walking route is many times longer. For each, add a virtual bridge, re-run,
+and count people newly within 10 minutes of a station, or with a shorter
+trip to jobs.
+
+Two cautions:
+- **Cost is ranked, not priced.** Span length and what is being crossed
+  separate cheap from expensive by orders of magnitude: a footbridge over a
+  rail cut or an expressway is a different project from a crossing of the
+  East River. So rank by *people helped per meter of span, by type of
+  crossing*, and do not print a dollar figure without a cited source, for
+  the same reason as the line costs above.
+- **A walking bridge only helps this score where it shortens a walk to a
+  station.** Many crossings would help people reach shops, parks or jobs
+  without changing their nearest station, so measure the job-access change
+  too, or the method will undervalue them.
 
 ### The inverse: where should the density go?
 
@@ -1184,6 +1399,46 @@ users with opposite needs.
   counts stations. Quote travel time *with and without* the premium link, so
   the reader can see what the $8.75 buys and what it costs the people who pay
   it every day.
+
+## Research
+
+Added 2026-10-12. These are questions to answer from published work, not
+from the pipeline. They decide how the map's findings should be read and
+what a proposal built on them would have to clear. Each answer that ends up
+on a page needs a cited source with a date, under the same rules as the cost
+figures in Phase 7. AI can do a first pass at finding sources, but a person
+checks them.
+
+- **What density do you need to justify a train?** A partial answer is
+  already in this file (*Validating against official plans*): Pushkarev and
+  Zupan's classic thresholds put heavy rail at roughly 12 homes per
+  residential acre, about 4,100 people per km², and only 5.4% of the city's
+  tracts fall below that. So in New York the answer is nearly "everywhere
+  qualifies", which is why density cannot rank places here. The open part:
+  those thresholds date from 1977 and were built for American cities.
+  Questions to check: are there newer studies, how do they account for jobs
+  and not just homes, and what do they say about light rail and bus rapid
+  transit, which matter for corridors like the Interborough Express.
+- **What does it cost to build a train, and the alternatives?** Per mile or
+  per kilometer, by type: deep tunnel, cut-and-cover, elevated, surface light
+  rail on an existing right of way, bus rapid transit, and ferry. New York's
+  tunneling costs are among the highest in the world, and *why* is part of
+  the question. The Transit Costs Project at NYU's Marron Institute has
+  compared construction costs across countries and is the first source to
+  check. Operating cost per rider matters as much as construction cost for
+  ferries and buses, as Phase 7 already warns.
+- **How have other cities tackled this?** Examples worth checking: how
+  London, Paris (the Grand Paris Express, a ring line like the Interborough
+  Express) and Madrid built new rail cheaply or quickly; how other cities
+  decide where rail goes next; and whether any published a map like this one
+  and what they did with it.
+- **How do projects get funding and public support?** Federal Capital
+  Investment Grants, the program behind *New Starts* (see the criteria under
+  *Validating against official plans*); the MTA capital program; congestion
+  pricing revenue; and value capture, where development near a new station
+  helps pay for it. On public support: what made recent projects pass or
+  stall, how cost overruns change support, and how a map like this one could
+  be used in that conversation without overstating what it shows.
 
 ## Suggested order
 
