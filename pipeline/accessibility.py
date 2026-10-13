@@ -323,10 +323,20 @@ def pick_hubs(W: np.ndarray, jobs: np.ndarray,
     Square barely overlap and each holds more jobs than anything outside the
     borough. That is a correct answer to "where are the jobs" and a useless
     answer to "how far is your nearest center". So one hub is taken per
-    borough first -- St George is Staten Island's center at a fraction of
+    borough first -- Staten Island's center is worth a slot at a fraction of
     Midtown's jobs, which is exactly the case the ridership rule got wrong --
     and the remaining slots go to marginal coverage. The borough rule is a
     presentation choice, stated here rather than discovered.
+
+    What it actually returns for Staten Island is **Tompkinsville**, not the
+    St George terminal one stop away, and the wobble is the rule working on a
+    coarse input rather than the rule being wrong. `jobs_near` counts jobs
+    within HUB_WALK_MINUTES measured to each tract's *median* sample, and the
+    high-job tracts beside St George have medians just outside it. So this is
+    the visible edge of the `min_station(median_sample)` coarseness CLAUDE.md
+    describes, surfacing where the output is a place name and a reader knows
+    the right answer. It is a presentation wobble, not a wrong number: no
+    statistic changes, only the label on one of eight hubs.
     """
     reach = (W <= C.HUB_WALK_MINUTES)
     picked: list[int] = []

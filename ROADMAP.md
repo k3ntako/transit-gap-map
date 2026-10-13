@@ -414,15 +414,6 @@ people**, which is so large it is arguably not a project unit but "the whole
 outer ring" — a statistic that can split that band into genuine hot spots would
 be saying something the component count cannot.
 
-### Cluster-level precision in the alignment test
-
-`verify.alignment()` compares a per-tract score against corridors that are runs
-of tracts, so a per-tract precision figure is measuring a point against a line.
-Precision at the **cluster** level is the fairer version, and probably a kinder
-one to every score in the table. The components exist now, so this is a group-by
-rather than new machinery. Worth doing before the 80% figure is quoted anywhere
-load-bearing.
-
 ### One thing deliberately not done
 
 The roadmap asked for both a multiplicative and an additive form of the score,
@@ -565,54 +556,6 @@ across thresholds from 2% to 25% of the city's jobs.
   **overstates** under-service on commuter rail, which is the direction this
   project is least entitled to be wrong in — eastern Queens and the Bronx
   are where the thesis lives.
-- ~~**The Staten Island Ferry.**~~ **Done 2026-10-11.** This asked for a
-  cited source rather than a hand-coded guess, and there is one: NYC DOT
-  publishes a GTFS feed for the ferry through NYC Open Data (`b57i-ri22`),
-  current to 2028, and it supplies both numbers the entry said no feed on disk
-  had — a 25-minute crossing on every one of its 416 trips and four
-  sailings an hour each way at the 8–9am peak. So the graph is now rail
-  plus the ferry, and the rule it follows is the bus rule rather than an
-  exception to it: the bus exclusion is about *substitution*, and the ferry
-  substitutes for nothing. See `config.GTFS_FERRY_FEED`.
-
-  **What it changed is not what this entry predicted, and the difference is
-  worth keeping.** The entry assumed the 18,000-jobs figure was the artifact.
-  It was not. The crossing costs 32.5 minutes before anyone walks anywhere
-  (25 + a 7.5-minute expected wait), and the cheapest door-to-door Staten
-  Island → Manhattan trip in the model measures **46.4 minutes** against a
-  45-minute budget, so jobs-in-45 barely moved. The number was right and the
-  *reason* was wrong, which is the distinction this file exists to record.
-
-  What did move: station-pair reachability 89.2% → 94.6%, and Staten
-  Island's median detour **1.17 → 1.39**, making it the worst-detour
-  borough — because its inter-borough pairs had been unreachable and were
-  therefore excluded from its own median, so the layer was flattering the
-  borough by construction. And the pre-registered bonus finding *relocated*
-  rather than breaking: the largest worst-decile detour block was 56 tracts in
-  Flatlands/Marine Park with 54 inside a large under-service block, and is now
-  57 tracts entirely on Staten Island with **44 inside the 105-tract Staten
-  Island under-service block**. Two measures over separate inputs still agree;
-  they now agree somewhere else.
-- ~~**A diverging ramp for the detour factor.**~~ **Closed 2026-10-12**, as a
-  decision rather than as work done. It was always conditional — "if it ever
-  gets a layer" — and the condition has since been answered the other way:
-  the factor's CoV is 0.19, near-constant citywide, which is itself the result
-  the ring test was built to find. A ramp for a layer that should not exist is
-  not a leftover. If the detour ever does earn a layer, the cost is new steps
-  through `palette.py`'s `audit()` gates plus a diverging pair the palette
-  does not have, and this paragraph is the starting point.
-- ~~**Hub granularity.**~~ **Closed 2026-10-12**, on this entry's own
-  verdict: it says "a presentation wobble, not a wrong number", and a wobble
-  that has been measured, named and explained is documentation rather than
-  debt. Left in full because the mechanism is the useful part, and because it
-  is the visible edge of a coarseness that will come back in any phase that
-  reads a per-tract median as if it were a point. Staten Island's job center comes back as
-  **Tompkinsville** rather than St George, one stop away, because "jobs within
-  a 10-minute walk" is measured to the tract *median* and the high-job tracts
-  beside St George have medians just outside it. The hub list is a
-  presentation choice and this is a presentation wobble, not a wrong number,
-  but it is the visible edge of the `min_station(median_sample)` coarseness
-  `CLAUDE.md` describes.
 - **Payload headroom.** Phase 4 took the file to 343 KB against a 350 KB
   budget, which left room for no further field at all. **Deferred once, on
   2026-10-11, by raising the budget to 420** — and that is the whole of
@@ -624,9 +567,6 @@ across thresholds from 2% to 25% of the city's jobs.
   numeric field should move the existing ones into a columnar sidecar on the
   way in, not add a ninth property.** A second raise without that refactor is
   the thing the note in `config.py` exists to make embarrassing.
-- ~~**Cluster-level precision in the alignment test.**~~ **Done 2026-10-11**,
-  and the framing changed on the way: see "What the alignment test is for"
-  below. The unit is fixed and the corridor geometry deliberately is not.
 
 ### What the alignment test is for — revised 2026-10-11
 
@@ -1288,8 +1228,13 @@ alignment: a pure need index carries no population term, so it puts 27 of the
 worst 153 tracts under 2,000 people — the smallest with 43 residents — against
 3 for the shipped score. That is the empty-land failure mode, and preventing it
 mattered more than four points at one depth. It stays in the table as the
-strongest live alternative, and if cluster-level precision is ever measured it
-is the one most likely to overtake.
+strongest live alternative, and the prediction this paragraph made has since
+come in: cluster-level precision was measured, and it **did** overtake —
+**54% clumped against the shipped score's 52%**. It is not alone, either;
+`pop × excess hub min` lands on the same 54%. Both margins are one block's
+worth and neither changes the score, for the reason above, which was never
+alignment in the first place. But the per-tract figures hide it entirely, and
+surfacing exactly this is what the clumped measure is for.
 
 **Where the disagreements are, and why.** The pattern is systematic rather than
 noisy, and it maps exactly onto the three axes of the reframe at the top of
@@ -1375,7 +1320,7 @@ rather than wrong in ways it has not.
 ## Phase 9 — airports
 
 **Split out of Phase 4 on 2026-10-11.** See *What Phase 4 left behind* for
-why {EM} and note that the Staten Island Ferry is now the same problem with a
+why — and note that the Staten Island Ferry is now the same problem with a
 larger population behind it. These are the
 only edges in the transit graph whose cost comes from neither GTFS nor the walk
 network, and the reader they serve is a different one. Nothing here blocks
@@ -1492,13 +1437,16 @@ and *more* agreement is not better. The test's second job is now to say where
 the map and the agencies disagree and let someone ask why. See "What the
 alignment test is for" above.
 
-**Revised again 2026-10-11, after Phase 4's leftovers were cleared.** Both
-items Phase 4 promoted are done and are written up in that section: the
-**Staten Island Ferry** (a cited DOT feed, and the finding is that the 18,000
-figure was right for the wrong reason) and **cluster-level precision** (the
-unit is a clump, the gate derives its floor from the baseline, and the
-corridor geometry is deliberately not digitized). Payload headroom was
-deferred by raising the budget once, which is a loan and is dated as one.
+**Revised again 2026-10-12, after Phase 4's completed entries were deleted
+rather than struck.** Everything that phase finished has left this file: the
+Staten Island Ferry, cluster-level precision, the detour's diverging ramp and
+hub granularity. A plan of record is for what is still to be decided, and a
+list of things already done is the part of it that goes stale without anyone
+noticing — the published reasoning for each now lives where it is acted on,
+in `CLAUDE.md` and in the code, and the argument for each lives in the commit
+that closed it. **Two Phase 4 leftovers remain**, and they are the real ones:
+hyperpath routing for the local/express wait, and payload headroom, which was
+deferred by raising the budget once and is dated as the loan it is.
 
 **The rail lines are first** — revised 2026-10-11, displacing step-free
 access, and now with three reasons rather than one. The map has a finding that
