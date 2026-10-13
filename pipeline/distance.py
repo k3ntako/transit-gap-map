@@ -5,6 +5,12 @@ a virtual source node joined to its snapped graph node by the snap offset, so a
 station sitting off the mapped network pays for that gap -- and the returned
 `sources` array still identifies which station is nearest.
 
+The `step_free` variant restricts the source set to the 219 stations with a
+step-free route built, which is the city as a rider who cannot use stairs sees
+it. It is a lens and not a term in the score: the score ranks geographies and
+its intervention is new service, while this ranks stations and its
+intervention is an elevator. See Phase 6 in ROADMAP.md.
+
 The `weighted` variant adds each station's expected wait to its virtual
 source cost, converted to meters at the walk speed. That is the conceptual
 change in Phase 2: a frequency-weighted station set is what distinguishes a
@@ -43,17 +49,20 @@ from pipeline.stations import load_stations
 SUBWAY_MODES = ("subway", "sir")
 
 
-def cache_path(subway_only: bool, weighted: bool = False):
+def cache_path(subway_only: bool, weighted: bool = False,
+               step_free: bool = False):
     stem = C.P_NODE_DIST.stem
     if subway_only:
         stem += "_subway"
     if weighted:
         stem += "_weighted"
+    if step_free:
+        stem += "_stepfree"
     return C.P_NODE_DIST.with_name(stem + ".npz")
 
 
 def compute(force: bool = False, subway_only: bool = False,
-            weighted: bool = False):
+            weighted: bool = False, step_free: bool = False):
     """Per-node cost to the nearest station.
 
     `subway_only` restricts sources to subway + SIR, which is what published
@@ -65,9 +74,14 @@ def compute(force: bool = False, subway_only: bool = False,
     The unit stays meters -- minutes times the walk speed -- which keeps one
     currency on the graph and means `C.minutes()` converts either variant.
 
+    `step_free` keeps only stations with a step-free route built. The flag
+    means built, not working today -- MTA publishes live elevator outages and
+    a static map cannot say "out until April" -- so everything downstream
+    labels it by the fetch date rather than as current.
+
     Returns (dist_m, nearest_station_idx, serviceable_mask).
     """
-    out = cache_path(subway_only, weighted)
+    out = cache_path(subway_only, weighted, step_free)
     if out.exists() and not force:
         print(f"  cached  {out.name}")
         z = np.load(out, allow_pickle=True)
@@ -79,10 +93,20 @@ def compute(force: bool = False, subway_only: bool = False,
     print(f"  graph   {n:,} nodes / {csr.nnz // 2:,} undirected edges, "
           f"{comp.max() + 1:,} components")
 
-    st = load_stations(verbose=not subway_only and not weighted)
+    st = load_stations(
+        verbose=not subway_only and not weighted and not step_free)
     if subway_only:
         st = st.loc[st["mode"].isin(SUBWAY_MODES)].reset_index(drop=True)
         print(f"  subway-only variant: {len(st)} stations")
+    if step_free:
+        before = len(st)
+        st = st.loc[st["ada"].astype(bool)].reset_index(drop=True)
+        print(f"  step-free variant: {len(st)} of {before} stations have a "
+              f"step-free route built")
+        # Not `for m, n in ...`: `m` and `n` are the station and node counts
+        # the virtual-source matrix below is shaped by.
+        for mode, count in st["mode"].value_counts().items():
+            print(f"            {mode:10} {count:4}")
 
     wait_m = np.zeros(len(st))
     if weighted:
@@ -164,7 +188,7 @@ def compute(force: bool = False, subway_only: bool = False,
 
     np.savez_compressed(out, dist=dist, nearest=nearest, serviceable=serviceable)
     saved = [out.name]
-    if not subway_only and not weighted:
+    if not subway_only and not weighted and not step_free:
         st_geo = st.to_crs(C.CRS_GEO)
         st.drop(columns="geometry").assign(
             snap_offset_m=offs,
@@ -186,6 +210,8 @@ def main(argv=None) -> int:
     compute(args.force, subway_only=True)
     print("\nAll rail modes, plus the expected wait at each station:")
     compute(args.force, subway_only=False, weighted=True)
+    print("\nStep-free stations only (the accessibility lens):")
+    compute(args.force, subway_only=False, step_free=True)
     print("\nStage 4 complete.")
     return 0
 
