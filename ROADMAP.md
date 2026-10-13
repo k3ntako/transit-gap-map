@@ -87,12 +87,23 @@ only `web/`. None of it depends on a phase below.
   of `renderLegend()`'s cases first, then pick the width — and check the
   under-service legend, which has the most rows and now the longest labels,
   since the bands are numbers in person-minutes rather than percentiles.
-- **The title card is getting long.** It now carries the hero number, six stat
-  rows, the straight-line benchmark, the commuter-rail fare note and the
-  external-validity paragraph. Each earned its place individually and the
-  result is a wall. This is the strongest argument for the collapsible panels
-  above, and it suggests the caveats want to be a `<details>` of their own
-  rather than three paragraphs in a row.
+- ~~**The title card is getting long.**~~ **Done 2026-10-11, and not the way
+  this entry proposed.** The suggestion here was a `<details>` for the
+  caveats; the card had by then reached fifteen stat rows and three
+  paragraphs, and folding a wall does not make it smaller, it hides it behind
+  a click. It went to its own page instead: `about.html` is the long version
+  of the same `stats.json`, and the card keeps the hero number, four rows and
+  one sentence of validity. `web/stats.js` renders both, so the summary and
+  the long version are one function called twice and no figure is written as
+  a literal in either.
+
+  Two things this changed that the entry did not anticipate. The **table
+  overlay shrank** rather than growing: only the worst-tract table moves with
+  the weight slider, so the borough, block and corridor tables belong on the
+  static page and are gone from the overlay. And the argument for the
+  collapsible panels below **weakened** — the card is now the smallest panel,
+  so the case for collapsing rests on the legend and the controls, which are
+  the two a reader actually keeps using.
 
 ## Draw the network, not just the stations
 
@@ -168,7 +179,7 @@ the same day.
 
 ## Publishing the map
 
-Not a phase, and not blocked by one. `web/` is three source files reading
+Not a phase, and not blocked by one. `web/` is two static pages reading
 2.9 MB of generated payload, with no server-side anything — so the hosting
 question is already answered and the real question is the build.
 
@@ -197,7 +208,8 @@ question is already answered and the real question is the build.
   development than in production.
 - **AGPL section 13 is already satisfied, by construction.** A deployed
   instance must offer its source; `config.SOURCE_URL` reaches the browser
-  through `stats.json` and the title card renders it. Confirm it points at the
+  through `stats.json` and both the title card and the method page render it.
+  Confirm it points at the
   public repository before the first deploy, because that link becoming wrong
   is the one way hosting creates a license problem.
 - **Cache headers matter here.** The payload filenames are stable, so a long

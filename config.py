@@ -6,7 +6,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 RAW = ROOT / "data" / "raw"
 PROCESSED = ROOT / "data" / "processed"
-WEB_DATA = ROOT / "web" / "data"
+WEB = ROOT / "web"
+WEB_DATA = WEB / "data"
 
 for _d in (RAW, PROCESSED, WEB_DATA):
     _d.mkdir(parents=True, exist_ok=True)

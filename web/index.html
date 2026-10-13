@@ -39,9 +39,16 @@
     <hr class="rule">
     <div id="statlist"></div>
     <hr class="rule">
-    <p class="sub" id="bench"></p>
-    <p class="sub" id="railnote"></p>
+    <!-- The card used to carry fifteen stat rows, the straight-line
+         benchmark, the commuter-rail fare note and the alignment paragraph.
+         All of that is about.html now: it is the long version of the same
+         stats.json, rendered by the same module, so the two cannot drift.
+         What stays is the headline, four rows, and one sentence of external
+         validity -- which stays because a validation number nobody sees
+         validates nothing. -->
     <p class="sub" id="validity"></p>
+    <p class="more"><a id="aboutlink" href="about.html">How this was
+      measured, every number, and what it leaves out &rarr;</a></p>
     <div style="display:flex; gap:7px; margin-top:11px">
       <button class="ghost" id="tablebtn">Table view</button>
       <button class="ghost" id="themebtn">Dark mode</button>

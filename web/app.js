@@ -1,3 +1,11 @@
+// The prose and the figures the title card shares with about.html live in
+// stats.js, so the summary beside the map and the long version on the method
+// page cannot drift apart.
+import {
+  fmt, esc, floorMin as floorMinOf, cardRows, validityLine,
+  sourceHtml, licenseHtml,
+} from "./stats.js";
+
 const MAPLIBRE_URL =
   "https://cdn.jsdelivr.net/npm/maplibre-gl@6.13.0/dist/maplibre-gl.mjs";
 
@@ -43,9 +51,6 @@ const CLS_ACCESS = ["cheapest third", "middle third", "costliest third"];
 const FADED_OPACITY = 0.12;
 
 const $ = (s) => document.querySelector(s);
-const fmt = (n, d = 0) =>
-  n == null || !isFinite(n) ? "—" : n.toLocaleString("en-US",
-    { minimumFractionDigits: d, maximumFractionDigits: d });
 
 const state = {
   theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
@@ -80,9 +85,6 @@ const state = {
 };
 
 let map, pal, stats, surf, tracts, hubs;
-
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g,
-  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 // queryRenderedFeatures throws on an unknown layer id, and during a theme
 // switch the style is torn down and rebuilt, so the guard is not paranoia.
@@ -216,7 +218,7 @@ const GAP_BANDS = 7;
 
 // The floor, in minutes, below which there is no gap to measure. Must match
 // C.ACCESS_FLOOR_MINUTES; shipped in stats.json so it cannot drift.
-const floorMin = () => stats.score?.floor_minutes ?? 10;
+const floorMin = () => floorMinOf(stats);
 
 // Percentile rank rather than the raw value. Density is roughly log-normal --
 // the middle tract holds 16,664 people/km2 and the densest 110,790 -- while
@@ -1385,107 +1387,49 @@ function renderStats() {
   $("#hero-u").innerHTML =
     `of New Yorkers live within a<br><strong>10-minute walk</strong> of a train station`;
 
-  const a = stats.pct_within_min_access;
-  const rows = [
-    ["Within 5 min", `${fmt(w["5"], 0)}%`],
-    ["Within 10 min", `${fmt(w["10"], 0)}%`],
-    ["Within 15 min", `${fmt(w["15"], 0)}%`],
-    ["Mean walk time", `${fmt(stats.mean_walk_min, 1)} min`],
-  ];
-  // Counting the wait is what the hero number leaves out, and the gap between
-  // the two is large enough that stating only the first would be misleading:
-  // the 10-minute share falls from 64% to 46% once a train has to turn up.
-  if (a) rows.push(
-    ["Within 10 min, incl. wait", `${fmt(a["10"], 0)}%`],
-    ["Mean wait for a train", `${fmt(stats.mean_wait_min, 1)} min`],
-  );
-  const sub = stats.pct_within_min_subway;
-  if (sub) rows.push(["Within 10 min, subway only", `${fmt(sub["10"], 0)}%`]);
-  // The Phase 4 figure, and the one that can contradict everything above it:
-  // living near a train says nothing about whether the train goes anywhere.
-  const ac = stats.accessibility;
-  if (ac) rows.push(
-    [`Jobs reachable in ${fmt(ac.budget_min, 0)} min`,
-     `${fmt(ac.weighted_jobs_reach / 1e6, 2)}M`],
-    ["\u2026 of the city's jobs", `${fmt(100 * ac.weighted_share, 0)}%`],
-  );
-  // The same thing uncensored, right under it, because the row above is the
-  // one that gets quoted and on its own it implies a precision the budget
-  // does not have for the half of the city that falls outside it.
-  if (ac?.weighted_jobs_time != null) rows.push(
-    ["Minutes to a tenth of those jobs",
-     `${fmt(ac.weighted_jobs_time, 0)} min`],
-    ["\u2026 tracts needing longer than the budget",
-     `${fmt(ac.n_past_budget)} of ${fmt(stats.n_geographies)}`],
-  );
-  $("#statlist").innerHTML = rows.map(([k, v]) =>
-    `<div class="statrow"><span class="k">${k}</span><span class="v">${v}</span></div>`).join("");
+  // Four rows, where there were fifteen plus three paragraphs. The card had
+  // grown into a wall that nobody re-reads, and every figure in it earned its
+  // place individually -- which is the shape of a problem that a second page
+  // solves and editing cannot. The full list, the straight-line benchmark,
+  // the commuter-rail fare note and the alignment argument are all on
+  // about.html now, built from the same stats.json by the same module.
+  $("#statlist").innerHTML = cardRows(stats).map(([k, v]) =>
+    `<div class="statrow"><span class="k">${k}</span>`
+    + `<span class="v">${v}</span></div>`).join("");
 
-  // Shows why routing matters: the same people, the same stations, the only
-  // difference being straight-line versus walking the street network.
-  $("#bench").innerHTML =
-    `Within a half mile of the <em>subway</em> alone:
-     <strong>${fmt(stats.pct_within_half_mile_subway_only, 0)}%</strong> on foot,
-     versus ${fmt(stats.pct_within_half_mile_subway_straight, 0)}% as the crow flies.
-     Straight-line distance overstates access by
-     ${fmt(stats.half_mile_detour_penalty, 0)} points.`;
-
-  // Both framings of the commuter-rail assumption, together, because each one
-  // alone is misleading: the citywide share barely moves, since these tracts
-  // were mostly outside the 10-minute band anyway, while the people in them
-  // would walk twenty minutes further each way without it.
-  // External validity, stated on the page. The roadmap calls this the single
-  // most credibility-building thing available, and it only works if it is
-  // visible: a validation number in a terminal validates nothing.
-  const al = stats.alignment;
+  // One sentence of external validity stays beside the map on purpose. The
+  // roadmap's argument for it is that a validation number in a terminal
+  // validates nothing, and the same objection applies to a validation number
+  // on a page the reader has to click through to.
   const av = $("#validity");
-  if (av && al) {
-    const pc = al.precision[al.shipped];
-    const cl = al.clump?.[al.shipped];
-    const off = (al.disagree ?? []).filter((d) => d.overlap < 0.25);
-    const offPop = off.reduce((a, d) => a + d.pop, 0);
-    av.innerHTML =
-      `<strong>Does this agree with the agencies?</strong>
-       ${fmt(100 * pc["25"], 0)}% of the 25 worst-scoring tracts sit inside one
-       of eight corridors the MTA and partners have actually proposed, against
-       a ${fmt(100 * al.baseline, 0)}% baseline — the share a score with no
-       predictive value would hit. ${fmt(al.robust.n_all)} tracts stay in the
-       worst 50 under every one of ${fmt(al.robust.n_scores)} alternative
-       weightings; those are the findings that survive the weighting rather
-       than depending on it.`
-      + (cl?.precision == null ? "" :
-      ` Grouped into contiguous blocks — the unit a line could actually serve
-        — the worst ${fmt(al.clump_rule?.probe_k)} tracts form
-        ${fmt(cl.n_blocks)} blocks and ${fmt(100 * cl.precision, 0)}% of their
-        tracts fall in a proposed corridor.`)
-      + (off.length === 0 ? "" :
-      ` <strong>${fmt(off.length)} of those blocks sit almost entirely outside
-        any proposal</strong> (${fmt(offPop)} people), and that disagreement is
-        the point rather than a defect:`)
-      + ` official plans are not need. They are need filtered through cost,
-       politics, and whether an abandoned right-of-way happens to be lying
-       around — so a place with no plan is not a place with no need, and this
-       test never counts one against the score.`;
+  if (av) {
+    const line = validityLine(stats);
+    av.innerHTML = line
+      ? `${line} <a id="validitylink" href="about.html#agreement">Why that is
+         evidence and not a target \u2192</a>`
+      : "";
   }
-
-  const r = stats.commuter_rail_dependence;
-  const el = $("#railnote");
-  if (el && r) el.innerHTML =
-    `For <strong>${fmt(r.population)}</strong> New Yorkers
-     (${fmt(r.pct_of_population, 1)}%) the nearest train is the LIRR or
-     Metro-North, which charge a separate fare. Discounting them moves the
-     citywide 10-minute share by only
-     ${fmt(Math.abs(stats.pct_within_min["10"] - stats.pct_within_min_subway["10"]), 1)}
-     points — but costs those tracts a median
-     <strong>${fmt(r.median_penalty_min, 1)} minutes</strong> each way.`;
+  syncAboutLinks();
 }
 
-function renderTable() {
-  const boro = stats.by_borough.map((r) =>
-    `<tr><td>${r.boroname}</td><td class="num">${fmt(r.pop)}</td>
-     <td class="num">${fmt(r.mean_walk_min, 1)}</td>
-     <td class="num">${fmt(r.pct_within_10, 0)}%</td></tr>`).join("");
+// The method page is a sibling file, so the theme has to travel in the URL or
+// a reader who picked dark mode gets flashed. It goes in the query string
+// rather than the hash, which leaves the hash free to be a section anchor.
+const aboutHref = (hash = "") =>
+  `about.html${state.themePinned ? `?t=${state.theme}` : ""}${hash}`;
 
+function syncAboutLinks() {
+  const a = $("#aboutlink");
+  if (a) a.href = aboutHref();
+  const v = $("#validitylink");
+  if (v) v.href = aboutHref("#agreement");
+}
+
+// Only the table that moves with the weight slider lives here now. Ranking
+// the worst tracts by the function the map is painting with is something a
+// static page cannot do; the borough, block and corridor tables are not, so
+// they are on about.html and are not duplicated here.
+function renderTable() {
   // Ranked live by the score the map is painting, not by a list baked at
   // build time. The old table picked its rows another way -- top density
   // tercile, then the longest walks -- so the map and the table disagreed, and
@@ -1505,12 +1449,6 @@ function renderTable() {
 
   $("#tables").innerHTML = `
     <table>
-      <caption>Walking access to a train station, by borough. Population-weighted.</caption>
-      <thead><tr><th>Borough</th><th class="num">Population</th>
-        <th class="num">Mean walk (min)</th><th class="num">Within 10 min</th></tr></thead>
-      <tbody>${boro}</tbody>
-    </table>
-    <table>
       <caption>The 20 worst tracts by the under-service score, ranked by the
         same function the map paints with — so this table and that map can
         never disagree. &ldquo;Block&rdquo; is the number of contiguous tracts
@@ -1521,32 +1459,12 @@ function renderTable() {
         <th class="num">Block</th></tr></thead>
       <tbody>${des}</tbody>
     </table>
-    ${clusterTable()}`;
-}
-
-// The corridor-scale finding, which no per-tract ranking can produce: the
-// largest contiguous runs of tracts past the standard, and how many people
-// live in them. This is the number an agency would recognize.
-function clusterTable() {
-  const c = stats.clusters;
-  if (!c || !c.largest?.length) return "";
-  const rows = c.largest.map((r) =>
-    `<tr><td>${esc(r.where.join(", "))}</td>
-     <td class="num">${fmt(r.n_tracts)}</td>
-     <td class="num">${fmt(r.pop)}</td></tr>`).join("");
-  return `
-    <table>
-      <caption>Contiguous blocks of tracts past the
-        ${fmt(floorMin(), 0)}-minute standard, largest first. ${fmt(c.n_clusters)}
-        blocks hold ${fmt(c.n_tracts_beyond)} tracts between them, and
-        ${fmt(c.n_single_tract_clusters)} of those blocks are a single isolated
-        tract — a complaint rather than a project. Adjacency is land
-        adjacency: the census polygons exclude water, so tracts facing each
-        other across the East River do not touch.</caption>
-      <thead><tr><th>Where</th><th class="num">Tracts</th>
-        <th class="num">Population</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+    <p class="sub">The borough breakdown, the contiguous blocks and the
+      corridor comparison are on the
+      <a id="tableaboutlink" href="about.html#numbers">method page</a>, which
+      is where the numbers that do not move with this slider live.</p>`;
+  const ta = $("#tableaboutlink");
+  if (ta) ta.href = aboutHref("#numbers");
 }
 
 // --- theme / controls -------------------------------------------------------
@@ -1592,6 +1510,7 @@ function applyTheme(next) {
   syncHash();
   document.documentElement.setAttribute("data-theme", next);
   $("#themebtn").textContent = next === "dark" ? "Light mode" : "Dark mode";
+  syncAboutLinks();
   // setStyle swaps the basemap wholesale, so every source and layer is re-added
   // once the new style reports ready.
   map.setStyle(BASEMAP[next]);
@@ -1790,25 +1709,10 @@ async function main() {
   document.documentElement.setAttribute("data-theme", state.theme);
   $("#themebtn").textContent = state.theme === "dark" ? "Light mode" : "Dark mode";
   $("#builtat").textContent = (stats.built_at || "").slice(0, 10);
-  $("#src").innerHTML = Object.values(stats.attribution).join(" · ");
+  $("#src").innerHTML = sourceHtml(stats);
 
-  // AGPL-3.0 section 13: a networked instance must prominently offer its
-  // corresponding source. config.SOURCE_URL feeds stats.source_url; with no
-  // URL set (a local run) we say the source ships alongside instead.
   const lic = $("#license");
-  if (lic && stats.license) {
-    const url = (stats.source_url || "").trim();
-    lic.textContent = `${stats.license} \u2014 `;
-    if (/^https:\/\/[^\s]+$/i.test(url)) {
-      const link = document.createElement("a");
-      link.href = url;
-      link.rel = "noopener";
-      link.textContent = "source code";
-      lic.append(link);
-    } else {
-      lic.append("source in this distribution");
-    }
-  }
+  if (lic) lic.innerHTML = licenseHtml(stats);
 
   map = new maplibregl.Map({
     container: "map",

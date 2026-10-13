@@ -41,7 +41,7 @@ cp .env.example .env       # then paste a free Census key into it
 make all                   # fetch -> network -> service -> distance ->
                            #   transit -> access -> palette -> surface ->
                            #   build -> verify
-make serve                 # http://localhost:8000
+make serve                 # http://localhost:8000 (and /about.html)
 ```
 
 The Census API requires a key for every request now; it is free and instant at
@@ -91,6 +91,20 @@ instead of being treated as sitting exactly on it.
 Everything under `web/data/` is generated and gitignored, so a fresh clone must
 run `make all` before `make serve` — the map reports that explicitly rather than
 hanging if the payloads are missing.
+
+`make serve` runs `serve.py` rather than `python -m http.server`, because the
+stdlib server sends no `Cache-Control` and a browser will happily serve an
+edited page from its own disk cache. It does not compress, though, so the wire
+sizes quoted here are gzipped figures measured with `config.wire_kb()` rather
+than what this server sends.
+
+The site is two static pages. `web/index.html` is the map, and
+`web/about.html` is the method page — every published figure, the corridor
+test, and what the measure cannot tell you. Both render from the same
+`stats.json` through `web/stats.js`, so no number appears as a literal in
+either page's prose and a rebuild cannot leave the words disagreeing with the
+map. The method page loads that one 46 KB file and neither MapLibre nor the
+GeoJSON, which is the point of it being a page rather than a panel.
 
 `config.py` holds every path, CRS, threshold and data-source URL.
 

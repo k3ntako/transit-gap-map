@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How this map was measured &mdash; NYC Transit Access</title>
+<meta name="description" content="Method, every published figure, and the known limits of a map of walking access to New York's train network.">
+<link rel="stylesheet" href="style.css">
+
+<!-- No MapLibre, no GeoJSON: this page needs one 46 KB JSON file, so it is
+     fetched rather than preloaded and there is nothing on the critical path
+     worth a hint. The map's own payloads are deliberately not touched here --
+     a reader who opens the method page should not pay 2 MB for it. -->
+</head>
+<body class="doc">
+
+<main>
+  <nav class="docnav">
+    <a id="backlink" href="index.html">&larr; Back to the map</a>
+    <button class="ghost" id="themebtn">Dark mode</button>
+  </nav>
+
+  <h1>How this map was measured</h1>
+  <p class="lede">Every figure on this page is read from the same
+    <code>stats.json</code> the map reads, written by the same pipeline run.
+    Nothing here is typed in by hand, so the prose cannot drift away from the
+    map &mdash; and where a number is uncomfortable, it is on this page
+    anyway.</p>
+
+  <section id="measure">
+    <h2>What is being measured</h2>
+    <p id="m-method"></p>
+    <p>The station set is the subway and the Staten Island Railway, plus the
+      LIRR and Metro-North stations inside the city. Walking is routed on the
+      OpenStreetMap pedestrian network, which means the East River, Newtown
+      Creek, rail cuts and expressways all stop a walk the way they stop a
+      person &mdash; the single thing a straight-line buffer gets wrong.</p>
+    <p id="m-bench"></p>
+  </section>
+
+  <section id="numbers">
+    <h2>Every number</h2>
+    <p class="sub">Population-weighted throughout, over
+      <span id="m-pop"></span> people in <span id="m-tracts"></span> census
+      tracts.</p>
+    <div id="m-groups" class="statgroups"></div>
+    <div id="m-boro"></div>
+  </section>
+
+  <section id="score">
+    <h2>The under-service score</h2>
+    <p id="m-score"></p>
+    <p>The floor is a floor and not a cap. Capping it was measured and fails:
+      above a cap every tract ties, and ties break on density alone, so the
+      map turns into a population map with extra steps.</p>
+    <p>The score carries no jobs term, no equity term and no frequency term
+      &mdash; not because those do not matter, but because each one was
+      measured against the corridors agencies have proposed and each one
+      lowered agreement. The equity variables ship anyway, weightable in the
+      map's own slider, because the MTA defines its Equity Areas by exactly
+      the zero-vehicle variable. The default weight is zero and the
+      measurement is why.</p>
+  </section>
+
+  <section id="blocks">
+    <h2>Under-served blocks</h2>
+    <p>A rail line serves a strip of neighborhoods, so the unit that matters
+      is not a tract but a run of them. Contiguity here is <em>land</em>
+      adjacency: the census polygons exclude water, so two tracts facing each
+      other across the East River do not touch and no bridge counts as a
+      walk.</p>
+    <div id="m-clusters"></div>
+  </section>
+
+  <section id="agreement">
+    <h2>Does this agree with the agencies?</h2>
+    <div id="m-validity"></div>
+    <div id="m-disagree"></div>
+  </section>
+
+  <section id="graph">
+    <h2>What is in the model, and what is not</h2>
+    <p><strong>Buses are not in the score.</strong> That is an epistemic
+      decision rather than a data one. Bus service is what the city provides
+      <em>instead of</em> rail in precisely the places this map exists to
+      find, so letting a bus close the gap would hide the finding by
+      construction. The frequent-bus layer is drawn on top of the score
+      instead, where it does the job of showing what runs today.</p>
+    <p><strong>The Staten Island Ferry is in</strong>, and it is the same rule
+      rather than an exception to it: the rule is about substitution, not
+      about vehicles, and the ferry substitutes for nothing. It is the only
+      fixed-guideway trunk link across the harbor, on its own right of way at
+      a published headway, and no proposal replaces it. Leaving it out did not
+      produce a conservative number, it produced a false one.</p>
+    <p id="m-wait"></p>
+  </section>
+
+  <section id="cutoffs">
+    <h2>Why this measures time instead of counting what fits in 45 minutes</h2>
+    <p id="m-censor"></p>
+    <p>The general version is worth more than the specific fix: a threshold on
+      the axis you are measuring <em>along</em> truncates, while a threshold
+      on the axis you are <em>measuring</em> only rescales. Fixing the share
+      of jobs and measuring the minutes is the second kind, which is why its
+      exact value turns out not to matter &mdash; measured, the ranking holds
+      at a Spearman correlation of 0.968 to 0.991 anywhere from 2% to 25%.
+      The 45-minute figure stays published, because cumulative opportunity at
+      a fixed budget is what peer analyses report, but it is no longer the
+      number quoted about the worst-served places.</p>
+  </section>
+
+  <section id="rail">
+    <h2>Commuter rail, and the fare it charges</h2>
+    <p id="m-rail"></p>
+    <p>Both framings are here because either one alone misleads. The citywide
+      share hardly moves without the commuter railroads, since those tracts
+      were mostly outside the walk band anyway; the people living in them
+      would walk far further each way.</p>
+  </section>
+
+  <section id="limits">
+    <h2>What this cannot tell you</h2>
+    <ul>
+      <li><strong>A rider who would take either the local or the express
+        still waits for whichever they board.</strong> Resolving that needs
+        hyperpath routing rather than a shortest path. Fordham to Grand
+        Central therefore reads 37 minutes against a real expected ~27, so
+        the bias runs toward <em>overstating</em> under-service on commuter
+        rail &mdash; the direction this project has to be most suspicious
+        of.</li>
+      <li><strong>Population is an estimate.</strong> ACS five-year figures
+        carry margins of error that are wide at tract level, and they are not
+        shown on the map.</li>
+      <li><strong>A tract median hides what happens inside a tract.</strong>
+        The shortest and longest sample in each one are in the map's tooltip
+        for that reason.</li>
+      <li><strong>Jobs are workplaces, not commutes.</strong> They come from
+        LEHD workplace counts, which say where jobs are, not which of them a
+        given resident could hold or at what hour.</li>
+      <li><strong>Stairs are not modeled.</strong> A station a wheelchair
+        user cannot enter counts the same here as one they can. Step-free
+        access is the next thing this needs.</li>
+      <li><strong>Schedules, not service as it runs.</strong> Delays,
+        crowding and gaps between the timetable and the day are outside this
+        entirely, and so are PATH, NJ Transit, buses and bikes.</li>
+    </ul>
+  </section>
+
+  <section id="sources">
+    <h2>Sources</h2>
+    <p class="srcline" id="m-src"></p>
+    <p class="srcline">Basemap &copy; <a href="https://carto.com/">CARTO</a>.
+      Built <span id="m-built"></span>. <span id="m-license"></span></p>
+  </section>
+
+  <p class="more"><a id="backlink2" href="index.html">&larr; Back to the
+    map</a></p>
+</main>
+
+<script type="module" src="about.js"></script>
+</body>
+</html>

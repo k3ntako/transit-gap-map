@@ -19,7 +19,7 @@ help:
 	@echo "make verify   spot checks and the barrier test"
 	@echo "make all      fetch -> network -> service -> distance -> transit"
 	@echo "              -> access -> palette -> surface -> build -> verify"
-	@echo "make serve    serve the map at http://localhost:$(PORT)"
+	@echo "make serve    serve web/ at http://localhost:$(PORT) (no caching)"
 
 setup:
 	python3 -m venv .venv
@@ -77,9 +77,11 @@ verify:
 
 all: fetch network service distance transit access palette surface build verify
 
+# serve.py rather than python -m http.server: the stdlib server sends no
+# Cache-Control, so a browser can keep serving an edited page from its own
+# disk cache and the edit looks broken. See the docstring.
 serve:
-	@echo "http://localhost:$(PORT)/"
-	@cd web && python3 -m http.server $(PORT)
+	@PORT=$(PORT) $(PY) serve.py
 
 clean:
 	rm -rf data/processed/*

@@ -19,7 +19,7 @@ check whether an idea is already there (often with an argument against it).
 make setup        # .venv (Python 3.14) + requirements; then cp .env.example .env
 make all          # fetch -> network -> service -> distance -> transit -> access
                   #   -> palette -> surface -> build -> verify
-make serve        # static server on :8000 (PORT=xxxx to change)
+make serve        # serve.py on :8000 (PORT=xxxx to change); sends no-store
 make transit      # rail + ferry transit graph: station-to-station time
 make access       # jobs reachable, time to a tenth, hubs, detour factor
 make verify       # the correctness gate
@@ -229,8 +229,10 @@ chroma on the finding. `audit()` enforces perceptual-separation `GATES` grouped
 by the reader's task (populated cells held to ΔE 15, the sparse row to 8); it
 raises rather than warns. Load the **dataviz skill** before touching any of this.
 
-**The web map is static and dumb on purpose.** `web/` is three source files —
-`index.html`, `app.js`, `style.css` — reading the payloads in `web/data/`
+**The web map is static and dumb on purpose.** `web/` is two pages and three
+scripts — `index.html` + `app.js` (the map), `about.html` + `about.js` (the
+method page), `stats.js` (what they share) and `style.css` — reading the
+payloads in `web/data/`
 (`tracts`, `stations`, `bus_ftn` and `walksheds` GeoJSON, `stats.json`,
 `palette.json`, `hubs.json`, `walk_surface.json` and `walk_surface.png`, which
 is one image for both themes since the ramps stopped flipping). `hubs.json` is
@@ -238,8 +240,45 @@ fetched with a `.catch(() => null)`: it is 39 KB only
 the hub switcher reads, and a build from before Phase 4 has no such file, so a
 rejection must not take the map down with it. `web/data/` is gitignored
 and entirely generated, so a fresh clone must `make all` before `make serve`.
+
+**`make serve` runs `serve.py`, not `python -m http.server`, and the reason is
+a bug that looked like a different bug.** The stdlib server sends
+`Last-Modified` with no `Cache-Control`, so a browser applies heuristic
+freshness and can serve an edited page out of its own disk cache — which it
+did, on 2026-10-12, making a shipped change to `index.html` look like a change
+that had not worked. `serve.py` sends `no-store` on every response, so a
+reload always shows what is on disk. It still does not compress, deliberately:
+the wire figures everywhere in this repo are gzipped because that is what a
+CDN serves, so the map is slower in development than in production and the
+budgets stay measured rather than observed.
 Anything a user might want to re-weight should recompute in the browser from
 per-tract fields rather than round-tripping through the pipeline.
+
+**The title card is a summary and `about.html` is the long version, and
+`stats.js` exists so the two cannot disagree.** Split 2026-10-11. The card had
+reached fifteen stat rows, the straight-line benchmark, the commuter-rail fare
+note and the external-validity paragraph — each earned individually, which is
+the shape of a problem editing cannot fix. It now carries the hero number,
+**four** rows, and one sentence of validity, because a validation number
+nobody sees validates nothing and that objection applies equally to a page the
+reader must click through to.
+
+Three rules hold the split together. **No figure is ever a literal in prose**:
+every sentence on either page interpolates from `stats.json`, so a rebuild
+cannot leave the words contradicting the map — this is the whole reason the
+shared module takes `stats` as an argument and reads no DOM and holds no
+state. **The method page loads `stats.json` alone** (46 KB), not the 2 MB of
+GeoJSON and not MapLibre, so wanting to know how a number was computed does
+not cost a map. And **the live table stays with the map**: `renderTable()`
+ranks the worst tracts by the function the map is painting with at the
+current slider weight, which a static page cannot do, while the borough,
+block and corridor tables moved to `about.html` and are not duplicated.
+
+The theme travels between them in the **query string** (`about.html?t=dark`),
+not the hash, which leaves the hash free to be a section anchor — the card's
+validity line links straight to `about.html#agreement`. `about.js` scrolls to
+that anchor itself after its fetch resolves, because the section does not
+exist when the browser's own anchor handling runs.
 
 **`map.addSource` serializes the GeoJSON object, so a property written after it
 never exists.** `rankTracts()` writes the derived fields the paint expressions
