@@ -1,0 +1,33 @@
+# Exact versions, written by `make lock` from a venv whose outputs were
+# checked. `make setup` installs requirements.txt under these, on a laptop
+# and in CI, so a deploy builds with the libraries the published numbers were
+# made with. A fresh resolve on 2026-10-12 would have moved pyrosm, which
+# reads the walking network, from 0.17 to 0.20.
+#
+# Nothing here is platform-specific: every package has Python 3.14 wheels for
+# Linux and macOS except cykhash, which builds from source. After a
+# deliberate upgrade, re-run `make lock` and `make verify` before committing.
+
+certifi==2026.7.22
+charset-normalizer==3.5.2
+cykhash==2.0.1
+geopandas==1.2.0
+idna==3.20
+numpy==2.5.3
+packaging==26.3
+pandas==3.0.6
+pillow==12.3.0
+protobuf==7.36.2
+pyarrow==26.0.0
+pyogrio==0.13.0
+pyproj==3.8.0
+pyrosm==0.17.0
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.4
+python-rapidjson==1.25
+requests==2.34.2
+scipy==1.18.1
+shapely==2.2.0
+six==1.17.0
+tqdm==4.70.1
+urllib3==2.8.0

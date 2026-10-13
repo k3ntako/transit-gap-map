@@ -3,7 +3,8 @@ PY := .venv/bin/python
 PORT ?= 8000
 
 .PHONY: help setup fetch network service distance transit access aggregate \
-        palette surface build verify all serve clean lock
+        palette surface build verify all serve clean lock \
+        publish publish-code smoke
 
 help:
 	@echo "make setup    create .venv (Python 3.14) and install dependencies"
@@ -20,17 +21,23 @@ help:
 	@echo "make all      fetch -> network -> service -> distance -> transit"
 	@echo "              -> access -> palette -> surface -> build -> verify"
 	@echo "make serve    serve web/ at http://localhost:$(PORT) (no caching)"
+	@echo "make publish  upload web/ and web/data/ to the live site (DEPLOY.md)"
+	@echo "make publish-code  upload pages, scripts and styles only"
+	@echo "make smoke    check the live site against web/"
 
 setup:
 	python3 -m venv .venv
 	$(PY) -m pip install --upgrade pip -q
-	$(PY) -m pip install -r requirements.txt
+	$(PY) -m pip install -r requirements.txt -c constraints.txt
 	@echo
 	@echo "Next: cp .env.example .env and paste a free Census key from"
 	@echo "      https://api.census.gov/data/key_signup.html"
 
+# Rewrites the pins below constraints.txt's header comment, which is kept.
 lock:
-	$(PY) -m pip freeze > requirements.lock.txt
+	{ sed -n '1,/^$$/p' constraints.txt; \
+	  $(PY) -m pip freeze --exclude setuptools --exclude pip; } > constraints.txt.new
+	mv constraints.txt.new constraints.txt
 
 fetch:
 	$(PY) -m pipeline.fetch
@@ -82,6 +89,19 @@ all: fetch network service distance transit access palette surface build verify
 # disk cache and the edit looks broken. See the docstring.
 serve:
 	@PORT=$(PORT) $(PY) serve.py
+
+# The live site. Usually the Deploy workflow does this (DEPLOY.md); these
+# run the same scripts from a laptop, as the deployer's AWS profile.
+publish:
+	scripts/publish.sh
+	scripts/smoke.sh
+
+publish-code:
+	scripts/publish.sh --code-only
+	scripts/smoke.sh --code-only
+
+smoke:
+	scripts/smoke.sh
 
 clean:
 	rm -rf data/processed/*

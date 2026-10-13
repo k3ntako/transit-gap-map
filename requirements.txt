@@ -1,4 +1,5 @@
-# Loose constraints; pip resolves. `make lock` writes requirements.lock.txt.
+# Loose constraints, naming what the pipeline imports. The exact versions
+# installed are pinned in constraints.txt, which `make lock` writes.
 # All of these have cp314/py3 wheels (verified 2026-10-09).
 geopandas>=1.0
 shapely>=2.0

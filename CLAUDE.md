@@ -45,7 +45,15 @@ make transit      # rail + ferry transit graph: station-to-station time
 make access       # jobs reachable, time to a tenth, hubs, detour factor
 make verify       # the correctness gate
 make clean        # wipe data/processed and web/data
+make publish      # upload web/ to the live site, then smoke-test it
+make lock         # re-pin constraints.txt from the current venv
 ```
+
+Deploying is in `DEPLOY.md`: S3 + CloudFront from two Terraform modules
+split by privilege, and a manual GitHub Actions workflow that builds and
+publishes. `make setup` installs under `constraints.txt` so CI builds with the
+same library versions as a laptop; an upgrade is `make lock`, `make verify`,
+commit.
 
 Single stage, which is the normal development loop:
 

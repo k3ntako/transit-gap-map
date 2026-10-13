@@ -1,0 +1,128 @@
+# Build the map from current sources and publish it.
+#
+# To deploy: Actions tab -> "Deploy" -> "Run workflow" on main. DEPLOY.md has
+# the one-time setup this depends on.
+#
+# It also runs, build only, on a pull request that changes how the build is
+# set up (this file, the dependencies, the Makefile), so a broken recipe is
+# found in review rather than on the day of a deploy. Nothing is published
+# from a pull request, and the AWS role would refuse one anyway: it trusts
+# runs on main only.
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      rebuild_data:
+        description: >-
+          Rebuild the data from current sources (about 20 minutes). Untick to
+          publish only pages, scripts and styles, leaving the data on the
+          site as it is.
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - .github/workflows/deploy.yml
+      - requirements.txt
+      - constraints.txt
+      - Makefile
+
+permissions:
+  contents: read
+
+# One deploy at a time; a second waits rather than racing the first's upload.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write   # lets the job ask GitHub for the token AWS trusts
+    env:
+      PUBLISH: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+      REBUILD: ${{ github.event_name == 'pull_request' || inputs.rebuild_data }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        if: env.REBUILD == 'true'
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            constraints.txt
+
+      # The downloads, mainly the 146 MB OSM extract. Restoring them is not
+      # a shortcut past freshness: fetch.py keeps its own per-source
+      # freshness windows and conditional requests in data/raw, so a restored
+      # file is re-downloaded exactly when it would be on a laptop. A new key
+      # per run saves whatever this run fetched for the next.
+      - uses: actions/cache@v6
+        if: env.REBUILD == 'true'
+        with:
+          path: data/raw
+          key: raw-${{ github.run_id }}
+          restore-keys: raw-
+
+      - name: Census key
+        if: env.REBUILD == 'true'
+        env:
+          CENSUS_API_KEY: ${{ secrets.CENSUS_API_KEY }}
+        run: |
+          if [ -z "$CENSUS_API_KEY" ]; then
+            echo "::error::The CENSUS_API_KEY repository secret is not set. Run scripts/github-setup.sh."
+            exit 1
+          fi
+          printf 'CENSUS_API_KEY=%s\n' "$CENSUS_API_KEY" > .env
+
+      - name: Install
+        if: env.REBUILD == 'true'
+        run: make setup
+
+      # Every stage, then verify.py, which is the correctness gate. The
+      # payload budgets in build.py and surface.py also stop the job here.
+      # Stage 5's cross-checks warn rather than fail; they are in this log.
+      - name: Build
+        if: env.REBUILD == 'true'
+        run: make all
+
+      # Kept 90 days: what was published, for comparison or to put back by
+      # hand (download it into web/data, then scripts/publish.sh).
+      - uses: actions/upload-artifact@v7
+        if: env.REBUILD == 'true'
+        with:
+          name: web-data-${{ github.run_number }}
+          path: web/data
+          retention-days: 90
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        if: env.PUBLISH == 'true'
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Publish
+        if: env.PUBLISH == 'true'
+        env:
+          SITE_BUCKET: ${{ vars.SITE_BUCKET }}
+          DISTRIBUTION_ID: ${{ vars.DISTRIBUTION_ID }}
+        run: scripts/publish.sh ${{ env.REBUILD != 'true' && '--code-only' || '' }}
+
+      - name: Smoke test
+        if: env.PUBLISH == 'true'
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: scripts/smoke.sh ${{ env.REBUILD != 'true' && '--code-only' || '' }}
+
+      - name: Summary
+        if: env.PUBLISH == 'true'
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: echo "Published to $SITE_URL" >> "$GITHUB_STEP_SUMMARY"

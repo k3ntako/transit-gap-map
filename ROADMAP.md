@@ -218,15 +218,32 @@ question is already answered and the real question is the build.
   until `make all` has run — and that needs a 153 MB OSM extract, a Census API
   key, and a ~5-minute graph parse. CI cannot do it from nothing without a
   secret and a large download.
-- **Three ways, and a recommendation.** (a) Build locally, push only
-  `web/` plus `web/data/` to a `gh-pages` branch — no secret leaves the
-  machine, `main` stays clean, and a deploy is one scripted push. (b) Build in
-  CI with the Census key as a repository secret and a cache for the `.pbf` —
-  more moving parts and a slow job for a payload that changes when ACS does,
-  which is annually. (c) Commit the payloads to `main` — rejected, it deletes
-  the distinction the gitignore exists to make. **Recommend (a)**, with a
-  `make publish` target so the deploy is reproducible and not a shell-history
-  artifact.
+- **Three ways, and the one taken.** (a) Build locally, push only
+  `web/` plus `web/data/` to a `gh-pages` branch. (b) Build in CI with the
+  Census key as a repository secret and a cache for the `.pbf`. (c) Commit the
+  payloads to `main` — rejected, it deletes the distinction the gitignore
+  exists to make. This section first recommended (a), on the grounds that (b)
+  is more moving parts for a payload that changes annually. **(b) was built
+  instead, on 2026-10-12**, and the reason is the one that argument missed:
+  deploys are rare, and a rare deploy from a laptop publishes whatever that
+  laptop's `data/` happens to hold, by steps nobody remembers. In CI the
+  deploy is a button, the build starts from current sources every time, and
+  `verify.py` gates it. Actions minutes are free for a public repository, so
+  the slow job costs nothing. The laptop route survives as `make publish`,
+  running the same scripts.
+- **What was built**, all in `DEPLOY.md`: S3 behind CloudFront rather than
+  GitHub Pages, because CloudFront lets the cache headers below be set and
+  Pages does not. Terraform in two modules split by privilege —
+  `infra/bootstrap` (state bucket, a deployer IAM user, an OIDC role for
+  Actions, a budget alarm; applied once as admin) and `infra/site` (bucket and
+  distribution; applied as the deployer, who cannot touch IAM). No custom
+  domain yet; the steps for one are written down. Two things found on the
+  way: CloudFront compresses by `Content-Type` and its list has
+  `application/json` but not `application/geo+json`, so `publish.sh` labels
+  the GeoJSON explicitly and `smoke.sh` fails a deploy that arrives
+  uncompressed; and a fresh dependency resolve would have moved pyrosm
+  0.17 → 0.20 under the walk graph, so `constraints.txt` now pins what the
+  published numbers were built with.
 - **Payload, measured:** 2.8 MB on disk — `tracts.geojson` 1.7 MB, `walksheds`
   816 KB, `stations` 138 KB, two surface PNGs at 62 KB, `stats.json` 24 KB,
   `palette.json` 4 KB. **Over the wire the first paint is 406 KB**, because gzip
@@ -239,14 +256,16 @@ question is already answered and the real question is the build.
 - **AGPL section 13 is already satisfied, by construction.** A deployed
   instance must offer its source; `config.SOURCE_URL` reaches the browser
   through `stats.json` and the title card, the stats page and the method
-  page all render it.
-  Confirm it points at the
-  public repository before the first deploy, because that link becoming wrong
-  is the one way hosting creates a license problem.
+  page all render it. It points at the public repository (checked
+  2026-10-12), and `scripts/github-setup.sh` configures whichever repository
+  `SOURCE_URL` names, so deploying from anywhere else means changing the
+  link first.
 - **Cache headers matter here.** The payload filenames are stable, so a long
-  `max-age` serves stale data after a rebuild. `stats.json` already carries
-  `built_at`; either serve the data directory with a short max-age or add a
-  build id to the fetch URLs.
+  `max-age` serves stale data after a rebuild. **Settled without a build id**:
+  CloudFront caches every file for a year and each deploy invalidates `/*`,
+  while browsers get `Cache-Control: no-cache` and revalidate against the
+  nearest edge. A build id in the fetch URLs would have meant the pipeline
+  rewriting the pages, to save a 304 per file on a repeat visit.
 - **Check the basemap terms before any traffic.** CARTO's `positron` and
   `dark-matter` tiles are keyless and already attributed in the title card, but
   keyless is not the same as unlimited. If the map ever gets real traffic this

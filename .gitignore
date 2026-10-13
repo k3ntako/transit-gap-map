@@ -17,13 +17,19 @@ data/processed/
 web/data/*
 !web/data/.gitkeep
 
-# pip freeze output from `make lock` is platform-specific
-requirements.lock.txt
-
 # Agent worktrees are checkouts of this repo inside itself, so git offers to
 # add them as an embedded repository and `git add -A` picks them up. The rest of
 # .claude/ is deliberately not ignored: skills and settings there are source.
 .claude/worktrees/
+
+# Terraform: provider downloads and per-machine variable files, which can hold
+# an email address. State lives in S3 (see infra/bootstrap), never here. The
+# .terraform.lock.hcl provider lock is source and stays tracked.
+.terraform/
+*.tfvars
+!*.tfvars.example
+*.tfstate
+*.tfstate.*
 
 # macOS
 .DS_Store
