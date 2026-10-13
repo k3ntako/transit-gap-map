@@ -1,7 +1,9 @@
 # transit-gap-map
 
 Finds under-served areas by mapping two things together. The current
-deployment covers New York City, by census tract:
+deployment covers New York City, one neighborhood-sized area at a time (a
+census tract, about 3,800 residents on average here, and called a tract in
+the rest of this file):
 
 1. **Walking distance to the nearest train station** — routed along the real
    pedestrian network, not straight-line distance
@@ -462,8 +464,10 @@ beside its **contiguity**: connected components over land adjacency. The largest
 block is **430 contiguous tracts holding 1,313,894 people**, running from
 Canarsie through Flatlands to St. Albans — a finding no per-tract ranking can
 produce. 24 of the 58 blocks are a single isolated tract, which is a complaint
-rather than a project. The map draws this as its own **Under-served blocks**
-layer, shaded by the population of the whole block rather than of the tract,
+rather than a project. The map draws this as its own **Under-served zones**
+layer (the pages say "zone" for a block and "area" for a tract, since a reader
+would picture a city block), shaded by the population of the whole block
+rather than of the tract,
 beside the per-tract score rather than instead of it. And across the 11 of 16
 candidate scores that clear the floor, **7 tracts stay in the worst 50 under
 every one** — six on the Staten Island North and West Shore, inside that

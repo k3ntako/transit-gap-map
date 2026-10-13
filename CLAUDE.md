@@ -286,8 +286,9 @@ constant and `state.choropleth` must change together or every short URL
 silently names the wrong layer. Doing this before the map is published is what
 made it free; afterwards it would have changed what existing links mean.
 
-**The under-served blocks layer draws the contiguity measure, and shades it by
-the block's population rather than the tract's.** Added 2026-10-11 beside the
+**The under-served blocks layer — "Under-served zones" on the page — draws the
+contiguity measure, and shades it by the block's population rather than the
+tract's.** Added 2026-10-11 beside the
 per-tract score, not in place of it — both views ship, because a tract past
 the standard on its own says something different from the same tract inside a
 430-tract band. There is deliberately no categorical fill per block: 58 blocks
@@ -344,6 +345,17 @@ beside the map. **Copy is plain on purpose** — headings name the section
 "Methodology"), and a fact's sentence says what the figure counts rather than
 teasing it. Asked for on 2026-10-12, after links like "every
 number, and what it leaves out" read as clickbait.
+
+**The pages say "area", never "tract", and "zone", never "block".** Same day.
+"Tract" is planner jargon and "block" made readers picture a city block,
+which is also a different, smaller census unit. The map card defines an area
+once ("Each area is a census tract, home to about N people", N from
+`stats.json`), and the stats and methodology pages each say it in passing for
+a reader who lands there first. Code, `stats.json`'s `schema`, and these docs
+keep "tract" and "block", where they are the precise terms. Don't use "area"
+for anything bigger than one tract on a page — "one continuous area" had to
+become "zone" for that reason — and don't use "neighborhood" for a tract,
+since a neighborhood holds dozens of them.
 
 Three rules hold the split together. **No figure is ever a literal in prose**:
 every sentence on every page interpolates from `stats.json`, so a rebuild

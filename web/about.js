@@ -27,7 +27,7 @@ function scoreHtml(stats) {
     <strong>${fmt(sc.total_excess_person_minutes / 1e6, 1)}M</strong> excess
     person-minutes on a single one-way trip, held by
     <strong>${fmt(sc.population_beyond_standard)}</strong> people;
-    ${fmt(sc.n_at_standard)} of ${fmt(sc.n_scored)} populated tracts are at or
+    ${fmt(sc.n_at_standard)} of ${fmt(sc.n_scored)} populated areas are at or
     inside the standard and score zero. It replaced a product of percentile
     ranks, which the corridor test below scored at
     ${fmt(100 * (stats.alignment?.precision?.["ranks (original)"]?.["25"] ?? 0),
@@ -57,17 +57,17 @@ function censorHtml(stats) {
     ${fmt(ac.budget_min, 0)}-minute budget has a problem at the bottom of
     the distribution: it right-censors.
     <strong>${fmt(ac.n_past_budget)} of ${fmt(stats.n_geographies)}
-    tracts</strong> need longer than that to reach
+    areas</strong> need longer than that to reach
     ${fmt(100 * ac.threshold_share, 0)}% of the city's jobs, so they all
     land near zero and can no longer be told apart &mdash; and they are the
-    tracts this map is meant to find. The budget also sits almost exactly at
+    areas this map is meant to find. The budget also sits almost exactly at
     the median of what it cuts (${fmt(ac.median_jobs_time, 1)} minutes), so
     half the city is on the censored side. So the primary measure
     swaps the axes: fix the share of jobs, measure the minutes. The
     population-weighted answer is
     <strong>${fmt(ac.weighted_jobs_time, 0)} minutes</strong> to
     ${fmt(100 * ac.threshold_share, 0)}% of the city's jobs, and
-    ${fmt(ac.p90_jobs_time, 0)} minutes for the slowest tenth of tracts.`;
+    ${fmt(ac.p90_jobs_time, 0)} minutes for the slowest tenth of areas.`;
 }
 
 async function main() {

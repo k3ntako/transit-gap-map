@@ -44,7 +44,7 @@
     <h2>The under-service score</h2>
     <p id="m-score"></p>
     <p>The floor is a floor and not a cap. Capping it was measured and fails:
-      above a cap every tract ties, and ties break on density alone, so the
+      above a cap every area ties, and ties break on density alone, so the
       map turns into a population map with extra steps.</p>
     <p>The score carries no jobs term, no equity term and no frequency term
       &mdash; not because those do not matter, but because each one was
@@ -55,13 +55,14 @@
       measurement is why.</p>
   </section>
 
-  <section id="blocks">
-    <h2>Under-served blocks</h2>
+  <section id="zones">
+    <h2>Under-served zones</h2>
     <p>A rail line serves a strip of neighborhoods, so the unit that matters
-      is not a tract but a run of them. Contiguity here is <em>land</em>
-      adjacency: the census polygons exclude water, so two tracts facing each
-      other across the East River do not touch and no bridge counts as a
-      walk.</p>
+      is not one area but a run of them. A zone is a group of neighboring
+      areas that are all past the standard. Neighboring here means sharing a
+      border on <em>land</em>: the census boundaries exclude water, so two
+      areas facing each other across the East River do not touch and no
+      bridge counts as a walk.</p>
     <div id="m-clusters"></div>
   </section>
 
@@ -107,7 +108,7 @@
     <h2>Commuter rail fares</h2>
     <p id="m-rail"></p>
     <p>Both framings are here because either one alone misleads. The citywide
-      share hardly moves without the commuter railroads, since those tracts
+      share hardly moves without the commuter railroads, since those areas
       were mostly outside the walk band anyway; the people living in them
       would walk far further each way.</p>
   </section>
@@ -123,9 +124,9 @@
         rail &mdash; the direction this project has to be most suspicious
         of.</li>
       <li><strong>Population is an estimate.</strong> ACS five-year figures
-        carry margins of error that are wide at tract level, and they are not
-        shown on the map.</li>
-      <li><strong>A tract median hides what happens inside a tract.</strong>
+        carry margins of error that are wide for areas this small, and they
+        are not shown on the map.</li>
+      <li><strong>An area's median hides what happens inside it.</strong>
         The shortest and longest sample in each one are in the map's tooltip
         for that reason.</li>
       <li><strong>Jobs are workplaces, not commutes.</strong> They come from

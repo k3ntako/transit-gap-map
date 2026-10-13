@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NYC Transit Access</title>
-<meta name="description" content="How long it takes to walk to the nearest train station from every census tract in New York City, routed along real streets.">
+<meta name="description" content="How long it takes to walk to the nearest train station from every part of New York City, routed along real streets.">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/6.13.0/maplibre-gl.css">
 <link rel="stylesheet" href="style.css">
 
@@ -30,11 +30,18 @@
     <h1>Walking distance to the train in New York City</h1>
     <!-- No figures here. The card used to lead with a hero number and four
          stat rows; they are on stats.html now, so the first thing a reader
-         sees is the map and what it shows. -->
-    <p class="sub">Each census tract is colored by how long it takes to walk
-      to the nearest subway, Staten Island Railway, LIRR or Metro-North
-      station, along streets and paths rather than in a straight line. Hover
-      a tract or station for details.</p>
+         sees is the map and what it shows. The size of an area is filled in
+         by app.js from stats.json, and the sentence still reads without it.
+         The first sentence describes the opening layer, the score, so it has
+         to change if the default `choropleth` in app.js's `state` does. -->
+    <p class="sub">The map opens on where people live more than a 10-minute
+      walk from the nearest subway, Staten Island Railway, LIRR or
+      Metro-North station. An area is darker the more people live there and
+      the farther past 10 minutes they are. Walks follow streets and paths
+      rather than a straight line.
+      <span id="areadef">Each area is a census tract.</span> Other layers show
+      walk time alone, the wait for a train, and access to jobs. Hover an
+      area or station for details.</p>
     <nav class="cardnav">
       <a data-page="stats.html" href="stats.html">Stats</a>
       <a data-page="about.html" href="about.html">Methodology</a>
@@ -49,7 +56,7 @@
   </section>
 
   <section class="panel" id="controls">
-    <p class="grouplabel">Color tracts by</p>
+    <p class="grouplabel">Color areas by</p>
     <label class="opt"><input type="radio" name="choro" value="gap" checked>
       Under-service score</label>
     <div class="field" id="gapweight" hidden>
@@ -62,21 +69,21 @@
         agreement with the rail corridors agencies have proposed.</p>
     </div>
     <label class="opt"><input type="radio" name="choro" value="clump">
-      Under-served blocks</label>
+      Under-served zones</label>
     <div class="field" id="clumpnote" hidden>
-      <p class="sub" style="margin:5px 0 0">Tracts past the 10-minute
-        standard, grouped into contiguous blocks and shaded by each block's
-        total population. A rail line serves a strip of neighborhoods, so a
-        block is closer to what a project could serve than a single tract.
-        Blocks stop at water.</p>
+      <p class="sub" style="margin:5px 0 0">Areas past the 10-minute
+        standard, grouped into zones of neighboring areas and shaded by each
+        zone's total population. A rail line serves a strip of
+        neighborhoods, so a zone is closer to what a project could serve than
+        a single area. Zones stop at water.</p>
     </div>
     <label class="opt"><input type="radio" name="choro" value="bivariate">
       Density &times; walk time</label>
     <div class="field" id="binote" hidden>
       <p class="sub" style="margin:5px 0 0">The two inputs to the score, cut
         into thirds and crossed. It separates them, which the score cannot:
-        a far tract is not always an empty one. It also groups rather than
-        ranks, so every dense-and-far tract shares one color whatever its
+        a far area is not always an empty one. It also groups rather than
+        ranks, so every dense-and-far area shares one color whatever its
         magnitude, and it is the one layer whose colors reverse between light
         and dark mode.</p>
     </div>
@@ -128,11 +135,12 @@
       </div>
       <label class="opt"><input type="checkbox" id="t-served">
         Hide areas meeting the standard</label>
-      <p class="sub" style="margin:5px 0 0">Leaves only the tracts more than
-        10 minutes' walk from a train, the same set the score and the blocks
+      <p class="sub" style="margin:5px 0 0">Leaves only the areas more than
+        10 minutes' walk from a train, the same set the score and the zones
         layer use.</p>
-      <p class="sub" style="margin-top:9px">Filtered tracts fade rather than
-        disappear, and still count in every figure.</p>
+      <p class="sub" style="margin-top:9px">Filtered areas lose their color
+        but keep their outline and details on hover, and still count in every
+        figure.</p>
       <p class="sub" id="showing" style="margin-top:9px"></p>
     </details>
 
@@ -154,8 +162,8 @@
 <div id="tablewrap" tabindex="-1" role="region" aria-label="Data tables">
   <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; max-width:940px">
     <div>
-      <h2>Most under-served tracts</h2>
-      <p class="sub">The tracts the map ranks worst, as a table.
+      <h2>Most under-served areas</h2>
+      <p class="sub">The areas the map ranks worst, as a table.
         Press <kbd>Esc</kbd> to close.</p>
     </div>
     <button class="ghost" id="closetable">Close</button>

@@ -44,7 +44,8 @@ async function main() {
 
   set("#s-lede", `Facts and figures on walking access to New York's trains,
     across ${fmt(stats.total_population)} people in
-    ${fmt(stats.n_geographies)} census tracts. Population is from
+    ${fmt(stats.n_geographies)} areas, each one a census tract. Population
+    is from
     ${surveyName(stats.census_dataset)}.`);
   set("#s-facts", factsHtml(stats));
   set("#s-bars", boroughBars(stats));

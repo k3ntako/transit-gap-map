@@ -74,17 +74,17 @@ export function facts(stats) {
   const far = stats.transit_deserts?.[0];
   if (far) f.push({
     value: `${fmt(far.walk_min, 1)} min`,
-    label: "is the longest walk in a high-density tract",
-    body: `A tract in ${esc(far.ntaname)}, ${esc(far.boroname)}, with
+    label: "is the longest walk in a high-density area",
+    body: `An area in ${esc(far.ntaname)}, ${esc(far.boroname)}, with
       ${fmt(far.pop)} residents at ${fmt(far.density_km2)} people per km².
-      Among the densest third of tracts, none is farther from a train.`,
+      Among the densest third of areas, none is farther from a train.`,
   });
 
   const big = stats.clusters?.largest?.[0];
   if (big) f.push({
     value: `${fmt(big.pop / 1e6, 2)}M`,
-    label: `people live in one continuous area past the ${fl}-minute mark`,
-    body: `${fmt(big.n_tracts)} adjoining census tracts, including
+    label: `people live in one continuous zone past the ${fl}-minute mark`,
+    body: `${fmt(big.n_tracts)} neighboring areas, including
       ${listOf(big.where.map(esc))}.`,
   });
 
@@ -125,14 +125,14 @@ export function facts(stats) {
     value: `${fmt(ac.weighted_jobs_time, 0)} min`,
     label: `to reach ${fmt(100 * ac.threshold_share, 0)}% of the city's jobs`,
     body: `On foot and by train, for the average New Yorker. For the slowest
-      tenth of tracts it takes ${fmt(ac.p90_jobs_time, 0)} minutes.`,
+      tenth of areas it takes ${fmt(ac.p90_jobs_time, 0)} minutes.`,
   });
 
   const al = stats.alignment;
   const pc = al?.precision?.[al.shipped]?.["25"];
   if (pc != null) f.push({
     value: `${fmt(100 * pc, 0)}%`,
-    label: "of the 25 most under-served tracts lie in a proposed rail corridor",
+    label: "of the 25 most under-served areas lie in a proposed rail corridor",
     body: `Corridors proposed by the MTA and partners, against the map's
       under-service score. A score with no predictive value would hit
       ${fmt(100 * al.baseline, 0)}%.`,
@@ -204,10 +204,10 @@ export function statGroups(stats) {
     if (ac.weighted_jobs_time != null) rows.push(
       [`Minutes to ${fmt(100 * ac.threshold_share, 0)}% of the jobs`,
        `${fmt(ac.weighted_jobs_time, 0)} min`],
-      ["… slowest tenth of tracts", `${fmt(ac.p90_jobs_time, 0)} min`],
-      [`… tracts needing over ${fmt(ac.budget_min, 0)} min`,
+      ["… slowest tenth of areas", `${fmt(ac.p90_jobs_time, 0)} min`],
+      [`… areas needing over ${fmt(ac.budget_min, 0)} min`,
        `${fmt(ac.n_past_budget)} of ${fmt(stats.n_geographies)}`],
-      ["… tracts that never get there",
+      ["… areas that never get there",
        `${fmt(ac.n_no_threshold)}`],
     );
     g.push({ title: "Reaching jobs", rows });
@@ -218,13 +218,13 @@ export function statGroups(stats) {
       ["People past the standard", `${fmt(sc.population_beyond_standard)}`],
       ["Excess person-minutes, citywide",
        `${fmt(sc.total_excess_person_minutes / 1e6, 1)}M`],
-      ["Tracts at or inside the standard",
+      ["Areas at or inside the standard",
        `${fmt(sc.n_at_standard)} of ${fmt(sc.n_scored)}`],
     ];
     if (cl) rows.push(
-      ["Contiguous blocks past it", `${fmt(cl.n_clusters)}`],
-      ["… tracts in them", `${fmt(cl.n_tracts_beyond)}`],
-      ["… that are a single tract", `${fmt(cl.n_single_tract_clusters)}`],
+      ["Under-served zones", `${fmt(cl.n_clusters)}`],
+      ["… areas in them", `${fmt(cl.n_tracts_beyond)}`],
+      ["… that are a single area", `${fmt(cl.n_single_tract_clusters)}`],
     );
     g.push({ title: "Under-service", rows });
   }
@@ -257,7 +257,7 @@ export function railHtml(stats) {
     (${fmt(r.pct_of_population, 1)}%) the nearest train is the LIRR or
     Metro-North, which charge a separate fare. Discounting them moves the
     citywide 10-minute share by only ${fmt(gap, 1)} points — but costs those
-    tracts a median <strong>${fmt(r.median_penalty_min, 1)} minutes</strong>
+    areas a median <strong>${fmt(r.median_penalty_min, 1)} minutes</strong>
     each way.`;
 }
 
@@ -269,22 +269,22 @@ export function validityHtml(stats) {
   const cl = al.clump?.[al.shipped];
   const off = (al.disagree ?? []).filter((d) => d.overlap < 0.25);
   const offPop = off.reduce((a, d) => a + d.pop, 0);
-  return `<p>${fmt(100 * pc["25"], 0)}% of the 25 worst-scoring tracts sit
+  return `<p>${fmt(100 * pc["25"], 0)}% of the 25 worst-scoring areas sit
     inside one of eight corridors the MTA and partners have actually
     proposed, against a ${fmt(100 * al.baseline, 0)}% baseline — the share a
-    score with no predictive value would hit. ${fmt(al.robust.n_all)} tracts
+    score with no predictive value would hit. ${fmt(al.robust.n_all)} areas
     stay in the worst 50 under every one of ${fmt(al.robust.n_scores)}
     alternative weightings, out of ${fmt(al.robust.n_candidates)} candidate
     scores measured; those are the findings that survive the weighting rather
     than depending on it.</p>`
     + (cl?.precision == null ? "" : `<p>A rail line serves a strip, not a
-    tract, so the figure that gates the build is the clumped one: the worst
-    ${fmt(al.clump_rule?.probe_k)} tracts form ${fmt(cl.n_blocks)} blocks of
-    ${fmt(al.clump_rule?.min_tracts)} or more, holding ${fmt(cl.n_tracts)} of
-    those tracts between them, and
+    single area, so the figure that gates the build is the grouped one: the
+    worst ${fmt(al.clump_rule?.probe_k)} areas form ${fmt(cl.n_blocks)} zones
+    of ${fmt(al.clump_rule?.min_tracts)} or more, holding ${fmt(cl.n_tracts)}
+    of those areas between them, and
     <strong>${fmt(100 * cl.precision, 0)}%</strong> of those fall in a
     proposed corridor. Grouping <em>raises</em> agreement, which is the
-    direction it should move if the scattered tracts were noise. The gate is
+    direction it should move if the scattered areas were noise. The gate is
     the ${fmt(100 * al.baseline, 0)}% baseline plus
     ${fmt(100 * (al.clump_rule?.margin ?? 0), 0)} points
     (${fmt(100 * (al.clump_rule?.floor ?? 0), 0)}%), derived rather than set
@@ -296,7 +296,7 @@ export function validityHtml(stats) {
     this test never counts one against the score. It tests whether the score
     is better than noise, not whether it matches the MTA.</p>`
     + (off.length === 0 ? "" : `<p><strong>Where they differ.</strong>
-    ${fmt(off.length)} of the ${fmt(cl?.n_blocks)} blocks sit almost entirely
+    ${fmt(off.length)} of the ${fmt(cl?.n_blocks)} zones sit almost entirely
     outside any proposal, holding ${fmt(offPop)} people. That is consistent
     with the constraint above: the plans cluster on existing rights-of-way,
     and northeastern Queens has none.</p>`);
@@ -332,14 +332,15 @@ export function clusterTable(stats) {
      <td class="num">${fmt(r.pop)}</td></tr>`).join("");
   return `
     <table>
-      <caption>Contiguous blocks of tracts past the
+      <caption>Under-served zones: neighboring areas all past the
         ${fmt(floorMin(stats), 0)}-minute standard, largest first.
-        ${fmt(c.n_clusters)} blocks hold ${fmt(c.n_tracts_beyond)} tracts
-        between them, and ${fmt(c.n_single_tract_clusters)} of those blocks
-        are a single isolated tract — a complaint rather than a project.
-        Adjacency is land adjacency: the census polygons exclude water, so
-        tracts facing each other across the East River do not touch.</caption>
-      <thead><tr><th>Where</th><th class="num">Tracts</th>
+        ${fmt(c.n_clusters)} zones hold ${fmt(c.n_tracts_beyond)} areas
+        between them, and ${fmt(c.n_single_tract_clusters)} of those zones
+        are a single isolated area — a complaint rather than a project.
+        Neighbors share a border on land: the census boundaries exclude
+        water, so areas facing each other across the East River do not
+        touch.</caption>
+      <thead><tr><th>Where</th><th class="num">Areas</th>
         <th class="num">Population</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
@@ -358,10 +359,10 @@ export function disagreeTable(stats) {
      <td class="num">${fmt(100 * b.overlap, 0)}%</td></tr>`).join("");
   return `
     <table>
-      <caption>The worst-scoring blocks, and how much of each one a proposed
-        corridor covers. 0% is not a failing block; it is a place with a
+      <caption>The worst-scoring zones, and how much of each one a proposed
+        corridor covers. 0% is not a failing zone; it is a place with a
         measured gap and nothing proposed for it.</caption>
-      <thead><tr><th>Where</th><th>Borough</th><th class="num">Tracts</th>
+      <thead><tr><th>Where</th><th>Borough</th><th class="num">Areas</th>
         <th class="num">Population</th>
         <th class="num">In a corridor</th></tr></thead>
       <tbody>${rows}</tbody>

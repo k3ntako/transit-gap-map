@@ -304,9 +304,10 @@ def build_stats(stats: dict, df, lookups: dict) -> None:
             "Walk times are shortest-path distances along the OpenStreetMap "
             "pedestrian network, not straight lines, computed with a single "
             "multi-source Dijkstra pass from every station at once. Each "
-            f"{C.GEO_LEVEL} is measured as the median over a "
-            f"{C.TRACT_SAMPLE_SPACING_METERS} m grid of sample points inside its own "
-            "polygon. Density uses land area, with water excluded."),
+            f"area on the map is a census {C.GEO_LEVEL}, and its walk time is "
+            "the median over a "
+            f"{C.TRACT_SAMPLE_SPACING_METERS} m grid of sample points inside it. "
+            "Density uses land area, with water excluded."),
     })
     path = C.WEB_DATA / "stats.json"
     path.write_text(json.dumps(stats, indent=2, default=str))

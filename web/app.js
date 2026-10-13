@@ -633,10 +633,10 @@ function showCount() {
   }
   const none = shown === 0;
   el.innerHTML = none
-    ? `<strong>No tracts are showing.</strong> Together the filters exclude
-       every populated tract. Loosen one of them.`
+    ? `<strong>No areas are showing.</strong> Together the filters exclude
+       every populated area. Loosen one of them.`
     : `Showing <strong>${fmt(shown)}</strong> of ${fmt(total)} populated
-       tracts, holding ${fmt(pop)} people.`;
+       areas, holding ${fmt(pop)} people.`;
   el.style.color = none ? "var(--warn, #b4541a)" : "";
 }
 
@@ -1055,7 +1055,7 @@ function wireHover() {
       html += row("Walk to station", `${fmt(p.walk, 1)} min`);
       if (p.nveh != null) html += row("No car, households", `${fmt(p.nveh, 0)}%`);
       if (p.wlo != null && p.whi != null)
-        html += row("Range in tract", `${fmt(p.wlo, 1)}–${fmt(p.whi, 1)} min`);
+        html += row("Range in area",`${fmt(p.wlo, 1)}–${fmt(p.whi, 1)} min`);
       // Always shown, not only on the access layer. The wait is a property of
       // the tract, not of whichever fill happens to be selected, and hiding it
       // behind a layer choice is how a reader ends up quoting the walk figure
@@ -1116,9 +1116,9 @@ function wireHover() {
       // something different from the same tract inside a 430-tract band, and
       // that difference is the whole argument for having this measure.
       if (p.cluid != null && p.cluid >= 0)
-        html += row("Under-served block",
+        html += row("Under-served zone",
                     p.clu === 1 ? "on its own"
-                      : `${fmt(p.clu)} tracts · ${fmt(p.clupop)} people`);
+                      : `${fmt(p.clu)} areas · ${fmt(p.clupop)} people`);
 
       // The access measure often prefers a further station with more trains.
       // Naming it only when it differs keeps the common case quiet and makes
@@ -1136,10 +1136,10 @@ function wireHover() {
     // instead: a score nobody can interrogate persuades nobody.
     if (state.choropleth === "clump") {
       html += p.cluid != null && p.cluid >= 0
-        ? `<div class="tclass">Block ${p.cluid + 1} of `
+        ? `<div class="tclass">Zone ${p.cluid + 1} of `
           + `${fmt(stats.clusters?.n_clusters)}, by population</div>`
         : `<div class="tclass">Within the ${fmt(floorMin(), 0)}-minute `
-          + `standard — not in a block</div>`;
+          + `standard — not in a zone</div>`;
     }
     if (state.choropleth === "gap" && p.rd != null) {
       const s = gapScore(p, state.gapWeight);
@@ -1156,22 +1156,22 @@ function wireHover() {
           + `${fmt(p.exc, 1)} min past ${fmt(fl, 0)}`
           + (state.gapWeight
             ? ` × ${fmt(needBlend(p, state.gapWeight), 2)} equity weight` : "")
-          + `<br>worse than ${Math.round(100 * gapPercentile(s))}% of tracts`
+          + `<br>worse than ${Math.round(100 * gapPercentile(s))}% of areas`
           + `</div>`;
       }
       // Contiguity: the honest headline is not the worst tract but the largest
       // run of them. One bad tract ringed by good ones is a bus-stop problem.
       if (p.clu > 1) {
-        html += `<div class="tnote">In a contiguous block of <strong>`
-          + `${fmt(p.clu)} tracts</strong> past the standard, `
+        html += `<div class="tnote">In an under-served zone of <strong>`
+          + `${fmt(p.clu)} areas</strong> past the standard, `
           + `${fmt(p.clupop)} people.</div>`;
       } else if (p.clu === 1) {
-        html += `<div class="tnote">Isolated — every neighboring tract is`
+        html += `<div class="tnote">Isolated — every neighboring area is`
           + ` inside the standard.</div>`;
       }
     } else if (state.choropleth === "access" && accessClass(p) >= 0) {
       html += `<div class="tclass">Access cost `
-        + `<strong>${CLS_ACCESS[accessClass(p)]}</strong> of tracts</div>`;
+        + `<strong>${CLS_ACCESS[accessClass(p)]}</strong> of areas</div>`;
     } else if (p.dc >= 0 && p.wc >= 0) {
       html += `<div class="tclass">Density <strong>${CLS_DENSITY[p.dc]}</strong>`
         + ` · Walk <strong>${CLS_WALK[p.wc]}</strong></div>`;
@@ -1255,7 +1255,7 @@ function renderLegend() {
     state.choropleth === "bivariate" || state.choropleth === "none";
 
   if (state.choropleth === "none") {
-    el.innerHTML = `<div class="sub">Tract colors are off.</div>`;
+    el.innerHTML = `<div class="sub">Area colors are off.</div>`;
     return;
   }
 
@@ -1309,7 +1309,7 @@ function renderLegend() {
          <span class="lab">no residents</span></div>`
       + `<div class="sub" style="margin-top:9px"><strong>Excess
          person-minutes</strong>: residents &times; minutes of walk beyond
-         ${fmt(fl, 0)} minutes. ${fmt(over.length)} tracts are past that
+         ${fmt(fl, 0)} minutes. ${fmt(over.length)} areas are past that
          mark.</div>`;
     return;
   }
@@ -1334,17 +1334,17 @@ function renderLegend() {
         : `${k(brk[i - 1])} – ${k(brk[i])}`;
       return `<div class="ramprow"><i data-cls="${i}"
               style="background:${hex}"></i>
-              <span class="lab">${lab} in the block</span></div>`;
+              <span class="lab">${lab} in the zone</span></div>`;
     });
     el.innerHTML = rows.join("")
       + `<div class="ramprow"><i style="background:${unpop()}"></i>
          <span class="lab">no gap to measure</span></div>`
       + `<div class="sub" style="margin-top:9px">${fmt(cl.n_tracts_beyond)}
-         tracts are past the ${fmt(stats.score?.floor_minutes ?? 10, 0)}-minute
-         standard, in ${fmt(cl.n_clusters)} contiguous blocks. The largest
-         holds ${fmt(big.n_tracts)} tracts and ${fmt(big.pop)} people
+         areas are past the ${fmt(stats.score?.floor_minutes ?? 10, 0)}-minute
+         standard, in ${fmt(cl.n_clusters)} zones. The largest
+         holds ${fmt(big.n_tracts)} areas and ${fmt(big.pop)} people
          (${esc((big.where ?? []).join(", "))}).
-         ${fmt(cl.n_single_tract_clusters)} blocks are a single tract.</div>`;
+         ${fmt(cl.n_single_tract_clusters)} zones are a single area.</div>`;
     return;
   }
 
@@ -1383,13 +1383,13 @@ function renderLegend() {
            <strong>${fmt(stats.accessibility?.threshold_jobs)} jobs</strong>,
            a tenth of the city's, by train, ferry and on foot. The median is
            ${fmt(stats.accessibility?.median_jobs_time, 0)} minutes; the
-           slowest tenth of tracts take over
+           slowest tenth of areas take over
            ${fmt(stats.accessibility?.p90_jobs_time, 0)}.`
         : jobs
         ? `Jobs reachable in <strong>${fmt(stats.accessibility?.budget_min, 0)}
            minutes</strong> by train, the Staten Island Ferry and on foot, out
            of ${fmt(total / 1e6, 2)}M in the city. Buses are not included.
-           ${fmt(stats.accessibility?.n_past_budget)} tracts reach less than a
+           ${fmt(stats.accessibility?.n_past_budget)} areas reach less than a
            tenth of the city's jobs in that time, so they bunch near zero;
            &ldquo;Time to reach 10% of jobs&rdquo; separates them.`
         : `Minutes to ${hubName ? `<strong>${esc(hubName)}</strong>`
@@ -1490,18 +1490,18 @@ function renderTable() {
 
   $("#tables").innerHTML = `
     <table>
-      <caption>The 20 tracts with the highest under-service score, at the
-        current equity weight. &ldquo;Block&rdquo; is the number of
-        contiguous tracts past the ${fmt(floorMin(), 0)}-minute standard that
-        this one belongs to.</caption>
+      <caption>The 20 areas with the highest under-service score, at the
+        current equity weight. &ldquo;Zone&rdquo; is the number of
+        neighboring areas past the ${fmt(floorMin(), 0)}-minute standard in
+        the under-served zone this one belongs to.</caption>
       <thead><tr><th>Neighborhood</th><th>Borough</th><th class="num">Population</th>
         <th class="num">Walk (min)</th><th class="num">Excess person-min</th>
-        <th class="num">Block</th></tr></thead>
+        <th class="num">Zone</th></tr></thead>
       <tbody>${des}</tbody>
     </table>
     <p class="sub">Borough figures are on the
       <a data-page="stats.html" href="stats.html">stats page</a>, and the
-      largest blocks on the
+      largest zones on the
       <a data-page="about.html" href="about.html">methodology page</a>.</p>`;
   syncPageLinks();
 }
@@ -1758,6 +1758,16 @@ async function main() {
   $("#themebtn").textContent = state.theme === "dark" ? "Light mode" : "Dark mode";
   $("#builtat").textContent = (stats.built_at || "").slice(0, 10);
   $("#src").innerHTML = sourceHtml(stats);
+
+  // The one definition the card gives, so "area" is never left to mean a
+  // neighborhood. Averaged over populated areas only: the parks, airports and
+  // cemeteries drawn gray would otherwise pull the figure down.
+  const nPop = stats.score?.n_scored;
+  if (stats.total_population && nPop) {
+    const avg = Math.round(stats.total_population / nPop / 100) * 100;
+    $("#areadef").textContent =
+      `Each area is a census tract, home to about ${fmt(avg)} people.`;
+  }
 
   const lic = $("#license");
   if (lic) lic.innerHTML = licenseHtml(stats);
