@@ -79,14 +79,15 @@ instead of being treated as sitting exactly on it.
 | Stage | Module | What it does |
 |---|---|---|
 | 1 | `pipeline/fetch.py` | Download stations, boundaries, census, GTFS, OSM extract |
-| 2 | `pipeline/network.py` | `.pbf` → cached undirected walking graph |
+| 2 | `pipeline/network.py` | `.pbf` → cached undirected walking graph; `--bike` does the same for cycling |
 | 3 | `pipeline/service.py` | GTFS → trains per hour per station, frequent bus stops |
-| 4 | `pipeline/distance.py` | Multi-source Dijkstra → walk and walk+wait per node |
+| 4 | `pipeline/distance.py` | Multi-source Dijkstra from every station entrance → walk, walk+wait, step-free and bike minutes per node |
 | 4b | `pipeline/transit.py` | Rail + ferry GTFS → a frequency graph, solved for every station pair |
 | 4c | `pipeline/accessibility.py` | Jobs reachable in 45 min, time to reach a tenth of them, job centers, detour factor |
 | 5 | `pipeline/aggregate.py` | Node distances → per-tract statistics and the score |
 | 6 | `pipeline/palette.py` | Generate and audit the color system |
 | 7 | `pipeline/surface.py` | Walk-time raster + network walkshed polygons |
+| 9 | `pipeline/siting.py` | One hypothetical station per lattice site, then one footbridge per barrier pair |
 | 8 | `pipeline/build.py` | Emit `web/data/` payloads |
 | — | `pipeline/verify.py` | Barrier test, trip probes, spot checks, and the alignment gate |
 
