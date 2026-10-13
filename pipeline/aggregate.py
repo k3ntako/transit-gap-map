@@ -355,11 +355,15 @@ def stepfree_stats(df) -> dict:
         "as_of": datetime.fromtimestamp(
             C.P_SUBWAY.stat().st_mtime, timezone.utc).date().isoformat(),
         "n_stations": int(len(st)),
-        "n_step_free": int(st["ada"].astype(bool).sum()),
+        # `np.asarray` rather than `.astype(bool).sum()`: the stubs type the
+        # latter as Series, which `int()` will not take. The pattern is the
+        # one pipeline/transit.py uses to stay off the pyright baseline.
+        "n_step_free": int(np.asarray(st["ada"], dtype=bool).sum()),
         # [step-free, total] per mode. LIRR reads 33 of 40 and the subway
         # 168 of 475, which is most of why a citywide average is not the
         # number to quote.
-        "by_mode": {str(mode): [int(g["ada"].astype(bool).sum()), int(len(g))]
+        "by_mode": {str(mode): [int(np.asarray(g["ada"], dtype=bool).sum()),
+                                int(len(g))]
                     for mode, g in st.groupby("mode")},
         "pop_nearest_not_step_free": int(pop_excluded),
         "pct_nearest_not_step_free": round(100 * pop_excluded / total, 1),
