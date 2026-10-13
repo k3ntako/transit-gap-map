@@ -380,6 +380,46 @@ def build_hubs(df, stats: dict) -> dict:
     return {"n_hubs": len(cols), "wire_kb": round(wire, 1)}
 
 
+def build_siting() -> dict:
+    """The marginal-benefit surface as points, plus its ranked list.
+
+    One hypothetical station per candidate site. It ships as points rather
+    than as a raster because it *is* discrete -- a lattice of hypotheses, not
+    a continuous field -- and drawing it as a smooth surface would imply a
+    resolution the method does not have.
+    """
+    from pipeline.siting import compute as compute_siting, summarize
+    res = compute_siting(force=False)
+    stats = summarize(res)
+    gdf = gpd.GeoDataFrame(
+        pd.DataFrame({
+            # Person-minutes to the nearest hundred and people to the nearest
+            # ten: the lattice spacing is 400 m, so the third digit of either
+            # is an artifact of where the lattice happened to land.
+            "cut": (res["excess_min_cut"] / 100).round(0).astype("int32") * 100,
+            "moved": (res["pop_moved"] / 10).round(0).astype("int32") * 10,
+        }),
+        geometry=gpd.points_from_xy(res["lon"], res["lat"]), crs=C.CRS_GEO)
+    path = C.WEB_DATA / "siting.geojson"
+    # Four decimals, not the usual five: these are lattice points 400 m
+    # apart, so a tenth of a meter of precision on a hypothesis is 2,325
+    # wasted characters. The count of geographies each site touches is left
+    # out for the same reason -- it is in the ranked list, where it is read.
+    gdf.to_file(path, driver="GeoJSON", coordinate_precision=4)
+    wire = C.wire_kb(path)
+    print(f"  saved   {path.name} ({path.stat().st_size / 1024:.0f} KB on "
+          f"disk, {wire:.0f} KB gzipped, {len(gdf)} candidate sites)")
+    if wire > C.BUDGET_SITING_WIRE_KB:
+        raise SystemExit(
+            f"{path.name} is {wire:.0f} KB gzipped, over the "
+            f"{C.BUDGET_SITING_WIRE_KB:.0f} KB budget. This grows as the "
+            f"inverse square of SITING_SPACING_METERS, so coarsen the "
+            f"lattice rather than raising the budget -- the surface is "
+            f"already smooth at 400 m.")
+    stats["wire_kb"] = round(wire, 1)
+    return stats
+
+
 def build_stats(stats: dict, df, lookups: dict) -> None:
     sheds = C.WEB_DATA / "walksheds.geojson"
     if sheds.exists():
@@ -462,6 +502,7 @@ def main(argv=None) -> int:
     build_stations()
     stats["bus_ftn"] = build_bus_ftn()
     stats["hubs_payload"] = build_hubs(df, stats)
+    stats["siting"] = build_siting()
     build_stats(stats, df, lookups)
     print("\nStage 8 complete.")
     return 0

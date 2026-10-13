@@ -9,7 +9,7 @@
 import {
   fmt, esc, floorMin, benchHtml, railHtml, validityHtml, clusterTable,
   disagreeTable, needCrossHtml, needCrossTable, stepFreeHtml, stepFreeTable,
-  sourceHtml, licenseHtml,
+  sitingHtml, sitingTable, sourceHtml, licenseHtml,
 } from "./stats.js";
 import { initDocPage, set, scrollToHash } from "./doc.js";
 
@@ -107,6 +107,8 @@ async function main() {
   set("#m-margins", marginsHtml(stats));
   set("#m-stepfree", stepFreeHtml(stats));
   set("#m-stepfree-table", stepFreeTable(stats));
+  set("#m-siting", sitingHtml(stats));
+  set("#m-siting-table", sitingTable(stats));
   set("#m-src", sourceHtml(stats));
   set("#m-built", esc((stats.built_at || "").slice(0, 10)));
   set("#m-license", licenseHtml(stats));

@@ -91,6 +91,7 @@ const state = {
   walksheds: true,
   stations: true,
   busFtn: false,
+  siting: false,
   hovered: null,
   hoveredStation: null,
   densFloor: 0,
@@ -145,6 +146,7 @@ function applyHash() {
 
   if (CHOROPLETHS.includes(q.get("c"))) state.choropleth = q.get("c");
   if (q.has("bus")) state.busFtn = q.get("bus") === "1";
+  if (q.has("sites")) state.siting = q.get("sites") === "1";
   if (q.has("served")) state.servedFaded = q.get("served") === "1";
   const dens = num("dens", 0, 30000);
   if (dens != null) state.densFloor = dens;
@@ -187,6 +189,7 @@ function syncHash() {
     if (state.themePinned) q.push(`t=${state.theme}`);
     if (state.surface) q.push("surface=1");
     if (state.busFtn) q.push("bus=1");
+    if (state.siting) q.push("sites=1");
     if (!state.walksheds) q.push("sheds=0");
     if (!state.stations) q.push("stations=0");
     const c = map.getCenter();
@@ -207,6 +210,11 @@ function reflectState() {
   $("#t-surface").checked = state.surface;
   $("#t-sheds").checked = state.walksheds;
   $("#t-stations").checked = state.stations;
+  // Both of these read from the hash, so both have to be reflected here or a
+  // shared link draws the layer with its box unchecked. `#bus=1` had that
+  // bug; the siting layer would have inherited it.
+  if ($("#t-busftn")) $("#t-busftn").checked = state.busFtn;
+  if ($("#t-siting")) $("#t-siting").checked = state.siting;
   $("#f-dens").value = state.densFloor;
   $("#f-pop").value = state.popFloor;
   if ($("#t-served")) $("#t-served").checked = state.servedFaded;
@@ -214,6 +222,7 @@ function reflectState() {
   showLayerNotes();
   if ($("#f-hub")) $("#f-hub").value = String(state.hub);
   showHubPick();
+  showSitingNote();
   // Open the panel when a floor is in force, or the faded tracts look like a bug.
   if (state.densFloor || state.popFloor || state.servedFaded)
     $("#settings").open = true;
@@ -835,14 +844,54 @@ function addBusFtn() {
   }
 }
 
+// Where one more station would help most: 4,840 hypothetical stations, drawn
+// as hollow circles sized by the excess person-minutes each one removes.
+//
+// Hollow, and in the station color rather than a ramp of its own, because
+// that is exactly what each dot is -- a station that is not there. The rule
+// is the one ROADMAP.md sets for anything proposed: it has to be
+// unmistakable in a screenshot that this is not the network as it is. So the
+// layer is off by default, the marker is an outline, and the legend says
+// "hypothetical" rather than "proposed", since nobody has proposed these.
+//
+// Radius on the square root of the value: these are areas on the screen, and
+// a radius proportional to the number would make the top site look thirty
+// times the size of a median one rather than five and a half.
+function addSiting() {
+  if (!map.getLayer("tracts-fill")) return;
+  if (!map.getSource("siting")) {
+    map.addSource("siting", { type: "geojson", data: "data/siting.geojson" });
+  }
+  if (!map.getLayer("siting-dots")) {
+    const st = pal.station[state.theme];
+    const best = stats.siting?.best_excess_min_cut || 1;
+    const r = (frac) => ["interpolate", ["linear"], ["zoom"],
+      10, 2 + 7 * frac, 14, 4 + 16 * frac];
+    map.addLayer({
+      id: "siting-dots", type: "circle", source: "siting",
+      layout: { visibility: state.siting ? "visible" : "none" },
+      paint: {
+        "circle-radius": ["interpolate", ["linear"],
+          ["sqrt", ["/", ["coalesce", ["get", "cut"], 0], best]],
+          0, r(0), 1, r(1)],
+        "circle-color": st.stroke,
+        "circle-opacity": 0.12,
+        "circle-stroke-color": st.stroke,
+        "circle-stroke-width": 1.2,
+        "circle-stroke-opacity": 0.85,
+      },
+    }, "stations-hit");
+  }
+}
+
 function addLayers() {
   const st = pal.station[state.theme];
 
   // setStyle() tears the style down, but guard anyway so this is safe to call
   // more than once.
   const LAYERS = ["tracts-fill", "tracts-line", "tracts-hover", "surface-img",
-    "bus-ftn", "stations-hit", "stations-rail", "stations-subway",
-    "hub-ring", "hub-core",
+    "bus-ftn", "siting-dots", "stations-hit", "stations-rail",
+    "stations-subway", "hub-ring", "hub-core",
     ...stats.thresholds_min.map((t) => `shed-${t}`)];
   LAYERS.forEach((l) => { if (map.getLayer(l)) map.removeLayer(l); });
   ["tracts", "stations", "walksheds", "surface", "busftn",
@@ -921,6 +970,7 @@ function addLayers() {
   // lazily for the same reason the surface is -- it is off by default, so a
   // reader who never asks for it should not pay 47 KB for it.
   if (state.busFtn) addBusFtn();
+  if (state.siting) addSiting();
 
   // Stations carry identity by SIZE and RING, not hue: extra hues here would
   // collide with the choropleth ramps underneath.
@@ -1574,6 +1624,11 @@ function renderKeys() {
     + `<div class="keyline"><span class="dot" style="background:${st.stroke};
         border-color:${st.fill};width:12px;height:12px"></span>
         <span class="lab">LIRR / Metro-North</span></div>`
+    + (state.siting && stats.siting
+      ? `<div class="keyline"><span class="dot" style="background:transparent;
+          border-color:${st.stroke};width:11px;height:11px"></span>
+         <span class="lab">One more station here — hypothetical, sized by
+         the excess walking it would remove. Not a proposal.</span></div>` : "")
     + (state.busFtn && stats.bus_ftn
       ? `<div class="keyline"><span class="dot" style="background:${
           pal.ink[state.theme].secondary};border-color:transparent;
@@ -1652,6 +1707,13 @@ function showLayerNotes() {
     const el = $(`#${id}`);
     if (el) el.hidden = state.choropleth !== layer;
   }
+}
+
+// This one hangs off a checkbox rather than the layer radio, so it is not in
+// showLayerNotes with the others.
+function showSitingNote() {
+  const el = $("#sitingnote");
+  if (el) el.hidden = !state.siting;
 }
 
 function showHubPick() {
@@ -1737,6 +1799,8 @@ function wireControls() {
   // second thing to interrogate.
   toggle("#t-busftn", "busFtn", () => ["bus-ftn"],
     () => { addBusFtn(); renderKeys(); });
+  toggle("#t-siting", "siting", () => ["siting-dots"],
+    () => { addSiting(); renderKeys(); showSitingNote(); });
   toggle("#t-stations", "stations",
     () => ["stations-subway", "stations-rail", "stations-hit"]);
 

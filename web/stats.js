@@ -356,6 +356,55 @@ const MODE_PHRASE = {
   lirr: "on the LIRR", mnr: "on Metro-North",
 };
 
+// Where one more station would help most, and the two reasons the ranking is
+// in person-minutes rather than in people moved.
+export function sitingHtml(stats) {
+  const t = stats.siting;
+  if (!t?.sites?.length) return "";
+  const fl = fmt(t.floor_minutes, 0);
+  return `For each of
+    <strong>${fmt(t.n_sites)}</strong> candidate sites on a
+    ${fmt(t.spacing_m, 0)} m lattice, one hypothetical station is added and
+    the whole map recomputed. A station can only change an answer within
+    ${fl} minutes' walk of itself, so each pass stops there — which is what
+    makes a question this size answerable in seconds rather than hours.
+    Benefit is reported in the same unit as the under-service score, excess
+    person-minutes removed, and that matters: the best site removes
+    <strong>${fmt(t.best_excess_min_cut / 1000, 0)}k</strong> person-minutes
+    of walking, and the best site that moves <em>nobody</em> inside the
+    ${fl}-minute standard still removes
+    <strong>${fmt(t.best_cut_moving_nobody / 1000, 0)}k</strong> — it cuts a
+    25-minute walk to 14 without reaching 10, which a count of people moved
+    scores at zero. The list below keeps only sites
+    more than ${fmt(t.min_separation_m / 1000, 1)} km apart, so no two
+    entries serve the same people; the map layer shows all of them.`;
+}
+
+export function sitingTable(stats) {
+  const t = stats.siting;
+  if (!t?.sites?.length) return "";
+  const rows = t.sites.map((r, i) =>
+    `<tr><td class="num">${i + 1}</td><td>${esc(r.where)}</td>
+     <td>${esc(r.boro)}</td>
+     <td class="num">${fmt(r.excess_min_cut / 1000, 0)}k</td>
+     <td class="num">${fmt(r.pop_moved)}</td></tr>`).join("");
+  return `
+    <table>
+      <caption>One more station, ranked by the excess walking it would
+        remove. <strong>Nobody has proposed these.</strong> They are what
+        this map's own numbers say, computed the same way for every site, and
+        they count in no other figure on this page. A site is a point, not a
+        line — a line is a connected sequence of points, and turning the
+        first into the second is the part this project has not
+        done.</caption>
+      <thead><tr><th class="num">#</th><th>Where</th><th>Borough</th>
+        <th class="num">Person-min removed</th>
+        <th class="num">People moved inside ${fmt(stats.siting.floor_minutes, 0)} min</th>
+        </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
 // Carless crossed with poverty, and the measured result is the opposite of
 // the hypothesis it was built to test. Published as such: this project's rule
 // is that a prediction that fails is a finding, not an embarrassment.

@@ -81,7 +81,7 @@ if [[ "$CODE_ONLY" -eq 0 ]]; then
   budget() { { grep -E "^BUDGET_$1_WIRE_KB" "${ROOT}/config.py" || true; } | sed -E 's/.*= *([0-9.]+).*/\1/'; }
   printf "  %-24s %10s %10s  %s\n" "" "wire KB" "budget" "encoding"
   for f in tracts.geojson tract_cols.json walksheds.geojson bus_ftn.geojson \
-           stations.geojson hubs.json; do
+           siting.geojson stations.geojson hubs.json; do
     [[ -f "${WEB}/data/${f}" ]] || continue
     url="${SITE_URL}/data/${f}"
     enc="$(headers "$url" | header content-encoding)"

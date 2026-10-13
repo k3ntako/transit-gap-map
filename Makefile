@@ -3,7 +3,7 @@ PY := .venv/bin/python
 PORT ?= 8000
 
 .PHONY: help setup fetch network service distance transit access aggregate \
-        palette surface build verify all serve clean lock \
+        siting palette surface build verify all serve clean lock \
         publish publish-code smoke
 
 help:
@@ -14,12 +14,14 @@ help:
 	@echo "make distance multi-source Dijkstra: nearest station per graph node"
 	@echo "make transit  rail transit graph: station-to-station travel time"
 	@echo "make access   jobs reachable, time to a tenth, hubs, detour"
+	@echo "make siting   marginal benefit of one more station, per candidate site"
 	@echo "make palette  generate the validated color system (web/data/palette.json)"
 	@echo "make surface  walk-time raster + network walkshed polygons"
 	@echo "make build    aggregate to tracts and write web/data/ (runs the above)"
 	@echo "make verify   spot checks and the barrier test"
 	@echo "make all      fetch -> network -> service -> distance -> transit"
-	@echo "              -> access -> palette -> surface -> build -> verify"
+	@echo "              -> access -> siting -> palette -> surface -> build"
+	@echo "              -> verify"
 	@echo "make serve    serve web/ at http://localhost:$(PORT) (no caching)"
 	@echo "make publish  upload web/ and web/data/ to the live site (DEPLOY.md)"
 	@echo "make publish-code  upload pages, scripts and styles only"
@@ -67,6 +69,12 @@ access: distance transit
 aggregate: access
 	$(PY) -m pipeline.aggregate
 
+# One hypothetical station per lattice site. Reads the walk graph and the
+# nearest-station distances, so it needs `distance`, and it writes its own
+# cache -- `build` reads that cache rather than recomputing.
+siting: distance aggregate
+	$(PY) -m pipeline.siting
+
 palette:
 	$(PY) -m pipeline.palette
 
@@ -82,7 +90,8 @@ build: access
 verify:
 	$(PY) -m pipeline.verify
 
-all: fetch network service distance transit access palette surface build verify
+all: fetch network service distance transit access siting palette surface \
+     build verify
 
 # serve.py rather than python -m http.server: the stdlib server sends no
 # Cache-Control, so a browser can keep serving an edited page from its own

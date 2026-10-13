@@ -40,7 +40,8 @@ if [[ -z "${DISTRIBUTION_ID:-}" ]]; then DISTRIBUTION_ID="$(site_output distribu
 # loads and then fails in the reader's browser.
 REQUIRED=(
   tracts.geojson tract_cols.json stations.geojson walksheds.geojson
-  bus_ftn.geojson stats.json palette.json walk_surface.json walk_surface.png
+  bus_ftn.geojson siting.geojson stats.json palette.json walk_surface.json
+  walk_surface.png
 )
 if [[ "$CODE_ONLY" -eq 0 ]]; then
   missing=()

@@ -506,6 +506,32 @@ DETOUR_MIN_KM = 3.0
 # that the distribution is flat.
 STEPFREE_TABLE_ROWS = 40
 
+# --- Where would one more station help most (Phase 7) ----------------------
+# Candidate sites on a lattice, one hypothetical station at a time. The
+# spacing is a resolution choice and not a free parameter: at 400 m a
+# candidate and its neighbor have walksheds that overlap by most of their
+# area, so the surface is smooth and the ranking is stable; much finer buys
+# duplicate answers at linear cost, and much coarser can miss a gap entirely,
+# since a 10-minute walkshed is only about 810 m of network distance across.
+SITING_SPACING_METERS = 400
+# How far a new station can reach before it cannot change anyone's answer:
+# ACCESS_FLOOR_MINUTES of walking, in meters. Every bounded pass stops here,
+# which is what makes this stage seconds rather than hours -- a sample point
+# further than this cannot be brought inside the standard by a station at the
+# candidate, whatever the rest of the network looks like.
+SITING_REACH_METERS = ACCESS_FLOOR_MINUTES * 60.0 * WALK_SPEED_MPS
+# How many sites the payload and the page carry. The surface itself ships in
+# full; this is the length of the ranked list.
+SITING_TABLE_ROWS = 25
+# The ranked list keeps only sites whose walksheds do not overlap, which is
+# twice the reach apart. Without it the top ten is the same neighborhood ten
+# times: adjacent candidates serve almost the same people, so they score
+# almost the same, and a list of near-duplicates reads as ten findings when
+# it is one. The full surface still ships unsuppressed -- this governs the
+# list, not the map.
+SITING_MIN_SEPARATION_METERS = 2.0 * SITING_REACH_METERS
+BUDGET_SITING_WIRE_KB = 60.0
+
 BUDGET_HUBS_WIRE_KB = 60.0
 
 ATTRIBUTION = {
@@ -539,6 +565,7 @@ P_GRAPH = PROCESSED / "walk_graph.npz"
 P_STATIONS = PROCESSED / "stations.parquet"
 P_NODE_DIST = PROCESSED / "node_distance.npz"
 P_GEO_STATS = PROCESSED / f"{GEO_LEVEL}_stats.parquet"
+P_SITING = PROCESSED / "siting.parquet"
 P_SERVICE = PROCESSED / "station_service.parquet"
 P_BUS_STOPS = PROCESSED / "bus_stop_service.parquet"
 P_LODES = RAW / f"lodes_wac_ny_{LODES_YEAR}.csv.gz"

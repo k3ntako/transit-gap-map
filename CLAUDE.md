@@ -79,10 +79,13 @@ Type checking (pyright is **not** installed in the venv; use npx):
 npx -y pyright
 ```
 
-**Baseline is 34 errors, 0 warnings.** All 34 are third-party stub gaps, not
+**Baseline is 35 errors, 0 warnings.** All 35 are third-party stub gaps, not
 defects — pyrosm typed as returning `Optional`, `scipy.spatial.cKDTree` absent
 from the stubs, shapely's `BaseGeometry.geoms`, `Series.map` with a dict. Treat
-35 as a regression; they want casts, not fixes. It was 38 until Phase 4, and
+36 as a regression; they want casts, not fixes. It was 34 until `siting.py`
+arrived on 2026-10-12 and imported `cKDTree`, which is one more instance of
+the same stub gap rather than a new kind of error — the rule for raising this
+number is that the new error has to be in that catalog. It was 38 until Phase 4, and
 the move is inference noise rather than a fix: merging the accessibility table
 into `df` in `aggregate.run` changed what pyright infers for it and six of
 that file's errors went away, while two new `cKDTree` imports arrived. The
@@ -114,7 +117,8 @@ downstream of the expensive parse.
 | 7 | `surface.py` | walk-time raster PNGs + `walksheds.geojson` |
 | 4b | `transit.py` | `rail_station_time.npz` + `transit_graph.parquet` — a rail + Staten Island Ferry transit graph, solved for every station pair |
 | 4c | `accessibility.py` | `tract_accessibility.parquet` + `tract_transit_time.npz` — jobs reachable, time to a tenth of them, hub times, detour factor |
-| 8 | `build.py` | `tracts.geojson`, `stations.geojson`, `bus_ftn.geojson`, `hubs.json`, `stats.json` |
+| 9 | `siting.py` | `siting.parquet` — one hypothetical station per lattice site, and what it would remove |
+| 8 | `build.py` | `tracts.geojson` (geometry), `tract_cols.json` (every column), `stations.geojson`, `bus_ftn.geojson`, `hubs.json`, `siting.geojson`, `stats.json` |
 | — | `verify.py` | nothing; checks stages 4 and 4b |
 
 Stage 3 depends only on stage 1, not on the walk graph, so it can be re-run
@@ -513,6 +517,45 @@ of elevators that fixes this, so the table publishes 40 rows
 is labeled "step-free **by design** as of ⟨fetch date⟩", from the station
 table's mtime rather than from prose, because the flag means a route was
 built and MTA's live outages are not in this.
+
+**Where one more station would help most is a ranking of points, measured in
+the score's own unit.** Added 2026-10-12, Phase 7. `siting.py` puts one
+hypothetical station on each of 4,840 lattice sites at
+`C.SITING_SPACING_METERS` (400 m) and recomputes the map. Three things make
+it 10 seconds rather than hours: a new station cannot change an answer beyond
+`C.SITING_REACH_METERS` — `ACCESS_FLOOR_MINUTES` of walking, 810 m — so every
+pass is a *bounded* Dijkstra at 12 ms; the existing nearest-station distance
+is already on disk, so the comparison is against a vector rather than a
+recomputation; and only the tracts holding an improved sample point need a
+new median.
+
+**It reports excess person-minutes removed, not people moved, and the
+difference is load-bearing.** The best site removes 821k person-minutes; the
+best site that moves *nobody* inside the 10-minute standard still removes
+560k, because it cuts a 25-minute walk to 14 without reaching 10. A count of
+people moved scores that at zero, which would rank the outer city's worst
+gaps as worthless. Person-minutes is also the unit the shipped score is in,
+so a site's benefit and a tract's deficit are the same quantity.
+
+**The gate is that this stage's baseline must *be* the published walk time.**
+It rebuilds the 25 m lattice, the snapping rule and the median from the same
+functions `aggregate` uses, so the two agree to 0.000 m on 2,324 of 2,325
+tracts (the one exception is measured upstream by the finer refinement
+lattice, and is named rather than tolerated). `_check_baseline` raises past
+1 m. A ranking of sites computed against a slightly wrong baseline would look
+entirely reasonable, which is exactly why it is asserted.
+
+Two publishing rules. The ranked list suppresses near-duplicates — a site is
+kept only if it is `SITING_MIN_SEPARATION_METERS` (twice the reach) from
+every site already kept, because adjacent candidates serve almost the same
+people and an unsuppressed top ten is one finding printed ten times. And the
+map layer draws **hollow** circles in the station color, off by default,
+labeled *hypothetical* rather than *proposed*: nobody has proposed these, and
+the roadmap's rule is that a screenshot must not be mistakable for the
+network as it is. The top sites converge with the alignment test's
+disagreement table from a completely different direction — College Point,
+Pomonok, Throgs Neck, the Staten Island north shore — which is the useful
+part, since those are the places the agencies' own plans do not cover.
 
 **Buses are in neither the transit graph nor the score, and that is an
 epistemic decision, not a data one.** Bus service is what the city provides
