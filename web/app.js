@@ -2,8 +2,7 @@
 // stats.js, so the summary beside the map and the long version on the method
 // page cannot drift apart.
 import {
-  fmt, esc, floorMin as floorMinOf, cardRows, validityLine,
-  sourceHtml, licenseHtml,
+  fmt, esc, floorMin as floorMinOf, sourceHtml, licenseHtml,
 } from "./stats.js";
 
 const MAPLIBRE_URL =
@@ -600,8 +599,8 @@ function showCount() {
   }
   const none = shown === 0;
   el.innerHTML = none
-    ? `<strong>No tracts are showing.</strong> The floors together exclude
-       every populated tract — ease one of them.`
+    ? `<strong>No tracts are showing.</strong> Together the filters exclude
+       every populated tract. Loosen one of them.`
     : `Showing <strong>${fmt(shown)}</strong> of ${fmt(total)} populated
        tracts, holding ${fmt(pop)} people.`;
   el.style.color = none ? "var(--warn, #b4541a)" : "";
@@ -1095,7 +1094,7 @@ function wireHover() {
     if (p.pop === 0)
       html += `<div class="tnote">No residents — excluded from the statistics.</div>`;
     else if (isBelowFloor(p))
-      html += `<div class="tnote">Below a display floor — faded, not excluded.</div>`;
+      html += `<div class="tnote">Faded by a filter — still counted.</div>`;
     return html;
   };
 
@@ -1160,9 +1159,14 @@ function highlightLegend(p) {
 function renderLegend() {
   const el = $("#legendbody");
   const b = stats.breaks;
+  // True of every one-variable ramp, which is one palette in both themes. Not
+  // of the bivariate matrix, which has a dark variant whose worst corner is
+  // the brightest cell, so the note would contradict the swatches beside it.
+  $("#darkernote").hidden =
+    state.choropleth === "bivariate" || state.choropleth === "none";
 
   if (state.choropleth === "none") {
-    el.innerHTML = `<div class="sub">Choropleth hidden.</div>`;
+    el.innerHTML = `<div class="sub">Tract colors are off.</div>`;
     return;
   }
 
@@ -1184,8 +1188,9 @@ function renderLegend() {
         </div>
       </div>
       <div class="sub" style="margin-top:9px">
-        Darkest corner (top right) is <strong>dense but poorly served</strong>:
-        above ${fmt(b.density[1])} people/km² and over ${fmt(b.walk_min[1], 1)} min walk.
+        The top-right corner is <strong>dense and far from a train</strong>:
+        over ${fmt(b.density[1])} people/km² and over
+        ${fmt(b.walk_min[1], 1)} min walk.
       </div>`;
     return;
   }
@@ -1213,11 +1218,9 @@ function renderLegend() {
       + `<div class="ramprow"><i style="background:${unpop()}"></i>
          <span class="lab">no residents</span></div>`
       + `<div class="sub" style="margin-top:9px"><strong>Excess
-         person-minutes</strong>: residents &times; minutes of walk beyond the
-         ${fmt(fl, 0)}-minute standard. ${fmt(over.length)} tracts are past it;
-         the rest paint the palest step because they have no gap to measure.
-         Of the nine scores tested against the corridors agencies have
-         proposed, this is the one that agreed best.</div>`;
+         person-minutes</strong>: residents &times; minutes of walk beyond
+         ${fmt(fl, 0)} minutes. ${fmt(over.length)} tracts are past that
+         mark.</div>`;
     return;
   }
 
@@ -1249,14 +1252,9 @@ function renderLegend() {
       + `<div class="sub" style="margin-top:9px">${fmt(cl.n_tracts_beyond)}
          tracts are past the ${fmt(stats.score?.floor_minutes ?? 10, 0)}-minute
          standard, in ${fmt(cl.n_clusters)} contiguous blocks. The largest
-         holds <strong>${fmt(big.n_tracts)} tracts and ${fmt(big.pop)}
-         people</strong> — ${esc((big.where ?? []).join(", "))} —
-         while ${fmt(cl.n_single_tract_clusters)} of the blocks are a single
-         tract, which is a complaint rather than a project.</div>`
-      + `<div class="sub" style="margin-top:6px">Shaded by the population of
-         the whole block, not of the tract — a block is what one line could
-         serve, so that is the quantity worth comparing. Blocks stop at water:
-         these polygons exclude it, so no bridge counts as a walk.</div>`;
+         holds ${fmt(big.n_tracts)} tracts and ${fmt(big.pop)} people
+         (${esc((big.where ?? []).join(", "))}).
+         ${fmt(cl.n_single_tract_clusters)} blocks are a single tract.</div>`;
     return;
   }
 
@@ -1291,40 +1289,28 @@ function renderLegend() {
            : jt ? "never reaches that many"
            : "no path to a center"}</span></div>`
       + `<div class="sub" style="margin-top:9px">` + (jt
-        ? `How long until a resident can reach
-           <strong>${fmt(stats.accessibility?.threshold_jobs)}
-           jobs</strong> — a tenth of the city's — by train, the ferry
-           and on foot. This is the layer above with its axes swapped, and the
-           one to trust at the bad end: a fixed 45-minute budget bottoms out
-           near zero for the
-           ${fmt(stats.accessibility?.n_past_budget)} tracts that need longer
-           than that, so two places 35 minutes apart can read as a tie. The
-           median is ${fmt(stats.accessibility?.median_jobs_time, 0)} minutes
-           and the worst tenth is past
+        ? `Minutes to reach
+           <strong>${fmt(stats.accessibility?.threshold_jobs)} jobs</strong>,
+           a tenth of the city's, by train, ferry and on foot. The median is
+           ${fmt(stats.accessibility?.median_jobs_time, 0)} minutes; the
+           slowest tenth of tracts take over
            ${fmt(stats.accessibility?.p90_jobs_time, 0)}.`
         : jobs
         ? `Jobs reachable in <strong>${fmt(stats.accessibility?.budget_min, 0)}
            minutes</strong> by train, the Staten Island Ferry and on foot, out
-           of ${fmt(total / 1e6, 2)}M in the city. Buses are not in this graph
-           — see the note below. It is a <em>commute</em> measure: school,
-           hospitals and family are not jobs. It is also
-           <strong>censored</strong>:
-           ${fmt(stats.accessibility?.n_past_budget)} tracts
-           cannot reach a tenth of the city's jobs inside the budget at
-           all, so they bunch near zero — the next layer down is the
-           uncensored version.`
+           of ${fmt(total / 1e6, 2)}M in the city. Buses are not included.
+           ${fmt(stats.accessibility?.n_past_budget)} tracts reach less than a
+           tenth of the city's jobs in that time, so they bunch near zero;
+           &ldquo;Time to reach 10% of jobs&rdquo; separates them.`
         : `Minutes to ${hubName ? `<strong>${esc(hubName)}</strong>`
            : "the nearest of the eight job centers"} by train or ferry,
            including the walk at both ends and the wait. The rings mark the
            centers themselves${hubName ? ", with the selected one emphasized"
-           : " \u2014 all eight, since this is the nearest of them"}. Staten
-           Island's own centers stay separate: the ferry links it to the
-           system, but the crossing plus the peak wait is 32.5 minutes before
-           anyone walks anywhere.`)
+           : " \u2014 all eight, since this is the nearest of them"}.`)
       + `</div>`
-      + `<div class="sub" style="margin-top:6px">This does
-         <strong>not</strong> feed the under-service score. Measured against
-         the corridors agencies have proposed it scores
+      + `<div class="sub" style="margin-top:6px">Not part of the
+         under-service score. Tested against the corridors agencies have
+         proposed, it scores
          ${fmt(100 * (stats.alignment?.precision?.[jobs
            ? "pop x jobs out of reach" : jt ? "pop x excess time to jobs"
            : "pop x excess hub min"]?.["25"] ?? 0),
@@ -1352,10 +1338,9 @@ function renderLegend() {
     + `<div class="ramprow"><i style="background:${unpop()}"></i>
        <span class="lab">no residents</span></div>`
     + (isAcc ? `<div class="sub" style="margin-top:9px">Walking time
-       <strong>plus the expected wait</strong> at the station the trip would
-       actually use — half the scheduled 8–9am headway, capped at 15 min. Not
-       comparable to published "within N minutes" figures, which are all
-       walk-only.</div>` : "");
+       <strong>plus the expected wait</strong>: half the scheduled 8–9am
+       headway, capped at 15 min. Published &ldquo;within N minutes&rdquo;
+       figures are walk-only, so they are not comparable.</div>` : "");
 }
 
 function renderKeys() {
@@ -1379,56 +1364,22 @@ function renderKeys() {
          ${fmt(stats.bus_ftn.n_stops)})</span></div>` : "");
 }
 
-// --- stats + table ----------------------------------------------------------
+// --- page links + table -----------------------------------------------------
 
-function renderStats() {
-  const w = stats.pct_within_min;
-  $("#hero-n").textContent = `${fmt(w["10"], 0)}%`;
-  $("#hero-u").innerHTML =
-    `of New Yorkers live within a<br><strong>10-minute walk</strong> of a train station`;
-
-  // Four rows, where there were fifteen plus three paragraphs. The card had
-  // grown into a wall that nobody re-reads, and every figure in it earned its
-  // place individually -- which is the shape of a problem that a second page
-  // solves and editing cannot. The full list, the straight-line benchmark,
-  // the commuter-rail fare note and the alignment argument are all on
-  // about.html now, built from the same stats.json by the same module.
-  $("#statlist").innerHTML = cardRows(stats).map(([k, v]) =>
-    `<div class="statrow"><span class="k">${k}</span>`
-    + `<span class="v">${v}</span></div>`).join("");
-
-  // One sentence of external validity stays beside the map on purpose. The
-  // roadmap's argument for it is that a validation number in a terminal
-  // validates nothing, and the same objection applies to a validation number
-  // on a page the reader has to click through to.
-  const av = $("#validity");
-  if (av) {
-    const line = validityLine(stats);
-    av.innerHTML = line
-      ? `${line} <a id="validitylink" href="about.html#agreement">Why that is
-         evidence and not a target \u2192</a>`
-      : "";
-  }
-  syncAboutLinks();
-}
-
-// The method page is a sibling file, so the theme has to travel in the URL or
-// a reader who picked dark mode gets flashed. It goes in the query string
+// The document pages are siblings, so the theme has to travel in the URL or a
+// reader who picked dark mode gets flashed. It goes in the query string
 // rather than the hash, which leaves the hash free to be a section anchor.
-const aboutHref = (hash = "") =>
-  `about.html${state.themePinned ? `?t=${state.theme}` : ""}${hash}`;
-
-function syncAboutLinks() {
-  const a = $("#aboutlink");
-  if (a) a.href = aboutHref();
-  const v = $("#validitylink");
-  if (v) v.href = aboutHref("#agreement");
+// Every cross-page link carries `data-page`, so one pass finds them all.
+function syncPageLinks() {
+  const q = state.themePinned ? `?t=${state.theme}` : "";
+  for (const a of document.querySelectorAll("a[data-page]"))
+    a.href = `${a.dataset.page}${q}`;
 }
 
 // Only the table that moves with the weight slider lives here now. Ranking
 // the worst tracts by the function the map is painting with is something a
 // static page cannot do; the borough, block and corridor tables are not, so
-// they are on about.html and are not duplicated here.
+// they are on stats.html and about.html and are not duplicated here.
 function renderTable() {
   // Ranked live by the score the map is painting, not by a list baked at
   // build time. The old table picked its rows another way -- top density
@@ -1449,22 +1400,20 @@ function renderTable() {
 
   $("#tables").innerHTML = `
     <table>
-      <caption>The 20 worst tracts by the under-service score, ranked by the
-        same function the map paints with — so this table and that map can
-        never disagree. &ldquo;Block&rdquo; is the number of contiguous tracts
-        past the ${fmt(floorMin(), 0)}-minute standard that this one belongs
-        to; a line serves a corridor, not a tract.</caption>
+      <caption>The 20 tracts with the highest under-service score, at the
+        current equity weight. &ldquo;Block&rdquo; is the number of
+        contiguous tracts past the ${fmt(floorMin(), 0)}-minute standard that
+        this one belongs to.</caption>
       <thead><tr><th>Neighborhood</th><th>Borough</th><th class="num">Population</th>
         <th class="num">Walk (min)</th><th class="num">Excess person-min</th>
         <th class="num">Block</th></tr></thead>
       <tbody>${des}</tbody>
     </table>
-    <p class="sub">The borough breakdown, the contiguous blocks and the
-      corridor comparison are on the
-      <a id="tableaboutlink" href="about.html#numbers">method page</a>, which
-      is where the numbers that do not move with this slider live.</p>`;
-  const ta = $("#tableaboutlink");
-  if (ta) ta.href = aboutHref("#numbers");
+    <p class="sub">Borough figures are on the
+      <a data-page="stats.html" href="stats.html">stats page</a>, and the
+      largest blocks on the
+      <a data-page="about.html" href="about.html">methodology page</a>.</p>`;
+  syncPageLinks();
 }
 
 // --- theme / controls -------------------------------------------------------
@@ -1510,7 +1459,7 @@ function applyTheme(next) {
   syncHash();
   document.documentElement.setAttribute("data-theme", next);
   $("#themebtn").textContent = next === "dark" ? "Light mode" : "Dark mode";
-  syncAboutLinks();
+  syncPageLinks();
   // setStyle swaps the basemap wholesale, so every source and layer is re-added
   // once the new style reports ready.
   map.setStyle(BASEMAP[next]);
@@ -1745,7 +1694,6 @@ async function main() {
     addLayers();
     renderLegend();
     renderKeys();
-    renderStats();
     renderTable();
     reflectState();
     wireControls();

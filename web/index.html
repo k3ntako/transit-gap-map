@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NYC Transit Access</title>
-<meta name="description" content="Walking distance to the nearest train station and population density across New York City, by census tract.">
+<meta name="description" content="How long it takes to walk to the nearest train station from every census tract in New York City, routed along real streets.">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/6.13.0/maplibre-gl.css">
 <link rel="stylesheet" href="style.css">
 
@@ -27,29 +27,19 @@
 
 <div id="panels">
   <section class="panel" id="titlecard">
-    <h1>Transit access &amp; population density</h1>
-    <p class="sub">How far New Yorkers actually have to walk to reach a train &mdash;
-      routed along real streets, not measured in straight lines.</p>
-
-    <div class="hero">
-      <span class="n" id="hero-n">&mdash;</span>
-      <span class="u" id="hero-u"></span>
-    </div>
-
-    <hr class="rule">
-    <div id="statlist"></div>
-    <hr class="rule">
-    <!-- The card used to carry fifteen stat rows, the straight-line
-         benchmark, the commuter-rail fare note and the alignment paragraph.
-         All of that is about.html now: it is the long version of the same
-         stats.json, rendered by the same module, so the two cannot drift.
-         What stays is the headline, four rows, and one sentence of external
-         validity -- which stays because a validation number nobody sees
-         validates nothing. -->
-    <p class="sub" id="validity"></p>
-    <p class="more"><a id="aboutlink" href="about.html">How this was
-      measured, every number, and what it leaves out &rarr;</a></p>
-    <div style="display:flex; gap:7px; margin-top:11px">
+    <h1>Walking distance to the train in New York City</h1>
+    <!-- No figures here. The card used to lead with a hero number and four
+         stat rows; they are on stats.html now, so the first thing a reader
+         sees is the map and what it shows. -->
+    <p class="sub">Each census tract is colored by how long it takes to walk
+      to the nearest subway, Staten Island Railway, LIRR or Metro-North
+      station, along streets and paths rather than in a straight line. Hover
+      a tract or station for details.</p>
+    <nav class="cardnav">
+      <a data-page="stats.html" href="stats.html">Stats</a>
+      <a data-page="about.html" href="about.html">Methodology</a>
+    </nav>
+    <div class="cardbtns">
       <button class="ghost" id="tablebtn">Table view</button>
       <button class="ghost" id="themebtn">Dark mode</button>
     </div>
@@ -59,7 +49,7 @@
   </section>
 
   <section class="panel" id="controls">
-    <p class="grouplabel">Choropleth</p>
+    <p class="grouplabel">Color tracts by</p>
     <label class="opt"><input type="radio" name="choro" value="bivariate" checked>
       Density &times; walk time</label>
     <label class="opt"><input type="radio" name="choro" value="gap">
@@ -68,22 +58,19 @@
       <div class="flabel"><label for="f-weight">Equity weight</label>
         <output id="o-weight"></output></div>
       <input type="range" id="f-weight" min="0" max="1" step="0.05" value="0">
-      <p class="sub" style="margin:5px 0 0">0 counts residents equally. Turning
-        it up weights car-free and lower-income households more heavily — which
-        <em>lowers</em> agreement with the corridors agencies have proposed,
-        measured, so the default is 0.</p>
+      <p class="sub" style="margin:5px 0 0">At 0, every resident counts
+        equally. Raising it gives more weight to car-free and lower-income
+        households. The default is 0 because, when tested, weighting lowered
+        agreement with the rail corridors agencies have proposed.</p>
     </div>
     <label class="opt"><input type="radio" name="choro" value="clump">
       Under-served blocks</label>
     <div class="field" id="clumpnote" hidden>
-      <p class="sub" style="margin:5px 0 0">The same tracts as the score
-        above, grouped into contiguous blocks and shaded by how many people
-        the whole block holds. A rail line serves a strip of neighborhoods,
-        so a block is the unit a project could act on — and a lone tract
-        ringed by well-served ones is a bus-stop problem, a park, or a
-        measurement artifact. Blocks stop at water: these polygons exclude
-        it, so nothing touches across the East River and no bridge counts as
-        a walk.</p>
+      <p class="sub" style="margin:5px 0 0">Tracts past the 10-minute
+        standard, grouped into contiguous blocks and shaded by each block's
+        total population. A rail line serves a strip of neighborhoods, so a
+        block is closer to what a project could serve than a single tract.
+        Blocks stop at water.</p>
     </div>
     <label class="opt"><input type="radio" name="choro" value="density">
       Population density</label>
@@ -100,16 +87,15 @@
     <div class="field" id="hubpick" hidden>
       <div class="flabel"><label for="f-hub">Which center</label></div>
       <select id="f-hub"></select>
-      <p class="sub" style="margin:5px 0 0">One center per borough, then the
-        stations adding the most jobs no other center reaches. Picked from
-        where the jobs are, not from ridership — which is circular, because
-        the busiest stations are the radial ones.</p>
+      <p class="sub" style="margin:5px 0 0">One center per borough, plus the
+        stations that add the most jobs no other center covers. Chosen by
+        where jobs are, not by ridership.</p>
     </div>
     <label class="opt"><input type="radio" name="choro" value="none">
       None</label>
 
     <hr class="rule">
-    <p class="grouplabel">Overlays</p>
+    <p class="grouplabel">Show on map</p>
     <label class="opt"><input type="checkbox" id="t-surface">
       Continuous walk-time surface</label>
     <label class="opt"><input type="checkbox" id="t-sheds" checked>
@@ -121,7 +107,7 @@
 
     <hr class="rule">
     <details id="settings">
-      <summary>Display floors</summary>
+      <summary>Filters</summary>
       <div class="field">
         <div class="flabel"><label for="f-dens">Minimum density</label>
           <output id="o-dens"></output></div>
@@ -134,13 +120,11 @@
       </div>
       <label class="opt"><input type="checkbox" id="t-served">
         Fade areas meeting the standard</label>
-      <p class="sub" style="margin:5px 0 0">Leaves only the tracts further than
-        the 10-minute standard from a train &mdash; the same set the score and
-        the blocks layer are built on &mdash; so the finding is not competing
-        with two thirds of the city for attention.</p>
-      <p class="sub" style="margin-top:9px">Tracts under a floor fade out rather
-        than disappearing &mdash; they stay in the tooltip and in every number
-        on this page.</p>
+      <p class="sub" style="margin:5px 0 0">Leaves only the tracts more than
+        10 minutes' walk from a train, the same set the score and the blocks
+        layer use.</p>
+      <p class="sub" style="margin-top:9px">Filtered tracts fade rather than
+        disappear, and still count in every figure.</p>
       <p class="sub" id="showing" style="margin-top:9px"></p>
     </details>
 
@@ -154,18 +138,16 @@
   <section class="panel" id="legend">
     <p class="grouplabel">Legend</p>
     <div id="legendbody"></div>
-    <p class="sub" style="margin-top:9px"><strong>Darker always means worse
-      served</strong> &mdash; and it means that in both light and dark mode.
-      Every ramp here is one palette, stepped to stay legible on either
-      background, so switching theme changes the page and not the reading.</p>
+    <p class="sub" id="darkernote" style="margin-top:9px">Darker means
+      worse served, in both light and dark mode.</p>
   </section>
 </div>
 
 <div id="tablewrap" tabindex="-1" role="region" aria-label="Data tables">
   <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; max-width:940px">
     <div>
-      <h2>Walking access to a train station</h2>
-      <p class="sub">The same numbers behind the map, as a table.
+      <h2>Most under-served tracts</h2>
+      <p class="sub">The tracts the map ranks worst, as a table.
         Press <kbd>Esc</kbd> to close.</p>
     </div>
     <button class="ghost" id="closetable">Close</button>

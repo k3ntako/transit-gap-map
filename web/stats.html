@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stats &mdash; NYC Transit Access</title>
+<meta name="description" content="Facts and figures on walking access to New York's train network: walk times, waits, boroughs, and the areas farthest from a station.">
+<link rel="stylesheet" href="style.css">
+
+<!-- Like about.html, this page reads stats.json alone: no MapLibre and none
+     of the map's GeoJSON. -->
+</head>
+<body class="doc">
+
+<main>
+  <nav class="docnav">
+    <div class="pages">
+      <a data-page="index.html" href="index.html">Map</a>
+      <a data-page="stats.html" href="stats.html" aria-current="page">Stats</a>
+      <a data-page="about.html" href="about.html">Methodology</a>
+    </div>
+    <button class="ghost" id="themebtn">Dark mode</button>
+  </nav>
+
+  <h1>Stats</h1>
+  <p class="lede" id="s-lede">Facts and figures from the map's latest
+    build.</p>
+
+  <section id="facts">
+    <div id="s-facts" class="facts"></div>
+  </section>
+
+  <section id="boroughs">
+    <h2>By borough</h2>
+    <p class="sub">Share of residents within a 10-minute walk of a train.</p>
+    <div id="s-bars"></div>
+    <div id="s-boro"></div>
+  </section>
+
+  <section id="numbers">
+    <h2>All figures</h2>
+    <p class="sub">Population-weighted unless noted. How each one is
+      measured is on the
+      <a data-page="about.html" href="about.html">methodology page</a>.</p>
+    <div id="s-groups" class="statgroups"></div>
+  </section>
+
+  <section id="sources">
+    <h2>Sources</h2>
+    <p class="srcline" id="s-src"></p>
+    <p class="srcline">Built <span id="s-built"></span>.
+      <span id="s-license"></span></p>
+  </section>
+
+  <p class="more"><a data-page="index.html" href="index.html">&larr; Back to
+    the map</a></p>
+</main>
+
+<script type="module" src="stats-page.js"></script>
+</body>
+</html>

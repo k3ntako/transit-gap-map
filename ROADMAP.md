@@ -105,6 +105,13 @@ only `web/`. None of it depends on a phase below.
   so the case for collapsing rests on the legend and the controls, which are
   the two a reader actually keeps using.
 
+  **Taken further 2026-10-12:** the card now carries no figures at all. The
+  hero number, the four rows and the validity line moved to a third page,
+  `stats.html`, which leads with plain-language facts and holds the full
+  figure list and borough table that were on `about.html`; the method page
+  is now only the method. The card is a description of the map and two
+  links.
+
 ## Draw the network, not just the stations
 
 Both items here come from feeds already fetched and parsed, but neither is a
@@ -208,7 +215,8 @@ question is already answered and the real question is the build.
   development than in production.
 - **AGPL section 13 is already satisfied, by construction.** A deployed
   instance must offer its source; `config.SOURCE_URL` reaches the browser
-  through `stats.json` and both the title card and the method page render it.
+  through `stats.json` and the title card, the stats page and the method
+  page all render it.
   Confirm it points at the
   public repository before the first deploy, because that link becoming wrong
   is the one way hosting creates a license problem.

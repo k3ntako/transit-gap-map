@@ -78,10 +78,6 @@ h1 {
 }
 .sub { font-size: 11.5px; color: var(--ink-2); margin: 0; line-height: 1.45; }
 
-.hero { margin: 12px 0 2px; display: flex; align-items: baseline; gap: 7px; }
-.hero .n { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; line-height: 1; }
-.hero .u { font-size: 11.5px; color: var(--ink-2); line-height: 1.3; }
-
 .statrow {
   display: flex; justify-content: space-between; gap: 10px;
   font-size: 11.5px; padding: 3px 0;
@@ -196,20 +192,19 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   background: var(--plane); font-size: 13px; color: var(--ink-2);
 }
 
-/* --- the link out of the title card -------------------------------------- */
-/* The card is a summary now, and the thing that makes a summary honest is a
-   visible route to the long version. It gets accent color and its own rule
-   rather than being folded into .sub, where it read as another caveat. */
+/* --- the links out of the title card ------------------------------------- */
+/* The card carries no figures, so the routes to them are the most important
+   thing in it after the description: accent color, on their own line. */
+.cardnav { display: flex; gap: 16px; margin: 11px 0 0; font-size: 12.5px; font-weight: 550; }
+.cardnav a, .more a, #tablewrap a { color: var(--accent); text-decoration: none; }
+.cardnav a:hover, .more a:hover, #tablewrap a:hover { text-decoration: underline; }
+.cardbtns { display: flex; gap: 7px; margin-top: 11px; }
 .more { font-size: 11.5px; margin: 9px 0 0; line-height: 1.45; }
-.more a { color: var(--accent); text-decoration: none; }
-.more a:hover { text-decoration: underline; }
-#validity a { color: var(--accent); text-decoration: none; }
-#validity a:hover { text-decoration: underline; }
 
-/* --- the method page ------------------------------------------------------ */
-/* about.html shares this stylesheet, so it shares every token and both
-   themes. It is a document rather than a map: the body scrolls, and the
-   measure is capped near 70 characters because the page is mostly prose. */
+/* --- the document pages --------------------------------------------------- */
+/* stats.html and about.html share this stylesheet, so they share every token
+   and both themes. They are documents rather than maps: the body scrolls, and
+   the measure is capped near 70 characters because they are mostly prose. */
 body.doc { height: auto; overflow-y: auto; background: var(--plane); }
 body.doc main {
   max-width: 44rem; margin: 0 auto; padding: 28px 22px 72px;
@@ -219,8 +214,10 @@ body.doc main {
   display: flex; justify-content: space-between; align-items: center;
   gap: 16px; margin-bottom: 26px;
 }
-.docnav a { color: var(--accent); text-decoration: none; font-size: 12.5px; }
+.docnav .pages { display: flex; gap: 18px; flex-wrap: wrap; }
+.docnav a { color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 550; }
 .docnav a:hover { text-decoration: underline; }
+.docnav a[aria-current="page"] { color: var(--ink); }
 body.doc h1 { font-size: 25px; line-height: 1.2; margin: 0 0 10px; }
 body.doc .lede { font-size: 15px; color: var(--ink-2); margin: 0 0 8px; }
 body.doc section { margin-top: 38px; }
@@ -249,6 +246,40 @@ body.doc a { color: var(--accent); }
 .statgroup { background: var(--surface); border: 1px solid var(--border);
   border-radius: 10px; padding: 12px 14px; }
 .statgroup .statrow { font-size: 12.5px; }
+
+/* --- the stats page's facts ----------------------------------------------- */
+/* Stat tiles: the value is the largest thing on the card, in the same sans
+   as everything else and with proportional figures, because tabular ones look
+   loose at this size. The label finishes the value's sentence, and the body
+   says what it counts. */
+.facts {
+  display: grid; gap: 14px; margin: 18px 0 0;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+}
+.fact {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px;
+}
+body.doc .fact p { margin: 0; }
+.fact .fv { font-size: 28px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.1; }
+.fact .fl { font-size: 13.5px; font-weight: 550; line-height: 1.35; margin-top: 6px !important; }
+.fact .fb { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; margin-top: 8px !important; }
+
+/* One series, so one hue and no legend; each bar is labeled with its own
+   value, so the color carries nothing the text does not. 4px rounded at the
+   data end only, anchored square at the baseline. */
+.bars { margin: 14px 0 4px; display: grid; gap: 7px; }
+.bar {
+  display: grid; grid-template-columns: 7.5rem 1fr 3rem; align-items: center;
+  gap: 10px; font-size: 13px;
+}
+.bar .k { color: var(--ink-2); }
+.bar .v { text-align: right; font-variant-numeric: tabular-nums; font-weight: 550; }
+.bar .track { height: 14px; background: var(--grid); border-radius: 0 4px 4px 0; }
+.bar .track i {
+  display: block; height: 100%; background: var(--accent);
+  border-radius: 0 4px 4px 0;
+}
 
 /* --- phone ---------------------------------------------------------------- */
 @media (max-width: 760px) {

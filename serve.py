@@ -48,7 +48,7 @@ def main() -> None:
     handler = partial(NoStoreHandler, directory=str(C.WEB))
     with ThreadingHTTPServer(("", port), handler) as httpd:
         print(f"http://localhost:{port}/   (serving {C.WEB}, no-store)")
-        print("The method page is at /about.html")
+        print("Also /stats.html (figures) and /about.html (methodology)")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

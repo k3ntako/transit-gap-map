@@ -229,9 +229,11 @@ chroma on the finding. `audit()` enforces perceptual-separation `GATES` grouped
 by the reader's task (populated cells held to ΔE 15, the sparse row to 8); it
 raises rather than warns. Load the **dataviz skill** before touching any of this.
 
-**The web map is static and dumb on purpose.** `web/` is two pages and three
-scripts — `index.html` + `app.js` (the map), `about.html` + `about.js` (the
-method page), `stats.js` (what they share) and `style.css` — reading the
+**The web map is static and dumb on purpose.** `web/` is three pages —
+`index.html` + `app.js` (the map), `stats.html` + `stats-page.js` (the
+figures and fun facts), `about.html` + `about.js` (the methodology) — plus
+`stats.js` (every figure and sentence built from `stats.json`), `doc.js`
+(theme and links for the two document pages) and `style.css`, reading the
 payloads in `web/data/`
 (`tracts`, `stations`, `bus_ftn` and `walksheds` GeoJSON, `stats.json`,
 `palette.json`, `hubs.json`, `walk_surface.json` and `walk_surface.png`, which
@@ -254,31 +256,37 @@ budgets stay measured rather than observed.
 Anything a user might want to re-weight should recompute in the browser from
 per-tract fields rather than round-tripping through the pipeline.
 
-**The title card is a summary and `about.html` is the long version, and
-`stats.js` exists so the two cannot disagree.** Split 2026-10-11. The card had
-reached fifteen stat rows, the straight-line benchmark, the commuter-rail fare
-note and the external-validity paragraph — each earned individually, which is
-the shape of a problem editing cannot fix. It now carries the hero number,
-**four** rows, and one sentence of validity, because a validation number
-nobody sees validates nothing and that objection applies equally to a page the
-reader must click through to.
+**The map page carries no figures; `stats.html` has them and `about.html`
+says how they were made.** The title card went from fifteen stat rows to a
+hero number and four rows on 2026-10-11, and on 2026-10-12 to none: it is a
+description of the map and links to the other two pages. The external-validity
+sentence went with it, and is now a fact on the stats page rather than a line
+beside the map. **Copy is plain on purpose** — headings name the section
+("Limitations", "Commuter rail fares"), links name the page ("Stats",
+"Methodology"), and a fact's sentence says what the figure counts rather than
+teasing it. Asked for on 2026-10-12, after links like "every
+number, and what it leaves out" read as clickbait.
 
 Three rules hold the split together. **No figure is ever a literal in prose**:
-every sentence on either page interpolates from `stats.json`, so a rebuild
-cannot leave the words contradicting the map — this is the whole reason the
-shared module takes `stats` as an argument and reads no DOM and holds no
-state. **The method page loads `stats.json` alone** (46 KB), not the 2 MB of
-GeoJSON and not MapLibre, so wanting to know how a number was computed does
-not cost a map. And **the live table stays with the map**: `renderTable()`
+every sentence on every page interpolates from `stats.json`, so a rebuild
+cannot leave the words contradicting the map — this is the whole reason
+`stats.js` takes `stats` as an argument and reads no DOM and holds no state.
+`facts()` there returns the stats page's cards as data, each guarded so a
+build without that section drops the card rather than printing a dash. **The
+document pages load `stats.json` alone** (46 KB), not the 2 MB of GeoJSON and
+not MapLibre. And **the live table stays with the map**: `renderTable()`
 ranks the worst tracts by the function the map is painting with at the
-current slider weight, which a static page cannot do, while the borough,
-block and corridor tables moved to `about.html` and are not duplicated.
+current slider weight, which a static page cannot do, while the borough table
+is on `stats.html` and the block and corridor tables on `about.html`.
 
-The theme travels between them in the **query string** (`about.html?t=dark`),
-not the hash, which leaves the hash free to be a section anchor — the card's
-validity line links straight to `about.html#agreement`. `about.js` scrolls to
-that anchor itself after its fetch resolves, because the section does not
-exist when the browser's own anchor handling runs.
+The theme travels between pages in the URL: the **query string** on the
+document pages (`stats.html?t=dark`), which leaves their hash free to be a
+section anchor, and the hash on the map, which is where its permalink lives.
+Every cross-page link carries `data-page`, and both `app.js:syncPageLinks()`
+and `doc.js` rewrite all of them in one pass, so a new link needs only the
+attribute. `doc.js:scrollToHash()` handles an anchor after the fetch
+resolves, because the section does not exist when the browser's own anchor
+handling runs.
 
 **`map.addSource` serializes the GeoJSON object, so a property written after it
 never exists.** `rankTracts()` writes the derived fields the paint expressions

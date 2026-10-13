@@ -1,11 +1,10 @@
-// Everything the title card and the method page both say about the numbers.
+// Everything the stats page and the method page say about the numbers.
 //
-// It exists because the two pages have to agree. The card is a four-row
-// summary and `about.html` is the long version of the same figures, and the
-// way that goes wrong is one of them keeping a stale sentence after a rebuild
-// moves a number. So nothing here reads the DOM or holds state: each function
-// takes the parsed `stats.json` and returns a string or rows, and both pages
-// render what it gives them.
+// It exists because the pages have to agree with each other and with the map,
+// and the way that goes wrong is one of them keeping a stale sentence after a
+// rebuild moves a number. So nothing here reads the DOM or holds state: each
+// function takes the parsed `stats.json` and returns a string or rows, and the
+// pages render what it gives them.
 //
 // Numbers are never written as literals in the prose. If a sentence needs a
 // figure, it interpolates it from `stats`, so a rebuild cannot leave the words
@@ -20,26 +19,146 @@ export const esc = (s) => String(s ?? "").replace(/[&<>"]/g,
 
 export const floorMin = (stats) => stats.score?.floor_minutes ?? 10;
 
-// --- the title card's four rows ---------------------------------------------
+// --- the stats page's facts -------------------------------------------------
 
-// The card used to carry fifteen rows and three paragraphs. These four are
-// the ones that are the finding rather than a detail: the headline share, the
-// same share once a train has to turn up (which is the thing the headline
-// leaves out, and it is 18 points), the people the score is about, and the
-// corridor-scale version no per-tract ranking can produce.
-export function cardRows(stats) {
+const listOf = (xs) => xs.length < 2 ? xs.join("")
+  : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
+
+// One figure and one or two plain sentences each. The figure leads and the
+// sentence says what it counts; neither teases the other, because a fact that
+// needs a click to make sense is a headline, not a fact. Every one is guarded,
+// so a build that predates a section drops the card rather than printing a
+// dash in a sentence.
+export function facts(stats) {
+  const f = [];
   const w = stats.pct_within_min;
   const a = stats.pct_within_min_access;
+  const fl = fmt(floorMin(stats), 0);
+
+  if (w) f.push({
+    value: `${fmt(w["10"], 0)}%`,
+    label: `live within a ${fl}-minute walk of a train`,
+    body: `That counts the subway, the Staten Island Railway, the LIRR and
+      Metro-North. ${fmt(w["5"], 0)}% are within 5 minutes and
+      ${fmt(w["15"], 0)}% within 15.`,
+  });
+
+  if (a) f.push({
+    value: `${fmt(a["10"], 0)}%`,
+    label: `are within ${fl} minutes counting the wait`,
+    body: `Walk time plus the expected wait for a train. The average wait is
+      ${fmt(stats.mean_wait_min, 1)} minutes.`,
+  });
+
+  if (stats.median_walk_min != null && stats.by_borough?.length) {
+    const slow = stats.by_borough.slice()
+      .sort((x, y) => y.mean_walk_min - x.mean_walk_min).slice(0, 2)
+      .map((r) => esc(r.boroname));
+    f.push({
+      value: `${fmt(stats.median_walk_min, 1)} min`,
+      label: "is the median walk to the nearest station",
+      body: `The mean is ${fmt(stats.mean_walk_min, 1)} minutes, pulled up by
+        long walks. ${slow.join(" and ")} have the longest averages.`,
+    });
+  }
+
+  if (stats.half_mile_detour_penalty != null) f.push({
+    value: `${fmt(stats.half_mile_detour_penalty, 0)} points`,
+    label: "is how much straight-line distance overstates access",
+    body: `A half-mile circle around each subway station covers
+      ${fmt(stats.pct_within_half_mile_subway_straight, 0)}% of New Yorkers.
+      Walking the actual streets, ${fmt(stats.pct_within_half_mile_subway_only,
+        0)}% are within a half mile.`,
+  });
+
+  const far = stats.transit_deserts?.[0];
+  if (far) f.push({
+    value: `${fmt(far.walk_min, 1)} min`,
+    label: "is the longest walk in a high-density tract",
+    body: `A tract in ${esc(far.ntaname)}, ${esc(far.boroname)}, with
+      ${fmt(far.pop)} residents at ${fmt(far.density_km2)} people per km².
+      Among the densest third of tracts, none is farther from a train.`,
+  });
+
+  const big = stats.clusters?.largest?.[0];
+  if (big) f.push({
+    value: `${fmt(big.pop / 1e6, 2)}M`,
+    label: `people live in one continuous area past the ${fl}-minute mark`,
+    body: `${fmt(big.n_tracts)} adjoining census tracts, including
+      ${listOf(big.where.map(esc))}.`,
+  });
+
   const sc = stats.score;
-  const cl = stats.clusters;
-  const rows = [[`Within a ${fmt(floorMin(stats), 0)}-min walk`,
-                 `${fmt(w["10"], 0)}%`]];
-  if (a) rows.push(["… counting the wait", `${fmt(a["10"], 0)}%`]);
-  if (sc) rows.push(["People past the standard",
-                     `${fmt(sc.population_beyond_standard / 1e6, 2)}M`]);
-  if (cl?.largest?.length) rows.push(["In one contiguous block",
-    `${fmt(cl.largest[0].pop / 1e6, 2)}M`]);
-  return rows;
+  if (sc) {
+    // Minutes to years, for scale. One trip each, which is how the score
+    // itself is defined, so the sentence says so rather than implying a day.
+    const years = sc.total_excess_person_minutes / 60 / 24 / 365;
+    f.push({
+      value: `${fmt(sc.total_excess_person_minutes / 1e6, 1)}M`,
+      label: `extra minutes of walking past the ${fl}-minute mark`,
+      body: `Added up across the ${fmt(sc.population_beyond_standard / 1e6,
+        2)}M people who live past it, for one trip each. That is about
+        ${fmt(years, 0)} years.`,
+    });
+  }
+
+  const r = stats.commuter_rail_dependence;
+  if (r) f.push({
+    value: `${fmt(r.population / 1000, 0)}k`,
+    label: "New Yorkers' nearest train is the LIRR or Metro-North",
+    body: `${fmt(r.pct_of_population, 1)}% of the city. Both charge a separate
+      fare, and the nearest subway station is a median
+      ${fmt(r.median_penalty_min, 0)} minutes farther on foot.`,
+  });
+
+  const b = stats.bus_ftn;
+  if (b) f.push({
+    value: fmt(b.n_ftn),
+    label: `of ${fmt(b.n_stops)} bus stops have frequent service all day`,
+    body: `A single route every ${fmt(b.max_headway_min, 0)} minutes or
+      better at the morning peak, midday and evening. Counting the morning
+      peak alone, ${fmt(b.n_ftn_peak_only)} would qualify.`,
+  });
+
+  const ac = stats.accessibility;
+  if (ac?.weighted_jobs_time != null) f.push({
+    value: `${fmt(ac.weighted_jobs_time, 0)} min`,
+    label: `to reach ${fmt(100 * ac.threshold_share, 0)}% of the city's jobs`,
+    body: `On foot and by train, for the average New Yorker. For the slowest
+      tenth of tracts it takes ${fmt(ac.p90_jobs_time, 0)} minutes.`,
+  });
+
+  const al = stats.alignment;
+  const pc = al?.precision?.[al.shipped]?.["25"];
+  if (pc != null) f.push({
+    value: `${fmt(100 * pc, 0)}%`,
+    label: "of the 25 most under-served tracts lie in a proposed rail corridor",
+    body: `Corridors proposed by the MTA and partners, against the map's
+      under-service score. A score with no predictive value would hit
+      ${fmt(100 * al.baseline, 0)}%.`,
+  });
+
+  return f;
+}
+
+// The borough comparison as bars, for the stats page: one series, so one
+// hue and no legend, and every bar labeled with its value, so the color
+// carries nothing the text does not. Sorted rather than alphabetical, because
+// the comparison is the point. The table on the same page is the exact view.
+export function boroughBars(stats) {
+  const rows = (stats.by_borough ?? []).slice()
+    .sort((x, y) => y.pct_within_10 - x.pct_within_10);
+  if (!rows.length) return "";
+  return `<div class="bars" role="list">${rows.map((r) => {
+    const v = fmt(r.pct_within_10, 0);
+    return `<div class="bar" role="listitem"
+      title="${esc(r.boroname)}: ${v}% within 10 min, mean walk ${
+        fmt(r.mean_walk_min, 1)} min">
+      <span class="k">${esc(r.boroname)}</span>
+      <span class="track"><i style="width:${
+        Math.max(0, Math.min(100, r.pct_within_10))}%"></i></span>
+      <span class="v">${v}%</span></div>`;
+  }).join("")}</div>`;
 }
 
 // --- the method page's full list --------------------------------------------
@@ -66,7 +185,7 @@ export function statGroups(stats) {
   g.push({ title: "Walking to a train", rows: walk });
 
   if (a) g.push({
-    title: "Once a train has to turn up",
+    title: "Walk plus wait",
     rows: [
       ["Within 5 min", `${fmt(a["5"], 0)}%`],
       ["Within 10 min", `${fmt(a["10"], 0)}%`],
@@ -86,12 +205,12 @@ export function statGroups(stats) {
       [`Minutes to ${fmt(100 * ac.threshold_share, 0)}% of the jobs`,
        `${fmt(ac.weighted_jobs_time, 0)} min`],
       ["… slowest tenth of tracts", `${fmt(ac.p90_jobs_time, 0)} min`],
-      ["… tracts needing longer than the budget",
+      [`… tracts needing over ${fmt(ac.budget_min, 0)} min`,
        `${fmt(ac.n_past_budget)} of ${fmt(stats.n_geographies)}`],
-      ["… tracts rail never gets there from",
+      ["… tracts that never get there",
        `${fmt(ac.n_no_threshold)}`],
     );
-    g.push({ title: "Where the trains actually go", rows });
+    g.push({ title: "Reaching jobs", rows });
   }
 
   if (sc) {
@@ -107,7 +226,7 @@ export function statGroups(stats) {
       ["… tracts in them", `${fmt(cl.n_tracts_beyond)}`],
       ["… that are a single tract", `${fmt(cl.n_single_tract_clusters)}`],
     );
-    g.push({ title: "The under-service finding", rows });
+    g.push({ title: "Under-service", rows });
   }
 
   return g;
@@ -142,19 +261,6 @@ export function railHtml(stats) {
     each way.`;
 }
 
-// One sentence, for the card. External validity is the most
-// credibility-building thing on the page and a number in a terminal validates
-// nothing, so a figure stays visible beside the map even though the argument
-// moved to its own page.
-export function validityLine(stats) {
-  const al = stats.alignment;
-  if (!al) return "";
-  const pc = al.precision[al.shipped];
-  return `<strong>${fmt(100 * pc["25"], 0)}%</strong> of the 25
-    worst-scoring tracts sit inside a corridor the MTA and partners have
-    actually proposed, against a ${fmt(100 * al.baseline, 0)}% baseline.`;
-}
-
 // The full argument, for the method page.
 export function validityHtml(stats) {
   const al = stats.alignment;
@@ -184,18 +290,16 @@ export function validityHtml(stats) {
     (${fmt(100 * (al.clump_rule?.floor ?? 0), 0)}%), derived rather than set
     near where the score already sits — a floor chosen that way would quietly
     make agreement with the agencies a target.</p>`)
-    + `<p>And it is not a target. Official plans are not need: they are need
-    filtered through cost, politics, and whether an abandoned right-of-way
-    happens to be lying around. So a place with no plan is not a place with
-    no need, and this test never counts one against the score. It answers
-    &ldquo;is this score noise?&rdquo; and refuses to answer &ldquo;does it
-    agree with the MTA?&rdquo;</p>`
-    + (off.length === 0 ? "" : `<p><strong>The disagreement is the output
-    worth reading.</strong> ${fmt(off.length)} of the ${fmt(cl?.n_blocks)}
-    blocks sit almost entirely outside any proposal — ${fmt(offPop)} people
-    — and that pattern is consistent with the constraint above: the plans
-    cluster on existing rights-of-way, and northeastern Queens has
-    none.</p>`);
+    + `<p>Agreement is a check, not a goal. Official plans reflect need
+    filtered through cost, politics and the availability of an existing
+    right-of-way, so a place with no plan is not a place with no need, and
+    this test never counts one against the score. It tests whether the score
+    is better than noise, not whether it matches the MTA.</p>`
+    + (off.length === 0 ? "" : `<p><strong>Where they differ.</strong>
+    ${fmt(off.length)} of the ${fmt(cl?.n_blocks)} blocks sit almost entirely
+    outside any proposal, holding ${fmt(offPop)} people. That is consistent
+    with the constraint above: the plans cluster on existing rights-of-way,
+    and northeastern Queens has none.</p>`);
 }
 
 // --- tables -----------------------------------------------------------------

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>How this map was measured &mdash; NYC Transit Access</title>
-<meta name="description" content="Method, every published figure, and the known limits of a map of walking access to New York's train network.">
+<title>Methodology &mdash; NYC Transit Access</title>
+<meta name="description" content="How the walking-access map of New York's train network was built, and its known limits.">
 <link rel="stylesheet" href="style.css">
 
 <!-- No MapLibre, no GeoJSON: this page needs one 46 KB JSON file, so it is
@@ -16,16 +16,18 @@
 
 <main>
   <nav class="docnav">
-    <a id="backlink" href="index.html">&larr; Back to the map</a>
+    <div class="pages">
+      <a data-page="index.html" href="index.html">Map</a>
+      <a data-page="stats.html" href="stats.html">Stats</a>
+      <a data-page="about.html" href="about.html" aria-current="page">Methodology</a>
+    </div>
     <button class="ghost" id="themebtn">Dark mode</button>
   </nav>
 
-  <h1>How this map was measured</h1>
-  <p class="lede">Every figure on this page is read from the same
-    <code>stats.json</code> the map reads, written by the same pipeline run.
-    Nothing here is typed in by hand, so the prose cannot drift away from the
-    map &mdash; and where a number is uncomfortable, it is on this page
-    anyway.</p>
+  <h1>Methodology</h1>
+  <p class="lede">How the map was built and what it leaves out. Figures on
+    this page are read from the same build as the map; the full list is on
+    the <a data-page="stats.html" href="stats.html">stats page</a>.</p>
 
   <section id="measure">
     <h2>What is being measured</h2>
@@ -36,15 +38,6 @@
       Creek, rail cuts and expressways all stop a walk the way they stop a
       person &mdash; the single thing a straight-line buffer gets wrong.</p>
     <p id="m-bench"></p>
-  </section>
-
-  <section id="numbers">
-    <h2>Every number</h2>
-    <p class="sub">Population-weighted throughout, over
-      <span id="m-pop"></span> people in <span id="m-tracts"></span> census
-      tracts.</p>
-    <div id="m-groups" class="statgroups"></div>
-    <div id="m-boro"></div>
   </section>
 
   <section id="score">
@@ -73,13 +66,13 @@
   </section>
 
   <section id="agreement">
-    <h2>Does this agree with the agencies?</h2>
+    <h2>Comparison with proposed rail projects</h2>
     <div id="m-validity"></div>
     <div id="m-disagree"></div>
   </section>
 
   <section id="graph">
-    <h2>What is in the model, and what is not</h2>
+    <h2>What the transit model includes</h2>
     <p><strong>Buses are not in the score.</strong> That is an epistemic
       decision rather than a data one. Bus service is what the city provides
       <em>instead of</em> rail in precisely the places this map exists to
@@ -90,13 +83,14 @@
       rather than an exception to it: the rule is about substitution, not
       about vehicles, and the ferry substitutes for nothing. It is the only
       fixed-guideway trunk link across the harbor, on its own right of way at
-      a published headway, and no proposal replaces it. Leaving it out did not
-      produce a conservative number, it produced a false one.</p>
+      a published headway, and no proposal replaces it. Without it, the Staten
+      Island Railway would connect to nothing off the island, which overstates
+      the gap rather than erring on the safe side.</p>
     <p id="m-wait"></p>
   </section>
 
   <section id="cutoffs">
-    <h2>Why this measures time instead of counting what fits in 45 minutes</h2>
+    <h2>Job access, measured as time</h2>
     <p id="m-censor"></p>
     <p>The general version is worth more than the specific fix: a threshold on
       the axis you are measuring <em>along</em> truncates, while a threshold
@@ -110,7 +104,7 @@
   </section>
 
   <section id="rail">
-    <h2>Commuter rail, and the fare it charges</h2>
+    <h2>Commuter rail fares</h2>
     <p id="m-rail"></p>
     <p>Both framings are here because either one alone misleads. The citywide
       share hardly moves without the commuter railroads, since those tracts
@@ -119,7 +113,7 @@
   </section>
 
   <section id="limits">
-    <h2>What this cannot tell you</h2>
+    <h2>Limitations</h2>
     <ul>
       <li><strong>A rider who would take either the local or the express
         still waits for whichever they board.</strong> Resolving that needs
@@ -153,8 +147,8 @@
       Built <span id="m-built"></span>. <span id="m-license"></span></p>
   </section>
 
-  <p class="more"><a id="backlink2" href="index.html">&larr; Back to the
-    map</a></p>
+  <p class="more"><a data-page="index.html" href="index.html">&larr; Back to
+    the map</a></p>
 </main>
 
 <script type="module" src="about.js"></script>

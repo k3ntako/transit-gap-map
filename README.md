@@ -41,7 +41,7 @@ cp .env.example .env       # then paste a free Census key into it
 make all                   # fetch -> network -> service -> distance ->
                            #   transit -> access -> palette -> surface ->
                            #   build -> verify
-make serve                 # http://localhost:8000 (and /about.html)
+make serve                 # http://localhost:8000 (and /stats.html, /about.html)
 ```
 
 The Census API requires a key for every request now; it is free and instant at
@@ -98,13 +98,14 @@ edited page from its own disk cache. It does not compress, though, so the wire
 sizes quoted here are gzipped figures measured with `config.wire_kb()` rather
 than what this server sends.
 
-The site is two static pages. `web/index.html` is the map, and
-`web/about.html` is the method page — every published figure, the corridor
-test, and what the measure cannot tell you. Both render from the same
-`stats.json` through `web/stats.js`, so no number appears as a literal in
-either page's prose and a rebuild cannot leave the words disagreeing with the
-map. The method page loads that one 46 KB file and neither MapLibre nor the
-GeoJSON, which is the point of it being a page rather than a panel.
+The site is three static pages. `web/index.html` is the map,
+`web/stats.html` has the figures — a set of plain-language facts, the
+borough comparison and every published number — and `web/about.html` is the
+methodology: the corridor test and what the measure cannot tell you. All
+three render from the same `stats.json` through `web/stats.js`, so no number
+appears as a literal in any page's prose and a rebuild cannot leave the words
+disagreeing with the map. The stats and methodology pages load that one 46 KB
+file and neither MapLibre nor the GeoJSON.
 
 `config.py` holds every path, CRS, threshold and data-source URL.
 
@@ -401,7 +402,7 @@ someone else's inputs:
 
 ODbL matters for what the pipeline emits. The rendered map and the walk-time
 rasters are *Produced Works* — attribution suffices, and `stats.json` carries
-it into the title card. But `tracts.geojson` and `walksheds.geojson`, published
+it into the title card and onto the stats and methodology pages. But `tracts.geojson` and `walksheds.geojson`, published
 as files, are plausibly a *Derivative Database*, which carries ODbL's own
 share-alike. Per-tract aggregates sit some distance from the source geometry so
 the question is arguable; if you publish those files, label them ODbL and the
