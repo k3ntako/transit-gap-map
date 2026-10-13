@@ -117,7 +117,7 @@ downstream of the expensive parse.
 | 7 | `surface.py` | walk-time raster PNGs + `walksheds.geojson` |
 | 4b | `transit.py` | `rail_station_time.npz` + `transit_graph.parquet` — a rail + Staten Island Ferry transit graph, solved for every station pair |
 | 4c | `accessibility.py` | `tract_accessibility.parquet` + `tract_transit_time.npz` — jobs reachable, time to a tenth of them, hub times, detour factor |
-| 9 | `siting.py` | `siting.parquet` — one hypothetical station per lattice site, and what it would remove |
+| 9 | `siting.py` | `siting.parquet` + `crossings.parquet` — one hypothetical station per lattice site, then one hypothetical footbridge per barrier pair |
 | 8 | `build.py` | `tracts.geojson` (geometry), `tract_cols.json` (every column), `stations.geojson`, `bus_ftn.geojson`, `hubs.json`, `siting.geojson`, `stats.json` |
 | — | `verify.py` | nothing; checks stages 4 and 4b |
 
@@ -636,6 +636,33 @@ network as it is. The top sites converge with the alignment test's
 disagreement table from a completely different direction — College Point,
 Pomonok, Throgs Neck, the Staten Island north shore — which is the useful
 part, since those are the places the agencies' own plans do not cover.
+
+**The same stage answers "where would a footbridge help most", and it is
+deliberately a list and not a layer.** A barrier is two places close in a
+straight line and far apart on foot — which is what `verify.py`'s barrier
+probes are — so the candidates are lattice pairs within
+`C.CROSSING_MAX_SPAN_METERS` (500 m) whose walking route is at least 4x
+longer. Measured: 9,491 pairs are near in space, 601 are barriers, 134 of
+those change somebody's answer, and **98 of the 134 are not connected at all
+inside two kilometers of walking**. The top of the ranking is Pelham Bay
+Park, New Springville, Douglaston–Little Neck, Great Kills, Howard Beach.
+
+Two limits, and the second is why there is no map layer. The person-minute
+figure counts benefits only within `CROSSING_REACH_METERS` (1,620 m), so it
+is a floor — though the *people moved* count is exact at any reach past the
+standard's own 810 m, since a crossing cannot bring somebody inside the
+standard from further away than that. And this knows the **length** of a span
+and not what is underneath it: a 400 m footbridge over a rail cut and a 400 m
+crossing of a navigable channel differ by orders of magnitude, several of
+these cross water, and nothing in the OSM extract says reliably which is
+which. So the ranking is per meter of span, the page tells a reader to look
+before quoting one, and a dashed line drawn over an inlet would read as a
+proposal.
+
+Both halves share a `Scene` built once — the 25 m sample lattice, the
+baseline medians, the per-geography grouping, the candidate nodes — and the
+scoring loop is `_score_change`, which writes into one scratch array and
+undoes the writes rather than copying 1.25M floats per candidate.
 
 **Buses are in neither the transit graph nor the score, and that is an
 epistemic decision, not a data one.** Bus service is what the city provides

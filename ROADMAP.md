@@ -513,6 +513,15 @@ it comes due on whichever phase adds the next numeric field.
 
 ## Phase 5 — who lives there
 
+**Worked 2026-10-12. What shipped:** every variable in the table below, each
+with its margin of error; the carless-crossed-with-poverty signal, whose
+measured result is the opposite of what this section predicted (see
+`CLAUDE.md` and the commit); and a reliability flag from the Census Bureau's
+own coefficient of variation. **What did not, and is still below:** the
+curated destination anchors, park-and-ride capacity, and the block-group
+question, which is *Decisions still open* #3. Each carries a note saying
+why.
+
 All verified present in ACS 2023 5-year at tract level; the fetch stage already
 handles multi-variable Census calls.
 
@@ -532,9 +541,10 @@ Two cautions worth writing into the methodology:
   every new variable. Showing a tract as "worst in the city" when its income
   estimate is ±$18,000 is a mistake the map should refuse to make, by graying or
   flagging high-MOE tracts.
-- Switching to block groups (`GEO_LEVEL = "bg"`, ~6,500 vs ~2,325 — a one-line
-  config change already supported) improves spatial resolution exactly where it
-  is worst, since tracts are drawn to roughly equal *population* and so are
+- **Not settled, and it is a choice rather than work** — see *Decisions still
+  open* #3. Switching to block groups (`GEO_LEVEL = "bg"`, ~6,500 vs
+  ~2,325 — a one-line config change already supported) improves spatial
+  resolution exactly where it is worst, since tracts are drawn to roughly equal *population* and so are
   physically enormous in low-density areas. But it makes every ACS estimate
   noisier. The right answer may be geometry at block-group level and the social
   variables at tract level.
@@ -560,7 +570,15 @@ So carry it as a separate **attraction** field and let the score combine the two
   destination signal available: comprehensive,
   uncurated, and it captures the thing most visitor lists miss, which is that
   the largest destination in almost every tract is somebody's workplace.
-- **A curated anchor list** for what jobs data under-weights — museums (Met,
+- **A curated anchor list** — **not done, 2026-10-12, and the reason is the
+  rule this file already applies to dollar figures.** Every row needs a place,
+  a weight and a source, and the weight is supposed to be published
+  attendance. Attendance figures are real but they are *published numbers
+  that have to be opened and cited*, not recalled, and a hand-assigned
+  importance scale would be inventing the data this bullet exists to avoid
+  inventing. So it waits for someone with the sources in front of them. The
+  shape below is still right.
+- **What the list would be** for what jobs data under-weights — museums (Met,
   AMNH, MoMA, Brooklyn Museum), stadiums and arenas (Yankee Stadium, Citi Field,
   Barclays, MSG, Arthur Ashe), the big parks and beaches (Prospect, Flushing
   Meadows, the Botanic Gardens, Rockaway, Orchard Beach), major medical centers,
@@ -616,9 +634,19 @@ The one version of *parking* that would earn its keep: **park-and-ride capacity
 at outer stations**, which is a real access mechanism on Staten Island and at
 the eastern Queens and north Bronx commuter-rail stops, and a small enough set
 to compile by hand. That belongs as a column on the station table, not as a
-citywide layer.
+citywide layer. **Not done, 2026-10-12:** "compile by hand" is the whole of
+the work, and a hand-compiled count with no source per row is the same
+problem as the anchor list above.
 
 ## Phase 6 — access cost, done properly
+
+**Worked 2026-10-12. What shipped:** step-free access as a lens and a station
+table, entrance-level snapping, and the bike lens. **What did not:** slope,
+which needs a raster source nobody here has probed; a signalized-crossing
+delay, which needs an OSM coverage check first; the protected-only half of
+the bike question, which needs a method decision about matching DOT
+facilities onto OSM edges; and hyperpath routing, which is still the last
+item in the whole file. Each carries a note.
 
 - **Step-free access — a lens and a station ranking, explicitly not a term in
   the score.** **Half built, 2026-10-12.** The filtered Dijkstra ships:
@@ -716,9 +744,17 @@ citywide layer.
   being a source, so a station labeled closer to the network than its doors
   are loses that flattery. `C.USE_STATION_ENTRANCES` turns it off and
   reproduces every old figure.
-- **Slope.** Washington Heights, Staten Island's spine, Riverdale. A DEM plus a
-  slope-dependent walk speed (Tobler's hiking function is the standard) changes
-  real walk times in exactly the neighborhoods that already score badly.
+- **Slope. Not done, 2026-10-12**, and it is the only item in this phase
+  blocked on a source rather than on a decision: a DEM for New York is not in
+  the verified-sources table at the end of this file, so the first step is
+  probing one live the way every other source here was. Washington Heights,
+  Staten Island's spine, Riverdale. A DEM plus a slope-dependent walk speed
+  (Tobler's hiking function is the standard) changes real walk times in
+  exactly the neighborhoods that already score badly. Worth noting what
+  entrance snapping implies about the likely size: that change moved the
+  population-weighted mean walk by 0.69 minutes and split the largest
+  under-served block, so a systematic per-edge speed change is not
+  self-evidently smaller.
 - **Barrier and crossing cost.** Not done. The network already captures
   rivers and rail cuts correctly (mean barrier-probe detour 1.65× vs straight
   line). A signalized-crossing delay would add realism, but OSM crossing
@@ -752,7 +788,14 @@ Three things it would actually answer:
   50-minute tracts, because those are far by street network and not merely far
   on foot. If that is what it shows, it is a real result and an argument
   against the common claim that bike infrastructure substitutes for a line.
-- **Protected-only is the version that means anything.** A bike catchment
+- **Protected-only is the version that means anything — and it is the half
+  that did not ship, 2026-10-12.** The all-streets version is built and its
+  numbers are in `CLAUDE.md`; the protected version needs DOT's 29,695
+  facility segments matched onto OSM edges, and *how* to match them is a
+  method decision this file has not made. A nearest-edge spatial join will
+  mis-assign at every intersection and divided roadway; using OSM's own
+  `cycleway` tags instead means trusting a different and unevenly maintained
+  source. Pick one and say which on the page, or leave it. A bike catchment
   computed over every street is a fantasy catchment; computed over protected
   and off-street facilities only it is a measure of whether the city has built
   a usable approach to its own stations. Those are two very different maps from
@@ -809,6 +852,16 @@ built for its own reasons and this falls out.
 This is where an under-service map becomes a planning tool rather than a
 description, and the architecture makes it unusually cheap.
 
+**Worked 2026-10-12. What shipped:** the marginal-benefit surface (4,840
+hypothetical stations, ranked in the score's own unit), the new-crossing half
+of the choke-point section, and the cheap version of the inverse question —
+the low-density/short-walk cell of the matrix is named in the legend and any
+cell can be isolated. **What did not:** everything that needs a published
+station list or a published cost (proposed stations drawn, the project
+toggles, line simulation, the line-proposing search, the AI assistant), the
+link-removal half of the choke-point section, and zoning capacity, which
+needs MapPLUTO probed. Each carries a note.
+
 - **Marginal-benefit surface.** For each candidate site on a grid over the city,
   add one virtual station, re-run the multi-source Dijkstra (0.1 s), and record
   how many people move inside the 10-minute threshold. The result is a raster of
@@ -817,7 +870,13 @@ description, and the architecture makes it unusually cheap.
   Dijkstra already returns the *existing* nearest-station distance for every
   node, the marginal calculation is a comparison against a vector you already
   have — not a re-run from scratch.
-- **Show proposed stations on the map, before scoring them.** Raised
+- **Show proposed stations on the map, before scoring them. Not done,
+  2026-10-12, and the blocker is the one rule below that cannot be
+  automated:** every row needs a station location taken from a project's own
+  published document, with a source and a vintage. A coordinate guessed from
+  a press rendering is the author's opinion drawn as if it were the
+  agency's — which is exactly what the four rules here exist to prevent, so
+  the item waits for someone with the documents open. Raised
   2026-10-12. This is the display half of the toggles below, without the
   recompute: draw where each agency proposes to put stations, on top of the
   existing layers, so a reader can see whether a proposal lands in the gap
@@ -845,7 +904,15 @@ description, and the architecture makes it unusually cheap.
     stations are Metro-North stations, so once they are in the GTFS feed the
     pipeline picks them up as real stations; a proposed marker left on top
     would count them twice in the reader's eye.
-- **Proposed-project toggles.** The concrete near-term version of the above, and
+- **Proposed-project toggles. Not done,** for the reason above and one more:
+  the whole value is the before/after comparison, so these are only as
+  credible as the model underneath them, and *Suggested order* argues at
+  length against pulling them forward. Note what 2026-10-12 changed about
+  that argument — the model underneath is now materially better (doors
+  instead of station points) and the marginal-benefit surface gives a
+  neutral baseline to compare a named project against, so the "wait for the
+  model" half of the objection is weaker than it was. The "needs published
+  station lists" half is not. The concrete near-term version of the above, and
   the single most compelling thing on this list — it turns every finding into a
   question with an answer:
   - **Interborough Express** — Brooklyn to Queens along the existing Bay Ridge
@@ -875,7 +942,12 @@ description, and the architecture makes it unusually cheap.
   - **Report the delta as population *moved* inside 10 minutes**, broken out by
     borough and density class. "Serves 400,000 people" is meaningless without
     saying how many of them already had service.
-- **Propose the line, not just the station** (the long-term goal). The marginal
+- **Propose the line, not just the station** (the long-term goal). **Not
+  done, and the marginal surface that shipped is step 0 of the path below
+  rather than step 1:** it ranks points, and nothing in it clusters them into
+  corridors yet. The honest statement of what exists is a ranked list of
+  sites with near-duplicates suppressed; a corridor is the next thing and
+  needs the clustering in item 1. The marginal
   surface above ranks *points*; a line is a connected sequence of them, and
   getting from one to the other is the hard part. A tractable path:
   1. **Cluster, don't search.** The space of possible alignments is hopeless;
@@ -903,11 +975,17 @@ description, and the architecture makes it unusually cheap.
   produce something that looks authoritative and is not. The ordering is
   genuinely useful. Precision is not available here, and the methodology page
   should say so in as many words.
-- **Click to place a station.** The live version of the above. Needs the graph in
+- **Click to place a station. Not done, and now cheaper than it looks.** The
+  pre-computed surface shipped on 2026-10-12, so a reader can already see
+  the answer for 4,840 places without any interactivity, which was the
+  argument for doing it this way. The live version of the above. Needs the graph in
   the browser (too big) or a small local endpoint — so the pre-computed marginal
   surface is the better default, with the interactive version as a `make serve`
   extra rather than a feature of the static deployment.
-- **Simulate a line: how much would it help commutes?** Raised 2026-10-12.
+- **Simulate a line: how much would it help commutes? Not done,** and it
+  inherits the published-station-list blocker above: there is nothing to add
+  to the graph until a project's stations and headways are in hand with a
+  citation. Raised 2026-10-12.
   The toggles above only ask whether a line brings people within walking
   distance of a station. A line also makes trips *faster*, and the transit
   graph from Phase 4 can measure that. Add the proposed line to the graph as
@@ -931,8 +1009,8 @@ description, and the architecture makes it unusually cheap.
   them, and that choice is the political part of transit planning, not a
   measurement.
 - **Use AI to suggest lines and gather cost research — as an assistant,
-  never as the source of a number.** Raised 2026-10-12. A language model is
-  good at two jobs here. It can propose candidate alignments to test,
+  never as the source of a number. Not done.** Raised 2026-10-12. A language
+  model is good at two jobs here. It can propose candidate alignments to test,
   including ones a person might not think of. And it can find and summarize
   published cost studies and project documents. Both are only useful if the
   output goes through the same checks as everything else:
@@ -957,7 +1035,14 @@ Raised 2026-10-12. Two questions that share one method, and the method is
 the one the marginal-station surface uses: change the network, re-run the
 fast shortest-path pass, and count how many people's trips change.
 
-**Which existing links matter most?** Remove one link at a time and measure
+**Which existing links matter most? Not done, 2026-10-12** — the crossing
+half of this section shipped and this half did not, and the reason is that
+"one link at a time" needs a candidate list the graph does not hand over.
+There are 2.14M undirected edges, so the removal has to be restricted to the
+ones that could matter: graph-theoretic bridges, or the hand-identified
+river and rail crossings. Picking which is the open question, and
+`networkx.bridges` over 1.84M nodes is the cheap first probe nobody has run.
+Remove one link at a time and measure
 the damage. On the walking network that means a bridge or an underpass. On
 the transit graph it means a river tunnel or a key transfer. Report how many
 people get pushed past the 10-minute walk, and how much the job-access time
@@ -965,7 +1050,15 @@ rises. The 2019 plan to shut the L train's Canarsie tunnel is the real-world
 version of this question. This is also a resilience map: it shows where one
 closure strands the most people.
 
-**Where would a new crossing help most, for the least money?** Find places
+**Where would a new crossing help most, for the least money? Done
+2026-10-12** — `siting.py` carries it beside the station question, since
+both are "change the network and recount". 9,491 lattice pairs are within
+500 m of each other, 601 are at least 4x further on foot, and 134 of those
+change somebody's answer; 98 of the 134 have no walking route at all inside
+two kilometers. Ranked per meter of span, the top is Pelham Bay Park, New
+Springville, Douglaston–Little Neck, Great Kills, Howard Beach. The
+measurement and its two limits are in `CLAUDE.md`; the method was as
+described here, and the one thing it cannot do is below. Find places
 that are close in a straight line but far apart on foot. The walking graph
 already has the raw material for this: the barrier probes in `verify.py`
 (Newtown Creek, Hunts Point, Coney Island Creek) are exactly these places.
@@ -994,16 +1087,21 @@ could go next to transit that already exists. This is the dual of the siting
 question above, and it is the one item in this file that changes who the map is
 for: from "where is service missing" to "where could housing go".
 
-- **The cheap version already exists and is unlabeled.** Low density × short
-  walk is a corner of the bivariate matrix that is computed, painted and
-  nameless. Naming that cell in the legend and letting the class filter isolate
-  it costs nothing and would answer the question approximately today.
+- **The cheap version shipped 2026-10-12.** Low density × short walk was a
+  corner of the bivariate matrix that was computed, painted and nameless. It
+  now has a name in the legend — "few people, short walk: land near transit
+  the city has already built" — 83 populated areas are in it, and clicking
+  any cell isolates it, which is the per-class filter *Small things* asked
+  for. That answers the question approximately, which was the point.
 - **The honest version needs zoning, because the cheap one recommends
   upzoning cemeteries.** A tract can be low-density beside a subway because it
   is zoned for detached houses, or because it is an airport, a park, a
   cemetery, or an industrial M district. Without zoning the layer confidently
   points at Green-Wood and the Navy Yard.
-- **The metric to publish is unused zoned capacity, not low density.** DCP's
+- **The metric to publish is unused zoned capacity, not low density. Not
+  done, 2026-10-12:** MapPLUTO and NYZD are still unprobed, which makes this
+  the only item in this phase blocked on a source rather than on a judgment
+  call, and probing them is the first step rather than more design. DCP's
   MapPLUTO is lot-level and carries `ZoneDist1`–`4` and the maximum residential
   FAR, so `LotArea × ResidFAR − existing residential floor area`, summed to the
   tract and restricted to tracts within ten minutes' walk of a station, is
