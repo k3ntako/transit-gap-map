@@ -346,6 +346,72 @@ export function clusterTable(stats) {
     </table>`;
 }
 
+// Mode keys are the pipeline's, so the page needs its own spelling of them --
+// short in a table cell, and as it would be said in a sentence.
+const MODE_LABEL = {
+  subway: "Subway", sir: "SIR", lirr: "LIRR", mnr: "Metro-North",
+};
+const MODE_PHRASE = {
+  subway: "on the subway", sir: "on the Staten Island Railway",
+  lirr: "on the LIRR", mnr: "on Metro-North",
+};
+
+// The elevator-priority table, and the deflating finding that comes with it.
+//
+// Two different numbers live here and the page has to keep them apart: the
+// share of New Yorkers whose nearest station excludes them, and how much
+// further a step-free rider has to walk. The first is a count over nearest
+// stations; the second needs the whole map recomputed against the step-free
+// stations only. Quoting the first as the second overstates the cost, because
+// the real nearest step-free station may be a mile past the one you cannot
+// use.
+export function stepFreeTable(stats) {
+  const sf = stats.step_free;
+  if (!sf?.stations?.length) return "";
+  const rows = sf.stations.map((r) =>
+    `<tr><td>${esc(r.station)}</td><td>${esc(MODE_LABEL[r.mode] ?? r.mode)}</td>
+     <td class="num">${fmt(r.pop)}</td>
+     <td class="num">${fmt(r.n_geographies)}</td></tr>`).join("");
+  return `
+    <table>
+      <caption>Stations without a step-free route, ranked by the population
+        whose nearest station they are. <strong>${fmt(sf.top15_share, 0)}% of
+        the affected population</strong> sits behind the worst 15 of them, and
+        ${fmt(sf.n_stations_nearest_to_someone)} stations are somebody's
+        nearest — so there is no short list of elevators that fixes this, and
+        a &ldquo;top ten stations&rdquo; headline would say otherwise. Showing
+        ${fmt(sf.stations.length)} rows for that reason. Step-free
+        <em>by design</em> as of ${esc(sf.as_of ?? "")}: a route that was
+        built, not one working today.</caption>
+      <thead><tr><th>Station</th><th>Mode</th>
+        <th class="num">People</th><th class="num">Areas</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+export function stepFreeHtml(stats) {
+  const sf = stats.step_free;
+  if (!sf) return "";
+  const modes = Object.entries(sf.by_mode ?? {})
+    .map(([m, [ok, n]]) => `${ok} of ${n} ${MODE_PHRASE[m] ?? m}`)
+    .join(", ");
+  return `<strong>${fmt(sf.n_step_free)} of ${fmt(sf.n_stations)}</strong>
+    stations have a step-free route built (${esc(modes)}), and
+    <strong>${fmt(sf.pct_nearest_not_step_free, 0)}%</strong> of New Yorkers
+    &mdash; ${fmt(sf.pop_nearest_not_step_free)} people &mdash; have a nearest
+    station that is not one of them. That is not the same as how much further
+    they have to travel, which needs the map recomputed against the step-free
+    stations alone: the median area's walk goes from
+    ${fmt(sf.median_walk_min, 1)} to ${fmt(sf.median_step_free_min, 1)}
+    minutes, <strong>+${fmt(sf.median_penalty_min, 1)} minutes</strong> at the
+    median area. Past the ${fmt(floorMin(stats), 0)}-minute standard:
+    ${fmt(sf.pct_beyond_standard, 0)}% of the city's population, and
+    <strong>${fmt(sf.pct_beyond_standard_step_free, 0)}%</strong> if the
+    station has to be step-free. It is a lens on the map and not a term in the
+    score, because the score ranks places and its answer is new service, while
+    this ranks stations and its answer is an elevator.`;
+}
+
 // Every block the score ranks worst, with the share of it that falls inside a
 // proposed corridor. The low-overlap rows are the hypothesis this project has
 // to offer, so they are published rather than summarized away.

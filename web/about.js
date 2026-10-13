@@ -8,7 +8,7 @@
 
 import {
   fmt, esc, floorMin, benchHtml, railHtml, validityHtml, clusterTable,
-  disagreeTable, sourceHtml, licenseHtml,
+  disagreeTable, stepFreeHtml, stepFreeTable, sourceHtml, licenseHtml,
 } from "./stats.js";
 import { initDocPage, set, scrollToHash } from "./doc.js";
 
@@ -83,6 +83,8 @@ async function main() {
   set("#m-wait", waitHtml(stats));
   set("#m-censor", censorHtml(stats));
   set("#m-rail", railHtml(stats));
+  set("#m-stepfree", stepFreeHtml(stats));
+  set("#m-stepfree-table", stepFreeTable(stats));
   set("#m-src", sourceHtml(stats));
   set("#m-built", esc((stats.built_at || "").slice(0, 10)));
   set("#m-license", licenseHtml(stats));

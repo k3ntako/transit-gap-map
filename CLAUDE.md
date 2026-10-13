@@ -437,6 +437,37 @@ Fordham to Grand Central therefore reads 37 minutes against a real expected
 ~27. It biases toward *overstating* under-service on commuter rail, which is
 the direction this project has to be most suspicious of.
 
+**Step-free access is a lens and a station ranking, never a term in the
+score.** Added 2026-10-12. `distance.py` takes a `step_free` flag beside
+`subway_only` and `weighted` — the same multi-source Dijkstra over the 219 of
+557 stations with a step-free route built — and ships `sf` per geography. It
+is kept out of the score because the two answer different questions with
+different interventions: the score ranks *places* and its answer is new
+service, while this ranks *stations* and its answer is an elevator, so
+folding them together would argue for a rail line as the fix for a missing
+lift. It is also the one input here being actively *changed* while the map is
+built, so anything load-bearing on it decays.
+
+Three measurements and one wording trap. The median area's walk goes
+**8.4 → 14.4 minutes**, which is +2.8 at the median area — the median of the
+per-area differences, not the difference of the two medians, the same
+distinction `median_penalty_min` already draws for commuter rail. Past the
+10-minute standard: **35.8% of the population, 67.4%** if the station has to
+be step-free, which is the figure the layer exists to produce. And **"your
+nearest station excludes you" (59.9%, 5.1M people) is not "how much further
+you must travel"** — the first is a count over nearest stations, the second
+needs the filtered pass, because the real nearest step-free station may be a
+mile past the one a rider cannot use. Both ship, labeled apart.
+
+The station table is the other output, and its own finding is deflating:
+**249 stations without a step-free route are somebody's nearest, and the
+worst 15 hold only 17% of the affected population.** There is no short list
+of elevators that fixes this, so the table publishes 40 rows
+(`C.STEPFREE_TABLE_ROWS`) precisely so it cannot be read as one. Everything
+is labeled "step-free **by design** as of ⟨fetch date⟩", from the station
+table's mtime rather than from prose, because the flag means a route was
+built and MTA's live outages are not in this.
+
 **Buses are in neither the transit graph nor the score, and that is an
 epistemic decision, not a data one.** Bus service is what the city provides
 *instead of* rail in precisely the places this map exists to find, so letting
@@ -559,6 +590,29 @@ is the then-current 345 KB plus roughly five fields of measured headroom. The
 number to watch is not this one; it is **whether the next field arrives as a
 property or as an array**. A second raise without the refactor is the thing
 this note exists to make embarrassing.
+
+**The loan was repaid on 2026-10-12, and the split is now the rule rather
+than the plan.** `tracts.geojson` carries geometry and `geoid` and nothing
+else; every column ships as a parallel array in `tract_cols.json`, aligned to
+an explicit `geoids` list, and `app.js:attachCols()` joins them onto the
+features **before** `addSource` — the same mandatory ordering `attachHubs`
+has, enforced by the same freeze. Measured: 350 KB interleaved became 216 KB
+of geometry plus 76 KB of 28 columns, **292 KB for the pair**, and the
+step-free field that provoked the refactor cost **2 KB** where it would have
+cost about 5 as a property. So `BUDGET_TRACTS_WIRE_KB` now asserts against
+the **sum of both files**, because a column moving between them saves a
+reader nothing, and what the budget guards from here is geometry fidelity
+rather than field count — the headroom is roughly sixty columns.
+
+Two things fell out of proving the move changed no value, both worth keeping.
+Comparing the old properties against the sidecar per geoid found `det` had
+been shipping as `1.1900001` on 89 tracts: a float32 column rounded in
+float32, which `.round(2)` cannot fix, so every rounded column now casts to
+float64 first through one `rounded()` helper. And the sidecar is **not
+optional the way `hubs.json` is** — with no columns there is nothing to
+paint, no table to rank and no tooltip to show — so it is preloaded in
+`index.html`, required by `publish.sh`, and a partial join reports itself in
+the page instead of leaving the loading overlay up.
 
 **A new float field must join the rounding tuple in `build.py`**:
 unrounded float64 costs 15 KB gzipped instead of 5, and four such fields ate

@@ -456,6 +456,13 @@ DETOUR_MAX_KM = 15.0           # pairs further apart are not lateral trips
 # starts to dominate the wait.
 DETOUR_MIN_KM = 3.0
 
+# How many stations the elevator-priority table carries. Deliberately longer
+# than a top ten: measured, 252 stations are some geography's nearest and the
+# worst 15 account for only 17% of the affected population, so a short list
+# would read as "fix these and the problem is handled" when the finding is
+# that the distribution is flat.
+STEPFREE_TABLE_ROWS = 40
+
 BUDGET_HUBS_WIRE_KB = 60.0
 
 ATTRIBUTION = {

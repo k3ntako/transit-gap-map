@@ -130,7 +130,7 @@ const query = (layer, point) =>
 // ignored, which means a later control is one more key and there is no format
 // to version. `v` is zoom/lat/lon, the order OSM and Mapbox hashes use.
 const CHOROPLETHS = ["gap", "clump", "bivariate", "density", "walk", "access",
-                     "jobs", "jobtime", "hub", "none"];
+                     "jobs", "jobtime", "hub", "stepfree", "none"];
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 // Reads the hash into `state` and returns the camera it asked for, if any.
@@ -622,6 +622,13 @@ function fillColor() {
   // in, so it gets the same ramp.
   if (state.choropleth === "hub")
     return seqFill(hubKey(), seqRamp("walk"), false);
+  // Minutes to the nearest station with a step-free route built. Same unit
+  // and same direction as walk time, so deliberately the same ramp rather
+  // than a new one: a reader comparing this layer against "Walk time to
+  // station" is comparing two readings of one measure, and a second hue
+  // would suggest they are different quantities.
+  if (state.choropleth === "stepfree")
+    return seqFill("sf", seqRamp("walk"), false);
   const [key, ramp] = state.choropleth === "density"
     ? ["dc", densCls()] : ["wc", walkCls()];
   return ["match", ["get", key], 0, ramp[0], 1, ramp[1], 2, ramp[2], unpop()];
@@ -1130,6 +1137,11 @@ function wireHover() {
       // the one that still separates two badly served tracts.
       if (p.jt10 != null)
         html += row("To a tenth of the city's jobs", `${fmt(p.jt10, 0)} min`);
+      // Shown with the walk it is paid on top of, because the number alone
+      // reads as a walk time rather than as a penalty.
+      if (p.sf != null && p.walk != null)
+        html += row("To a step-free station",
+                    `${fmt(p.sf, 1)} min (+${fmt(Math.max(p.sf - p.walk, 0), 1)})`);
       else if (p.j45 != null)
         html += `<div class="tnote">Never reaches a tenth of the city's
                  jobs.</div>`;
@@ -1447,6 +1459,38 @@ function renderLegend() {
     return;
   }
 
+  if (state.choropleth === "stepfree") {
+    const sf = stats.step_free ?? {};
+    const ramp = seqRamp("walk");
+    const brk = seqBreaks("sf");
+    const k = (v) => `${fmt(v, 0)} min`;
+    const rows = ramp.slice(0, brk.length + 1).map((hex, i) => {
+      const lab = i === 0 ? `under ${k(brk[0])}`
+        : i === brk.length ? `over ${k(brk[i - 1])}`
+        : `${k(brk[i - 1])} – ${k(brk[i])}`;
+      return `<div class="ramprow"><i data-cls="${i}"
+              style="background:${hex}"></i>
+              <span class="lab">${lab}</span></div>`;
+    });
+    el.innerHTML = rows.join("")
+      + `<div class="ramprow"><i style="background:${unpop()}"></i>
+         <span class="lab">none reachable on foot</span></div>`
+      + `<div class="sub" style="margin-top:9px">Walking time to the nearest
+         of the <strong>${fmt(sf.n_step_free)} of ${fmt(sf.n_stations)}</strong>
+         stations with a step-free route, against
+         ${fmt(sf.median_walk_min, 1)} minutes to the nearest station of any
+         kind. ${fmt(sf.pct_beyond_standard, 0)}% of New Yorkers live more
+         than ${fmt(stats.score?.floor_minutes ?? 10, 0)} minutes from a
+         station; <strong>${fmt(sf.pct_beyond_standard_step_free, 0)}%</strong>
+         do if it has to be step-free.</div>`
+      + `<div class="sub" style="margin-top:6px">Step-free
+         <em>by design</em>, as of ${esc(sf.as_of ?? "")} — a route that was
+         built, not one working today. Elevators go out of service and that is
+         not in this map. Not part of the under-service score: a missing
+         elevator is answered by an elevator, not by a new rail line.</div>`;
+    return;
+  }
+
   const isDens = state.choropleth === "density";
   const isAcc = state.choropleth === "access";
   const ramp = isDens ? densCls() : walkCls();
@@ -1555,7 +1599,8 @@ function repaint() {
 // note explaining a layer the reader is not looking at is noise.
 function showLayerNotes() {
   $("#gapweight").hidden = state.choropleth !== "gap";
-  for (const [id, layer] of [["clumpnote", "clump"], ["binote", "bivariate"]]) {
+  for (const [id, layer] of [["clumpnote", "clump"], ["binote", "bivariate"],
+                             ["sfnote", "stepfree"]]) {
     const el = $(`#${id}`);
     if (el) el.hidden = state.choropleth !== layer;
   }

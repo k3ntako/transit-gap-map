@@ -113,6 +113,18 @@
       would walk far further each way.</p>
   </section>
 
+  <section id="stepfree">
+    <h2>Step-free access</h2>
+    <p id="m-stepfree"></p>
+    <div id="m-stepfree-table"></div>
+    <p>Two cautions on the data behind it. The flag records that a step-free
+      route was <em>built</em>, and elevators go out of service &mdash; MTA
+      publishes live outages, and a map rebuilt once cannot say
+      &ldquo;out until April&rdquo;. And some stations are step-free in one
+      direction only, which a single yes-or-no per station flatters; the
+      finer per-direction data is published and is not used here yet.</p>
+  </section>
+
   <section id="limits">
     <h2>Limitations</h2>
     <ul>
@@ -132,9 +144,11 @@
       <li><strong>Jobs are workplaces, not commutes.</strong> They come from
         LEHD workplace counts, which say where jobs are, not which of them a
         given resident could hold or at what hour.</li>
-      <li><strong>Stairs are not modeled.</strong> A station a wheelchair
-        user cannot enter counts the same here as one they can. Step-free
-        access is the next thing this needs.</li>
+      <li><strong>Stairs are a separate layer, not part of the score.</strong>
+        In the score a station a wheelchair user cannot enter counts the same
+        as one they can. The step-free layer above is the honest version of
+        that question, and the reason it is kept apart is that a missing
+        elevator is answered by an elevator rather than by a rail line.</li>
       <li><strong>Schedules, not service as it runs.</strong> Delays,
         crowding and gaps between the timetable and the day are outside this
         entirely, and so are PATH, NJ Transit, buses and bikes.</li>

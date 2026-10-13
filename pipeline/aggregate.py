@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import warnings
+from datetime import datetime, timezone
 
 import geopandas as gpd
 import numpy as np
@@ -305,6 +306,120 @@ def attach_served_station(df, nearest, serviceable):
     print(f"  access-cost station named for {int(ok.sum())}/{len(df)} "
           f"{C.GEO_LEVEL}s; {changed} differ from the nearest station")
     return df
+
+
+def stepfree_stats(df) -> dict:
+    """Two different findings about step-free access, kept apart on purpose.
+
+    The first is **whose nearest station excludes them** -- a count over
+    `near_station`, which is cheap and is the figure a reader understands.
+    The second is **how much further a step-free rider has to travel**, which
+    needs the filtered Dijkstra, because a rider's real nearest step-free
+    station may be a mile past the one they cannot use. Reporting the first as
+    if it were the second is the mistake this function is shaped to avoid.
+
+    It also builds the elevator-priority station table, which is the output
+    this data is actually good for -- and the table's own finding is
+    deflating: the distribution is flat, so there is no short list of
+    elevators that fixes this. A "top 10 stations" headline would be
+    misleading, and the honest claim is that the gap is broad.
+    """
+    st = pd.read_parquet(C.P_STATIONS)
+    ada_of = dict(zip(st["name"].tolist(), st["ada"].astype(bool).tolist()))
+
+    m = (df["is_populated"] & (df["near_station"] != "")).to_numpy()
+    total = float(df.loc[m, "pop"].sum())
+    near_ada = df.loc[m, "near_station"].map(lambda k: ada_of.get(k, False))
+    excluded = ~near_ada.to_numpy()
+    pop_excluded = float(df.loc[m, "pop"].to_numpy()[excluded].sum())
+
+    # Per station, over the geographies whose nearest station it is and which
+    # is not step-free. Ranked by population, and the ranking is reported with
+    # the share the top of it accounts for, because that share is the finding.
+    sub = df.loc[m].loc[excluded]
+    per = (sub.groupby("near_station")
+           .agg(pop=("pop", "sum"), n_geographies=("geoid", "size"))
+           .sort_values("pop", ascending=False))
+    mode_of = dict(zip(st["name"].tolist(), st["mode"].tolist()))
+    # `v["pop"]` and not `v.pop`: on a Series the attribute is the method.
+    table = [{"station": k, "mode": mode_of.get(k, ""),
+              "pop": int(v["pop"]), "n_geographies": int(v["n_geographies"])}
+             for k, v in per.head(C.STEPFREE_TABLE_ROWS).iterrows()]
+    top15 = float(per["pop"].head(15).sum())
+
+    out = {
+        # "Step-free by design", not "working today": the source flag means a
+        # route was built, and MTA publishes live outages a static map cannot
+        # represent. The date is the station table's fetch time rather than
+        # prose, so it cannot go stale silently.
+        "as_of": datetime.fromtimestamp(
+            C.P_SUBWAY.stat().st_mtime, timezone.utc).date().isoformat(),
+        "n_stations": int(len(st)),
+        "n_step_free": int(st["ada"].astype(bool).sum()),
+        # [step-free, total] per mode. LIRR reads 33 of 40 and the subway
+        # 168 of 475, which is most of why a citywide average is not the
+        # number to quote.
+        "by_mode": {str(mode): [int(g["ada"].astype(bool).sum()), int(len(g))]
+                    for mode, g in st.groupby("mode")},
+        "pop_nearest_not_step_free": int(pop_excluded),
+        "pct_nearest_not_step_free": round(100 * pop_excluded / total, 1),
+        # The denominator for "no short list of elevators fixes this": how
+        # many distinct stations that are *not* step-free are somebody's
+        # nearest. The count over all stations (388) answers a different
+        # question and would flatter this one.
+        "n_stations_nearest_to_someone": int(len(per)),
+        "n_stations_nearest_to_anyone": int(
+            df.loc[m, "near_station"].nunique()),
+        "top15_share": round(100 * top15 / pop_excluded, 1),
+        "stations": table,
+    }
+
+    # And the travel-cost half, which is the one the filtered pass buys.
+    if "stepfree_min" in df.columns:
+        sm = (df["is_populated"] & np.isfinite(df["stepfree_min"])
+              & np.isfinite(df["walk_min"])).to_numpy()
+        pen = (df["stepfree_min"] - df["walk_min"]).to_numpy()[sm]
+        wpop = df.loc[sm, "pop"].to_numpy()
+        out.update({
+            "median_walk_min": round(float(
+                np.median(df.loc[sm, "walk_min"].to_numpy())), 1),
+            "median_step_free_min": round(float(
+                np.median(df.loc[sm, "stepfree_min"].to_numpy())), 1),
+            # The median of the per-geography differences, not the
+            # difference of the two medians above -- those are 8.4 and 14.4,
+            # and only this one is "the typical area's extra walk". Same
+            # distinction as median_penalty_min in the commuter-rail block.
+            "median_penalty_min": round(float(np.median(pen)), 1),
+            "pop_no_step_free_access": int(
+                df.loc[df["is_populated"]
+                       & ~np.isfinite(df["stepfree_min"]), "pop"].sum()),
+            # Beyond the project's own standard, counted twice: once as the
+            # city is, once as a rider who cannot use stairs sees it.
+            "pct_beyond_standard": round(float(
+                wpop[df.loc[sm, "walk_min"].to_numpy()
+                     > C.ACCESS_FLOOR_MINUTES].sum() / wpop.sum() * 100), 1),
+            "pct_beyond_standard_step_free": round(float(
+                wpop[df.loc[sm, "stepfree_min"].to_numpy()
+                     > C.ACCESS_FLOOR_MINUTES].sum() / wpop.sum() * 100), 1),
+        })
+
+    print(f"  step-free: {out['n_step_free']}/{out['n_stations']} stations; "
+          f"{out['pop_nearest_not_step_free']:,} people "
+          f"({out['pct_nearest_not_step_free']}%) have a nearest station that "
+          f"is not")
+    print(f"             flat distribution: "
+          f"{out['n_stations_nearest_to_someone']} stations without a "
+          f"step-free route are some geography's nearest, and the worst 15 "
+          f"account for {out['top15_share']}% of the affected population")
+    if "median_penalty_min" in out:
+        print(f"             median walk {out['median_walk_min']} min, to a "
+              f"step-free station {out['median_step_free_min']} min "
+              f"(+{out['median_penalty_min']} at the median geography)")
+        print(f"             past the {C.ACCESS_FLOOR_MINUTES:.0f}-minute "
+              f"standard: {out['pct_beyond_standard']}% of people, "
+              f"{out['pct_beyond_standard_step_free']}% if the station has to "
+              f"be step-free")
+    return out
 
 
 def ranks(s) -> pd.Series:
@@ -680,12 +795,20 @@ def run(force: bool = False):
     d_acc = geography_distance(gdf, dist_acc, serv_acc,
                                C.TRACT_SAMPLE_SPACING_METERS)
 
+    print("Network distance (step-free stations only):")
+    dist_sf, _nsf, serv_sf = compute_dist(
+        force=False, subway_only=False, step_free=True)
+    d_sf = geography_distance(gdf, dist_sf, serv_sf,
+                              C.TRACT_SAMPLE_SPACING_METERS)
+
     df = gdf.merge(d_all, on="geoid", how="left")
     df["subway_walk_m"] = d_sub["walk_m"].to_numpy()
     df["access_m"] = d_acc["walk_m"].to_numpy()
+    df["stepfree_m"] = d_sf["walk_m"].to_numpy()
     df["walk_min"] = C.minutes(df["walk_m"])
     df["subway_walk_min"] = C.minutes(df["subway_walk_m"])
     df["access_min"] = C.minutes(df["access_m"])
+    df["stepfree_min"] = C.minutes(df["stepfree_m"])
     # The two medians are taken over the same sample grid but reduced
     # independently, so this is the difference of medians and not the median of
     # differences -- and it can go slightly negative where the weighted pass
@@ -711,12 +834,16 @@ def run(force: bool = False):
     score_stats = add_score(df)
     cluster_stats = add_clusters(gdf, df)
 
+    print("Step-free access:")
+    stepfree = stepfree_stats(df)
+
     print("Classification:")
     breaks = add_classes(df)
     stats = headline_stats(df, df["subway_walk_min"])
     stats["breaks"] = breaks
     stats["score"] = score_stats
     stats["clusters"] = cluster_stats
+    stats["step_free"] = stepfree
     if acc_stats:
         stats["accessibility"] = acc_stats
     stats["hub_columns"] = hub_cols

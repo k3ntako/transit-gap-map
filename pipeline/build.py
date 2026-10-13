@@ -33,7 +33,7 @@ warnings.simplefilter("ignore")
 FIELDS = {
     "geoid": "geoid", "boroname": "boro", "ntaname": "nta",
     "pop": "pop", "density_km2": "dens", "walk_min": "walk",
-    "subway_walk_min": "swalk", "bivariate": "bi",
+    "subway_walk_min": "swalk", "stepfree_min": "sf", "bivariate": "bi",
     "density_class": "dc", "walk_class": "wc",
     "near_station": "st", "near_station_routes": "sroutes",
     "near_station_mode": "smode", "walk_min_lo": "wlo", "walk_min_hi": "whi",
@@ -77,6 +77,10 @@ SCHEMA_DOC = {
     "dens": "population per square km of land",
     "walk": "median network walk time to the nearest train station, minutes",
     "swalk": "same, counting subway + Staten Island Railway only",
+    "sf": "same, counting only the 219 stations with a step-free route built "
+          "as of step_free.as_of -- built, not working today, since live "
+          "elevator outages are not in this. null where no step-free station "
+          "is reachable on foot at all",
     "bi": "bivariate class 0-8 (density tercile * 3 + walk tercile), -1 if unpopulated",
     "dc": "density tercile 0-2, -1 if unpopulated",
     "wc": "walk-time tercile 0-2, -1 if unpopulated",
@@ -174,7 +178,7 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
         return (out[col].astype("float64")
                 .replace([np.inf, -np.inf], np.nan).round(places))
 
-    for col in ("walk", "swalk", "wlo", "whi", "acc", "wait", "stph",
+    for col in ("walk", "swalk", "sf", "wlo", "whi", "acc", "wait", "stph",
                 "nveh", "pov"):
         out[col] = rounded(col, 1)
     # Two decimals, because the detour factor's middle 80% is 0.79 to 1.28 --
