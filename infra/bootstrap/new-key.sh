@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Give the deployer user an access key and store it in a local AWS profile,
 # without the secret ever touching Terraform state, the terminal or a file in
-# this repository. Run with ADMINISTRATOR credentials the first time:
+# this repository. Run with the BOOTSTRAP profile the first time:
 #
-#   AWS_PROFILE=<admin-profile> infra/bootstrap/new-key.sh
+#   AWS_PROFILE=bootstrap infra/bootstrap/new-key.sh
 #
 # To rotate later, the deployer can do it for itself (its policy allows
-# managing its own keys), so the admin profile is not needed again:
+# managing its own keys), so the bootstrap profile is not needed again:
 #
 #   AWS_PROFILE=transit-gap-map infra/bootstrap/new-key.sh --rotate
 set -euo pipefail

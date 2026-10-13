@@ -54,7 +54,7 @@ data "aws_iam_policy_document" "deployer" {
     resources = ["*"]
   }
 
-  # Rotating its own key without an administrator: create the new one,
+  # Rotating its own key without the bootstrap profile: create the new one,
   # switch the profile, delete the old one.
   statement {
     sid = "OwnAccessKeys"

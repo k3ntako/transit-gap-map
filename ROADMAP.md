@@ -414,7 +414,8 @@ question is already answered and the real question is the build.
   GitHub Pages, because CloudFront lets the cache headers below be set and
   Pages does not. Terraform in two modules split by privilege —
   `infra/bootstrap` (state bucket, a deployer IAM user, an OIDC role for
-  Actions, a budget alarm; applied once as admin) and `infra/site` (bucket and
+  Actions, a budget alarm; applied once with a `bootstrap` profile whose
+  scoped policy is in `DEPLOY.md`) and `infra/site` (bucket and
   distribution; applied as the deployer, who cannot touch IAM). No custom
   domain yet; the steps for one are written down. Two things found on the
   way: CloudFront compresses by `Content-Type` and its list has

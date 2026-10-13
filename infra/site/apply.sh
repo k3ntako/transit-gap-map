@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The site's bucket and CloudFront, run as the DEPLOYER (not an admin):
+# The site's bucket and CloudFront, run as the DEPLOYER (not the bootstrap profile):
 #
 #   infra/site/apply.sh plan      # preview
 #   infra/site/apply.sh           # apply; asks before changing anything

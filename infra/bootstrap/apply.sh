@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# One-time (and rarely repeated) setup, run with ADMINISTRATOR credentials:
+# One-time (and rarely repeated) setup, run with the BOOTSTRAP profile, whose
+# policy is in DEPLOY.md, step 1:
 #
-#   AWS_PROFILE=<admin-profile> infra/bootstrap/apply.sh          # plan, then ask
-#   AWS_PROFILE=<admin-profile> infra/bootstrap/apply.sh plan     # plan only
+#   AWS_PROFILE=bootstrap infra/bootstrap/apply.sh          # plan, then ask
+#   AWS_PROFILE=bootstrap infra/bootstrap/apply.sh plan     # plan only
 #
 # Safe to re-run: every step checks before it acts. See DEPLOY.md for where
 # this sits in the order of things.
@@ -68,5 +69,5 @@ esac
 if [[ "$ACTION" == "apply" ]]; then
   echo
   echo "Next:"
-  echo "  AWS_PROFILE=${AWS_PROFILE:-<admin-profile>} infra/bootstrap/new-key.sh"
+  echo "  AWS_PROFILE=${AWS_PROFILE:-bootstrap} infra/bootstrap/new-key.sh"
 fi

@@ -1,4 +1,4 @@
-# The one module that is applied with administrator credentials. Everything
+# The one module that is applied with the bootstrap profile. Everything
 # that needs IAM lives here, so the credentials that run the site module
 # (infra/site) never need to create users, roles or policies -- an identity
 # that can write IAM policy can grant itself anything, and least privilege
