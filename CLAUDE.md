@@ -17,8 +17,12 @@ front is a ranked table of everything left, a phase per question in the
 middle, *Decisions still open* for the choices that block work and are not
 settled by measurement, and *The record* at the back for the pre-registered
 results and the corrections. **A phase number is not a priority** — Phase 10
-is ranked seventh — and nothing punted sits at the top of the file any more:
-an unfinished item lives in the phase that owns its question.
+is ranked fourth — and nothing punted sits at the top of the file any more:
+an unfinished item lives in the phase that owns its question, with a dated
+note saying what blocks it. Seven rows came off that table on 2026-10-12 and
+the finished text was deleted rather than struck through, which is this
+file's convention: the reasoning for a closed item lives here, in the code,
+and in the commit that closed it.
 
 ## Working with the owner
 

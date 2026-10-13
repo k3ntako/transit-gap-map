@@ -99,34 +99,45 @@ it is a claim about the obstacles, not an estimate of the work.
 |---|---|---|---|---|
 | 1 | Rail lines | *Draw the network* | **Ready** — geometry in all nine feeds, 15.2 KB, its own payload | The only item that changes what the map *argues* |
 | 2 | The first deploy | *Publishing the map* | **Ready** — built 2026-10-12, never run | Nobody outside this checkout can see any of this |
-| 3 | Small no-new-data items | *Small things* | **Ready** — `web/` only | Cheap, and the class filter is most of the zoning question's cheap version |
-| 4 | Columnar payload sidecar | *Payload debt* | Moderate — a build-stage refactor, and a byte-identical proof is available | Not scheduled on its own: it rides with whichever of rows 5 and 7 lands first |
-| 5 | Step-free access | Phase 6 | **Ready** — table fetched, a source-set filter on the existing Dijkstra | The biggest finding left for the least new machinery |
-| 6 | Bikes | Phase 6 | **Ready** — an edge filter and a speed | Same pipeline, different input set; its likely negative result is worth having early |
-| 7 | Ridership and crowding | Phase 10 | Hard — 167M rows, server-side aggregation, a different join key, no capacity data | Completes the service-quality axis, which is where the value was |
-| 8 | Proposed stations, drawn | Phase 7 | **Ready** — one hand-entered file, display only | The scenario work's display half, with none of its modeling risk |
-| 9 | Express buses | *Draw the network* | Moderate — wants a peak-direction frequency test and a route-name match | Annotates the worst tracts with the city's own admission of the gap |
-| 10 | Entrance-level snapping | Phase 6 | **Ready** — `i9wp-a4ja` verified, 2,072 doors | Removes a bias that currently flatters the map |
-| 11 | Phase 5 demographics | Phase 5 | **Ready** — every ACS variable confirmed live | Carless crossed with poverty is the strongest need signal in the file |
-| 12 | The additive score form | Phase 8 | **Ready** — three lines plus a row in the alignment table | Closes a promise this file made and never kept |
-| 13 | Local Moran's I | Phase 8 | Moderate — two new dependencies | Could split the 430-tract band, which a component count cannot |
-| 14 | Slope | Phase 6 | Moderate — a new raster source; Tobler is the standard function | Real minutes, in the neighborhoods that already score worst |
-| 15 | Choke points and new crossings | Phase 7 | Moderate — the marginal-surface method a second time | Doubles as a resilience map |
-| 16 | Zoning capacity | Phase 7 | Moderate — MapPLUTO is not probed yet | The honest version of the inverse question |
-| 17 | Street pressure | Phase 10 | Hard — three new sources, and a confounded reading | A third benefit beside coverage and relief |
-| 18 | Scenario toggles and line simulation | Phase 7 | Hard — and deliberately gated on the model underneath it | The most compelling thing in the file, and the easiest to publish too early |
-| 19 | Airports | Phase 9 | Moderate — hand-coded edges, but four facts need citations first | A different reader; nothing blocks it and it blocks nothing |
-| 20 | Hyperpath routing | Phase 6 | Hardest — a different algorithm, not a parameter | Fixes a known 10-minute bias, in the direction this project least wants to be wrong |
+| 3 | Small no-new-data items | *Small things* | **Ready** — `web/` only | Cheap; the per-class filter half shipped 2026-10-12 |
+| 4 | Ridership and crowding | Phase 10 | Hard — 167M rows, server-side aggregation, a different join key, no capacity data | Completes the service-quality axis, which is where the value was |
+| 5 | Proposed stations, drawn | Phase 7 | Blocked on documents — one hand-entered file, a source per row | The scenario work's display half, with none of its modeling risk |
+| 6 | Express buses | *Draw the network* | Moderate — wants a peak-direction frequency test and a route-name match | Annotates the worst tracts with the city's own admission of the gap |
+| 7 | The additive score form | Phase 8 | **Ready** — three lines plus a row in the alignment table | Closes a promise this file made and never kept |
+| 8 | Protected-only bike network | Phase 6 | Blocked on a decision — DOT facilities onto OSM edges, both answers wrong | The all-streets version is a best case and says so; this is the real one |
+| 9 | Local Moran's I | Phase 8 | Moderate — two new dependencies | Could split the 257-tract band, which a component count cannot |
+| 10 | Slope | Phase 6 | Moderate — a raster source nobody has probed; Tobler is the standard function | Real minutes, in the neighborhoods that already score worst |
+| 11 | Choke points: which links matter | Phase 7 | Moderate — needs a candidate list over 2.14M edges | A resilience map; the crossings half shipped 2026-10-12 |
+| 12 | Zoning capacity | Phase 7 | Moderate — MapPLUTO is not probed yet | The honest version of the inverse question |
+| 13 | Street pressure | Phase 10 | Hard — three new sources, and a confounded reading | A third benefit beside coverage and relief |
+| 14 | Scenario toggles and line simulation | Phase 7 | Hard — blocked on published station lists, and gated on the model underneath | The most compelling thing in the file, and the easiest to publish too early |
+| 15 | Airports | Phase 9 | Moderate — hand-coded edges, but four facts need citations first | A different reader; nothing blocks it and it blocks nothing |
+| 16 | Hyperpath routing | Phase 6 | Hardest — a different algorithm, not a parameter | Fixes a known 10-minute bias, in the direction this project least wants to be wrong |
+
+**Seven rows came off this table on 2026-10-12**, which is why it is
+thirteen lines shorter than the one written that morning: the columnar
+payload sidecar, step-free access, bikes, entrance-level snapping, the Phase
+5 demographics, the marginal-benefit surface and the new-crossing half of the
+choke-point work all shipped. Four things they changed about what is left are
+worth reading before picking a row. The payload question is answered — a
+column costs about 2 KB in the sidecar against 5 as a property, so field
+count is no longer what the budget guards. Entrance snapping moved every
+published figure and **split the 430-tract band into 257 and 149**, which
+weakens the case for row 9. The marginal-benefit surface gives a neutral
+baseline to compare any named project against, which weakens half the
+objection to row 14. And three rows that used to read "Ready" now read
+"blocked on documents" or "blocked on a decision", because doing the easy
+work first is what exposes which of the rest is actually work and which is a
+choice.
 
 Two things the table deliberately does not rank. *Research* is literature
 rather than build work, it is cheap, and it can run beside any row above. And
-*Decisions still open* gates rows 4, 9 and 19 — read it before starting one
-of those.
+*Decisions still open* gates rows 6 and 15 — read it before starting either.
 
 **The rail lines are first** — revised 2026-10-11, displacing step-free
 access, and now with three reasons rather than one. The map has a finding that
 is only legible as a shape with the network drawn: the largest detour block
-and a large under-service block are the same 44 tracts. It is the cheapest way
+and a large under-service block are the same 42 tracts. It is the cheapest way
 to see whether a corridor has a right-of-way, which is the open question the
 disagreement table just raised about northeastern Queens. And four of the
 eight proposed corridors *are* existing rights-of-way in the OSM extract, so
@@ -139,25 +150,6 @@ the map *argues* rather than what it measures: the contiguous band stops
 reading as scattered polygons and starts reading as the space between the
 lines. A reader cannot currently see that without already knowing the network.
 
-**It is also the last item in this queue that does not touch the headroom
-loan**, which is the part worth not re-deriving every time this order is read.
-Rail lines ship as their own payload and add no per-tract field, so they spend
-none of the 420 KB budget — measured 2026-10-12, `tracts.geojson` sits at
-350.1 KB, about four more property-borne fields of room. Both items behind
-them want a field. So the columnar sidecar is not a separate decision to make
-later; it fires on whichever of step-free access and ridership lands first,
-and the only question still open is which one that is.
-
-**Then step-free access**, still the biggest finding available for the least
-new machinery — the subway-entrance table is fetched and verified (2,120 rows,
-116 step-free), the swap is a source-set filter on the Dijkstra, and the result
-needs no new model. But build it as the *lens plus station table* that Phase 6
-now specifies, not as a term in the score: 60.4% of the city's population has a
-nearest station that excludes them, and the per-station version of that is the
-output the data is good for. Note the deflating part before quoting any of it —
-the distribution is flat, 252 stations deep, and no short list of elevators
-fixes it.
-
 **Then ridership and crowding** — Phase 10 — because it is the last piece of
 the service-quality axis. Note that its old justification is dead: this said the
 hub list depended on it, and Phase 4 settled the hub list with jobs instead,
@@ -168,23 +160,20 @@ crowding. Read the three measured obstacles first — it is a server-side
 aggregation against 167 million rows, it joins on `station_complex_id`
 rather than `gtfs_stop_id`, and train capacity is in none of the data.
 
-**Whichever of those two lands first pays the payload loan**, because both want
-a per-tract field and there is room for about four more. It is not a separate
-item to schedule and it is not optional; it has its own section, *Payload
-debt*, above.
+It no longer has a payload problem in front of it. The columnar sidecar
+shipped on 2026-10-12, so a new per-geography column costs about 2 KB gzipped
+rather than 5 and the headroom is some sixty fields rather than four: what
+`BUDGET_TRACTS_WIRE_KB` guards now is geometry fidelity, and `config.py` has
+the arithmetic.
 
-**Then the mid-table, which is mostly cheap work that was never ranked before
-the move.** Four of them are ready today and none needs a new method: the
-**proposed stations drawn on the map** (Phase 7's display half, a hand-entered
-file with a source and a date per row, and the one item here that must never
-feed `verify.alignment()`), **entrance-level snapping** (2,072 real doors
-against 496 station points, correcting a bias that currently flatters the
-map), the **Phase 5 variables** (carless crossed with poverty is the strongest
-need signal in this file, and the one caution is that both are confounded by
-the service they are meant to measure need for), and the **additive score
-form**, which is three lines and a row in the alignment table and closes a
-promise this file made and never kept. **Express buses** sit with them but
-need three questions answered first — see *Decisions still open*.
+**Then the mid-table, and what is left of it is no longer "cheap work nobody
+ranked".** Three of the four items that description covered have shipped. The
+two that remain are the **additive score form**, which is still three lines
+and a row in the alignment table and still closes a promise this file made,
+and the **proposed stations drawn on the map** — which turned out not to be
+cheap, because every row needs a coordinate from a document somebody has
+opened. **Express buses** sit with them and need three questions answered
+first — see *Decisions still open*.
 
 Orthogonal to all of that, and pickable whenever: **running the first
 deploy** — not building one. That changed on 2026-10-12 and this paragraph
@@ -193,17 +182,10 @@ all exist, so what is left is one button press and whatever a Linux runner
 says about a pipeline that has only ever run on a laptop. The *reader* problem
 is unchanged until that happens — nobody outside this checkout can see any of
 this — but it is now a smaller item with a known shape, and `DEPLOY.md` has
-the order. Beside it, the **small no-new-data items** — the per-class filter (the
-standard-based half shipped 2026-10-11), the collapsible panels, the legend
-width. The class filter is worth doing before the zoning
-work, because naming the low-density/short-walk corner of the matrix is most of
-that question's cheap version.
-
-Bikes sit with step-free access in the "same pipeline, different input set"
-bucket, and should be picked up on the same grounds: the swap is an edge filter
-and a speed, the data is verified, and the likely result — that bikes rescue
-the middle of the distribution and not the tail — is worth having before anyone
-proposes a bike lane as an answer to a transit desert.
+the order. Beside it, the **small no-new-data items** — the collapsible
+panels and the legend width. The per-class filter that used to head that list
+shipped on 2026-10-12, with the low-density/short-walk corner of the matrix
+named in the legend, which was most of the zoning question's cheap version.
 
 **Contiguity was the sleeper and it paid off.** It needed nothing but an
 adjacency graph over polygons already on disk, and it produced the one headline
@@ -468,84 +450,22 @@ question is already answered and the real question is the build.
   keyless is not the same as unlimited. If the map ever gets real traffic this
   is the first thing that breaks.
 
-## Payload debt
-
-**Paid 2026-10-12** — kept here until Phase 6 closes, because this section is
-what its commit message answers to. `tracts.geojson` is geometry plus `geoid`
-and every column is a parallel array in `tract_cols.json`: 350 KB interleaved
-became 216 KB of geometry plus 76 KB of 28 columns, so a column now costs
-about 2 KB rather than 5 and the headroom is roughly sixty fields rather than
-four. `BUDGET_TRACTS_WIRE_KB` stays 420 and is asserted against the pair. The
-values were proved unchanged per geoid, with one correction falling out of it:
-89 tracts had been shipping `det` as 1.1900001, a float32 column rounded in
-float32, and every rounded column is now cast to float64 first.
-
-One item, and it is the oldest unpaid thing in this file. It sits in no phase
-because it answers no question: it is the carrying cost of the last phase, and
-it comes due on whichever phase adds the next numeric field.
-
-- **The loan.** Phase 4 took `tracts.geojson` to 343 KB against a 350 KB
-  budget, which left room for no further field at all. **Deferred once, on
-  2026-10-11, by raising the budget to 420** — and that is the whole of what
-  was decided, so read it as a dated loan rather than a solution. Measured
-  2026-10-12 the file sits at 350.1 KB, which is about four more
-  property-borne fields of room.
-- **The fix, measured.** A column costs roughly **2.5x more as a per-feature
-  property than as a parallel array**, because gzip's window cannot span 2,325
-  interleaved features: `hubs.json` carries eight hub columns for 39 KB where
-  interleaving the same numbers would have cost about 100. So the numeric
-  columns move out of `tracts.geojson` into parallel arrays aligned to an
-  explicit `geoids` list, the way `hubs.json` already does, and
-  `app.js:attachHubs()` is the join to copy — it already runs **before**
-  `addSource`, which is mandatory rather than stylistic.
-- **The rule.** The next numeric field does this refactor on the way in rather
-  than arriving as a ninth property, and a second budget raise without it is
-  the thing the note in `config.py` exists to make embarrassing. Step-free
-  access and ridership both want a field; which of them lands first, and
-  therefore pays, is in *Decisions still open*.
-- **Why it might not be worth doing on its own.** It changes no number and
-  adds no finding, so done alone it is a refactor with a budget assertion as
-  its only visible result. That is the argument for carrying it *with* the
-  field that needs it rather than scheduling it — and the argument against
-  letting a third field arrive first, because then the diff that provokes it
-  and the diff that fixes it are the same unreviewable commit, which is the
-  mistake the 2026-10-11 raise was taken to avoid.
-
 ## Phase 5 — who lives there
 
-**Worked 2026-10-12. What shipped:** every variable in the table below, each
-with its margin of error; the carless-crossed-with-poverty signal, whose
-measured result is the opposite of what this section predicted (see
-`CLAUDE.md` and the commit); and a reliability flag from the Census Bureau's
-own coefficient of variation. **What did not, and is still below:** the
-curated destination anchors, park-and-ride capacity, and the block-group
-question, which is *Decisions still open* #3. Each carries a note saying
-why.
+**Worked 2026-10-12. The variables shipped and so did the crossing** —
+zero-vehicle, income, poverty, transit commute share, disability and age,
+each with its margin of error, plus a reliability flag from the Census
+Bureau's own coefficient of variation. `config.py` lists them and `CLAUDE.md`
+records what the carless-crossed-with-poverty signal turned out to measure,
+which is the opposite of what this section predicted. **What is left is
+below, with a note on each:** the curated destination anchors, park-and-ride
+capacity, and the block-group question.
 
-All verified present in ACS 2023 5-year at tract level; the fetch stage already
-handles multi-variable Census calls.
-
-| Variable | What it is | Why it matters |
-|---|---|---|
-| `B08201_002E` / `B08201_001E` | Households with **no vehicle available** | The best single need signal. A far-from-transit tract where everyone drives is not under-served the same way as one where nobody can. Ranks above income. |
-| `B19013_001E` | Median household income | The obvious equity axis, and the one people will ask for |
-| `B17001_002E` | Population below poverty level | Less noisy than median income at tract level |
-| `B08301_010E` | Commuters using public transit | Revealed demand — but careful: it is partly an *outcome* of good service, so it belongs in the tooltip more than in the score |
-| `B18101` | Disability status by age | Pairs with the step-free layer below |
-| `B01001` | Age structure | Over-65 and under-18 shares both raise dependence |
-
-Two cautions worth writing into the methodology:
-
-- ACS 5-year estimates at tract level have real margins of error — the pipeline
-  already fetches `B01003_001M` for population and should fetch the MOE for
-  every new variable. Showing a tract as "worst in the city" when its income
-  estimate is ±$18,000 is a mistake the map should refuse to make, by graying or
-  flagging high-MOE tracts.
 - **Not settled, and it is a choice rather than work** — see *Decisions still
-  open* #3. Switching to block groups (`GEO_LEVEL = "bg"`, ~6,500 vs
+  open* #2. Switching to block groups (`GEO_LEVEL = "bg"`, ~6,500 vs
   ~2,325 — a one-line config change already supported) improves spatial
-  resolution exactly where it is worst, since tracts are drawn to roughly equal *population* and so are
-  physically enormous in low-density areas. But it makes every ACS estimate
+  resolution exactly where it is worst, since tracts are drawn to roughly
+  equal *population* and so are physically enormous in low-density areas. But it makes every ACS estimate
   noisier. The right answer may be geometry at block-group level and the social
   variables at tract level.
 
@@ -619,16 +539,15 @@ And the proxy is already available directly, and better: `B08201_002E`,
 exactly what parking would only hint at. Vehicle registrations by ZIP are a
 second direct source if car *ownership* rather than access is the question.
 
-**The combination with income is the part worth building.** Zero-car share on
-its own is ambiguous and quietly circular: the Upper West Side has very few
-cars *because* the transit is excellent, so ranking need by carlessness alone
-scores the best-served neighborhoods in the city as the most dependent — the
-same outcome-as-input trap flagged for transit commute share above. Crossed
-with poverty (`B17001_002E`, less noisy at tract level than median income) it
-separates **carless by choice** from **carless without means**, and the second
-is the strongest need signal available anywhere in this phase. Carry it as the
-product of the two ranks, or as a flagged quadrant, and show both components in
-the tooltip so the distinction is visible rather than asserted.
+**The combination with income was the part worth building, it is built, and
+it does not say what this paragraph said it would.** The crossing is shipped
+as four quadrants against the citywide medians, with both components in the
+tooltip. The prediction here was that "carless without means" would be the
+strongest need signal in the phase; measured, it is among the *best-served*
+groups in the city, because poverty and carlessness concentrate in the dense
+core the subway was built around. `CLAUDE.md` has the table. What survives of
+the paragraph is its warning: zero-car share alone is circular, and the
+crossing is what makes that visible rather than fixing it.
 
 The one version of *parking* that would earn its keep: **park-and-ride capacity
 at outer stations**, which is a real access mechanism on Staten Island and at
@@ -648,102 +567,17 @@ the bike question, which needs a method decision about matching DOT
 facilities onto OSM edges; and hyperpath routing, which is still the last
 item in the whole file. Each carries a note.
 
-- **Step-free access — a lens and a station ranking, explicitly not a term in
-  the score.** **Half built, 2026-10-12.** The filtered Dijkstra ships:
-  `distance.py --step-free` is a third variant beside `subway_only` and
-  `weighted`, 219 of 557 stations, and the median walk to the nearest
-  step-free station comes out at **19.3 minutes against 6.9** to the nearest
-  station of any kind. What is *not* built yet, and is the whole point of
-  having run it: the per-geography field in `tract_cols.json`, the layer on
-  the map, and the elevator-priority station table below. Those are next and
-  nothing blocks them — the payload sidecar that was their precondition is
-  paid for. 2,120 subway entrances exist; **116 are step-free** (102
-  elevators, 10 ramps, 4 combinations). At station level, measured 2026-10-11
-  from `stations.parquet`:
-
-  | mode | stations | step-free |
-  |---|---|---|
-  | subway | 475 | 168 |
-  | SIR | 21 | 6 |
-  | LIRR | 40 | 33 |
-  | Metro-North | 21 | 12 |
-  | **all** | **557** | **219 (39.3%)** |
-
-  Recomputing the map with the source set filtered to those 219 is nearly free
-  — the same pipeline with a filtered station set, a third variant flag on
-  `distance.py` beside `subway_only` and `weighted`.
-
-  **Decided 2026-10-11: this does not enter the under-service score, and the
-  reason is that it answers a different question.** The score ranks *tracts*
-  and its intervention is new service. Step-free access ranks *stations* and
-  its intervention is an elevator — a different object, a different budget
-  line, a different decision-maker. Folding it into one number would make a
-  tract score worse because its station lacks an elevator, which argues for a
-  new train line as the fix for a missing elevator. It is also the one input
-  here that is deliberately being *changed* while the map is being built, so
-  anything load-bearing built on it decays. Two outputs instead:
-
-  1. **A toggle: the city as a step-free rider sees it.** Note that this cannot
-     be a browser re-weight like the equity slider — filtering the station set
-     changes the *Dijkstra*, not an arithmetic blend, so the browser cannot
-     derive it. It is a second per-tract field computed in the pipeline, which
-     is exactly the pattern `acc` (walk plus expected wait) already follows
-     beside `walk`. About 5 KB gzipped against roughly nine fields of headroom.
-  2. **An elevator-priority station table**, which is the output this data is
-     actually good for. Measured 2026-10-11, population whose *nearest* station
-     is not step-free: **5,143,021 of 8,516,202 — 60.4%.** Then per station:
-
-     ```
-      73,521  14 tracts  125 St (subway)
-      62,197  17 tracts  Woodhaven Blvd (subway)
-      62,162  20 tracts  18 Av (subway)
-      61,413  14 tracts  77 St (subway)
-      60,433  20 tracts  111 St (subway)
-      59,370  16 tracts  Grasmere (sir)
-      59,323  18 tracts  Fort Hamilton Pkwy (subway)
-      57,736   7 tracts  103 St (subway)
-      54,527  23 tracts  Hollis (lirr)
-      52,633  14 tracts  Halsey St (subway)
-     ```
-
-     **And the distribution is flat, which is the finding.** 252 stations are
-     some tract's nearest, and the top 15 account for only **17%** of the
-     affected population. There is no short list of elevators that fixes this.
-     A "top 10 stations for elevators" headline would therefore be misleading;
-     the honest claim is that the gap is broad, which is harder to say and more
-     useful.
-
-  **Three constraints on how it is published.** The flag means a step-free
-  route was *built*, not that it works today — MTA publishes live elevator
-  outages and a static map cannot represent "out until April", so the label is
-  "step-free by design as of ⟨fetch date⟩" and the date comes from the fetch
-  timestamp rather than from prose. The `ada_northbound` / `ada_southbound`
-  columns are not decoration: some stations are step-free in one direction
-  only, and a single boolean per station flatters the picture when the finer
-  data is already on the table. And **the two numbers above are different
-  findings, not one**: 60.4% is "your nearest station excludes you", which is
-  not "how much further a step-free rider must travel" — that needs the
-  filtered Dijkstra, because their real nearest step-free station may be a mile
-  away. It is the reason both the toggle and the table have a job.
-
-  **Not asserted here:** the size or schedule of MTA's accessibility
-  commitment. There is no citation for it in this repo, and Phase 9 records
-  what happens to figures written from memory.
-- **Entrance-level snapping. Done 2026-10-12, and the prediction below was
-  backwards.** The pass now runs from 2,133 sources for 557 stations — 2,072
-  entry-allowed doors from `i9wp-a4ja` covering 482 of the 496 subway
-  stations, with a station point for the rest, all joined on `gtfs_stop_id`.
-  This entry used to say the difference would run "in the direction that
-  currently flatters the map". It runs the other way, for a reason that is
-  obvious once stated: a walk is a *minimum over sources*, so adding doors
-  can only shorten it. Population-weighted mean walk 12.01 → 11.32 min,
-  within ten minutes 64.2% → 67.5%, half a mile of a subway 62.2% → 65.8%,
-  and the largest contiguous under-served block 430 tracts → 257. 119 areas
-  did get *worse*, by up to 1.1 minutes, which is the half of the prediction
-  that was right: where the entrance table covers a station its point stops
-  being a source, so a station labeled closer to the network than its doors
-  are loses that flattery. `C.USE_STATION_ENTRANCES` turns it off and
-  reproduces every old figure.
+- **Step-free access and entrance-level snapping both shipped 2026-10-12**,
+  and this file no longer carries their argument because `CLAUDE.md` does.
+  Two things are worth keeping here rather than there, because they are
+  about what the data *cannot* say. The step-free flag records that a route
+  was **built**: MTA publishes live elevator outages, a map rebuilt once
+  cannot represent "out until April", and the `ada_northbound` /
+  `ada_southbound` columns are not decoration either, since some stations are
+  step-free in one direction only and a single boolean flatters that. And
+  **nothing in this repo cites the size or schedule of MTA's accessibility
+  commitment** — there is no source for it here, and Phase 9 records what
+  happens to figures written from memory.
 - **Slope. Not done, 2026-10-12**, and it is the only item in this phase
   blocked on a source rather than on a decision: a DEM for New York is not in
   the verified-sources table at the end of this file, so the first step is
@@ -762,32 +596,25 @@ item in the whole file. Each carries a note.
 
 ### Bikes
 
-Worth doing, and cheaper than it sounds, because it is the existing pipeline
-with two inputs swapped. The one-Dijkstra design already generalizes: filter
-the OSM edges to bikeable ways, raise the speed, re-run the same
-`min_only=True` pass, and the output is *bike* minutes to the nearest station
-for every node in the city. Nothing downstream has to change shape.
+**The all-streets version shipped 2026-10-12 and the prediction below held,
+harder than it was stated.** This section said bikes would "rescue the middle
+of the distribution and do much less for the 50-minute tracts". Measured: 100%
+of the people whose walk is 10–20 minutes are inside ten minutes by bike, and
+**0.5% of the 571,538 in areas over 30 minutes' walk** are. `CLAUDE.md` has
+the table. That is a real result and an argument against the common claim
+that bike infrastructure substitutes for a line — and an argument *for* it in
+the middle band, which is the half worth not dropping.
 
-Data probed live 2026-10-10 and both are usable:
+The two remaining items are below. The data for both was probed live
+2026-10-10 and is usable: **NYC DOT bike routes**
+(`data.cityofnewyork.us/resource/mzxg-pwib`, 29,695 segments with
+`ft_facilit` — 7,418 Protected, 6,545 Conventional, 3,625 Shared, 783
+buffered, and **7,302 explicitly `None`**), and **Citi Bike GBFS**
+(`gbfs.citibikenyc.com/gbfs/en/station_information.json`, 2,519 stations,
+74,258 docks, no key), whose bounding box stops at about −74.10 longitude, so
+**there is no Citi Bike on Staten Island**, which is where this map's worst
+areas are.
 
-- **NYC DOT bike routes**, `data.cityofnewyork.us/resource/mzxg-pwib` — 29,695
-  segments with `ft_facilit` (facility type), `onoffst`, `lanecount` and
-  `instdate`. The facility breakdown is the whole point: **7,418 Protected**,
-  6,545 Conventional, 3,625 Shared, 783 buffered-conventional-or-curbside, and
-  **7,302 explicitly `None`**. 24,564 segments are on-street, 5,131 off.
-- **Citi Bike GBFS**, `gbfs.citibikenyc.com/gbfs/en/station_information.json`
-  — 2,519 stations, 74,258 docks, no key, 1.4 MB. The feed's bounding box stops
-  at about −74.10 longitude, so **there is no Citi Bike on Staten Island**,
-  which is where this map's worst tracts are.
-
-Three things it would actually answer:
-
-- **Does a bike close the gap, or move it?** Report bike minutes beside walk
-  minutes and the honest finding is probably that bikes rescue the middle of
-  the distribution — the 15-to-25-minute walks — and do much less for the
-  50-minute tracts, because those are far by street network and not merely far
-  on foot. If that is what it shows, it is a real result and an argument
-  against the common claim that bike infrastructure substitutes for a line.
 - **Protected-only is the version that means anything — and it is the half
   that did not ship, 2026-10-12.** The all-streets version is built and its
   numbers are in `CLAUDE.md`; the protected version needs DOT's 29,695
@@ -862,14 +689,15 @@ toggles, line simulation, the line-proposing search, the AI assistant), the
 link-removal half of the choke-point section, and zoning capacity, which
 needs MapPLUTO probed. Each carries a note.
 
-- **Marginal-benefit surface.** For each candidate site on a grid over the city,
-  add one virtual station, re-run the multi-source Dijkstra (0.1 s), and record
-  how many people move inside the 10-minute threshold. The result is a raster of
-  "people newly served per hypothetical station" and a ranked list of the best
-  sites. Fully pre-computed, so the web map stays static. Because `min_only`
-  Dijkstra already returns the *existing* nearest-station distance for every
-  node, the marginal calculation is a comparison against a vector you already
-  have — not a re-run from scratch.
+- **Marginal-benefit surface. Done 2026-10-12** — 4,840 hypothetical
+  stations on a 400 m lattice, in `siting.py`, with the measurement and its
+  limits in `CLAUDE.md`. One change to what this entry specified is worth
+  carrying: it asked for "people newly served per hypothetical station", and
+  what ships is ranked by **excess person-minutes removed**, the shipped
+  score's own unit. The reason is in the numbers — the best site that moves
+  *nobody* inside the 10-minute standard still removes 560k person-minutes of
+  walking, because it cuts a 25-minute walk to 14, and a count of people
+  moved scores that at zero. Both figures ship; only the ranking changed.
 - **Show proposed stations on the map, before scoring them. Not done,
   2026-10-12, and the blocker is the one rule below that cannot be
   automated:** every row needs a station location taken from a project's own
@@ -1058,26 +886,24 @@ change somebody's answer; 98 of the 134 have no walking route at all inside
 two kilometers. Ranked per meter of span, the top is Pelham Bay Park, New
 Springville, Douglaston–Little Neck, Great Kills, Howard Beach. The
 measurement and its two limits are in `CLAUDE.md`; the method was as
-described here, and the one thing it cannot do is below. Find places
-that are close in a straight line but far apart on foot. The walking graph
-already has the raw material for this: the barrier probes in `verify.py`
-(Newtown Creek, Hunts Point, Coney Island Creek) are exactly these places.
-Candidates are pairs of points within a short distance of each other whose
-walking route is many times longer. For each, add a virtual bridge, re-run,
-and count people newly within 10 minutes of a station, or with a shorter
-trip to jobs.
+described here: pairs close in a straight line and far apart on foot, a
+virtual bridge, re-run, recount.
 
-Two cautions:
-- **Cost is ranked, not priced.** Span length and what is being crossed
-  separate cheap from expensive by orders of magnitude: a footbridge over a
-  rail cut or an expressway is a different project from a crossing of the
-  East River. So rank by *people helped per meter of span, by type of
-  crossing*, and do not print a dollar figure without a cited source, for
-  the same reason as the line costs above.
+Two cautions, and the first one survives the build rather than being closed
+by it:
+- **Cost is ranked, not priced** — honored as person-minutes removed per
+  meter of span, and only half honorable, because the code knows the length
+  of a span and not what is underneath it. A footbridge over a rail cut and a
+  crossing of a navigable channel differ by orders of magnitude, several of
+  the ranked candidates cross water, and nothing in the OSM extract says
+  reliably which is which. The methodology page tells a reader to look before
+  quoting one, and that is why this has no map layer: a dashed line drawn
+  over an inlet reads as a proposal.
 - **A walking bridge only helps this score where it shortens a walk to a
-  station.** Many crossings would help people reach shops, parks or jobs
-  without changing their nearest station, so measure the job-access change
-  too, or the method will undervalue them.
+  station. Still true and still not measured.** Many crossings would help
+  people reach shops, parks or jobs without changing their nearest station,
+  so the job-access change is the missing half and this method undervalues
+  them without it.
 
 ### The inverse: where should the density go?
 
@@ -1580,15 +1406,9 @@ a phase is work, this is a choice. Ordered by how much they block.
    tram minute, a ferry minute and a subway minute are interchangeable. A
    general per-mode rule would apply to the ferry, both commuter railroads
    and the Phase 9 airport links, and it is what the Roosevelt Island Tram
-   below is waiting on. Blocks: the tram, and row 19. The full argument is
+   below is waiting on. Blocks: the tram, and row 15. The full argument is
    the entry at the end of this section.
-2. **Which field carries the columnar sidecar?** Step-free access (Phase 6)
-   and ridership (Phase 10) both want a per-tract field, and whichever lands
-   first does the refactor. Step-free is the ready one, so the default answer
-   is step-free; the only reason to prefer ridership is that it adds more
-   columns at once and so proves the sidecar harder. Blocks: nothing — but
-   deciding late means deciding under pressure. See *Payload debt*.
-3. **Tracts or block groups, and for which fields?** `GEO_LEVEL = "bg"` is a
+2. **Tracts or block groups, and for which fields?** `GEO_LEVEL = "bg"` is a
    one-line change already supported, and it improves resolution exactly
    where it is worst, since tracts are drawn to roughly equal population and
    are therefore physically enormous where density is low. It also makes
@@ -1596,26 +1416,26 @@ a phase is work, this is a choice. Ordered by how much they block.
    social variables at tract level — is probably right and is not free: two
    geographies means two joins and a story about which one a tooltip is
    showing. Blocks: Phase 5, and anything built on its variables.
-4. **Metric or imperial by default?** Density is the only field that really
+3. **Metric or imperial by default?** Density is the only field that really
    converts, and American planning sources quote people per square mile, so
    imperial is arguably the better default for this map's likely reader —
    which is an argument for shipping the switch with imperial *on*, and that
    is the part to decide. See *Small things*.
-5. **What counts as a frequent express bus?** `C.FTN_WINDOWS` correctly
+4. **What counts as a frequent express bus?** `C.FTN_WINDOWS` correctly
    excludes express routes, and 318 express-only stops have a median best
    headway of infinity, so the layer needs a peak-direction test that does
    not exist yet. Two smaller choices ride along: whether a route-name string
    match is acceptable in `service.py`, which joins on keys everywhere else,
    and whether the fare premium can be stated at all without a dated source.
-   Blocks: row 9.
-6. **Whether to digitize the eight corridors.** Answered *no* twice, on
+   Blocks: row 6.
+5. **Whether to digitize the eight corridors.** Answered *no* twice, on
    different grounds — four of the eight have no published alignment, and
    precision bought in a test we have decided not to optimize against is
    precision in the wrong place. It stays here because the answer has a
    trigger rather than being permanent: if the rail lines ship, four of the
    eight arrive as rights-of-way already in the OSM extract, and the question
    is worth re-asking then and not before.
-7. **Does panel open state belong in the permalink?** The smallest decision in
+6. **Does panel open state belong in the permalink?** The smallest decision in
    the file and a real one: collapsing a panel is viewer chrome rather than a
    claim about the data, so putting it in the hash makes a shared link carry
    someone else's window. Decide it before adding the key, not after. See
