@@ -356,6 +356,61 @@ const MODE_PHRASE = {
   lirr: "on the LIRR", mnr: "on Metro-North",
 };
 
+// Bikes: the result the roadmap predicted, measured. Published with its
+// shape intact, because a single citywide ratio hides the whole finding.
+export function bikeHtml(stats) {
+  const b = stats.bike;
+  if (!b?.bands?.length) return "";
+  const fl = fmt(b.floor_minutes, 0);
+  const worst = b.bands[b.bands.length - 1];
+  const mid = b.bands[1];
+  return `Swapping the walk for a ride is the same computation over the
+    cycling network at ${fmt(b.speed_mps * 3.6, 0)} km/h, and the answer has
+    a shape worth more than its average. Of the
+    <strong>${fmt(b.pop_beyond_walking)}</strong> people more than ${fl}
+    minutes' walk from a train, ${fmt(b.pct_rescued, 0)}% are inside ${fl}
+    minutes by bike. But that figure is carried almost entirely by the
+    middle: everyone in the ${fmt(mid.walk_from, 0)}–${fmt(mid.walk_to, 0)}
+    minute band gets inside it, while of the ${fmt(worst.pop)} people in
+    areas over ${fmt(worst.walk_from, 0)} minutes' walk,
+    <strong>${fmt(worst.pop_inside_by_bike)}</strong> do —
+    ${fmt(100 * worst.pop_inside_by_bike / worst.pop, 1)}%. Those areas are
+    far by street network, not merely far on foot, so a bike moves them from
+    a very long walk to a long ride. That is the measured case against
+    treating bike infrastructure as a substitute for a line, and it is also
+    the case <em>for</em> bike infrastructure in the middle band, where it
+    plainly works.`;
+}
+
+export function bikeTable(stats) {
+  const b = stats.bike;
+  if (!b?.bands?.length) return "";
+  const rows = b.bands.map((r) => {
+    const band = r.walk_to == null
+      ? `over ${fmt(r.walk_from, 0)} min`
+      : `${fmt(r.walk_from, 0)}–${fmt(r.walk_to, 0)} min`;
+    return `<tr><td>${band}</td>
+      <td class="num">${fmt(r.pop)}</td>
+      <td class="num">${fmt(r.median_walk_min, 1)}</td>
+      <td class="num">${fmt(r.median_bike_min, 1)}</td>
+      <td class="num">${fmt(100 * r.pop_inside_by_bike / r.pop, 0)}%</td></tr>`;
+  }).join("");
+  return `
+    <table>
+      <caption>By how far the walk is today. The last column is the share of
+        each band's population that is within
+        ${fmt(b.floor_minutes, 0)} minutes of a station by bike. Cycling is
+        over every street rather than the protected network alone, so these
+        are best cases, and nothing here accounts for having somewhere to
+        leave the bike.</caption>
+      <thead><tr><th>Walk today</th><th class="num">Population</th>
+        <th class="num">Median walk</th><th class="num">Median ride</th>
+        <th class="num">Inside ${fmt(b.floor_minutes, 0)} min by bike</th>
+        </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
 // Where one more station would help most, and the two reasons the ranking is
 // in person-minutes rather than in people moved.
 export function sitingHtml(stats) {

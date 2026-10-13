@@ -136,7 +136,7 @@ const query = (layer, point) =>
 // ignored, which means a later control is one more key and there is no format
 // to version. `v` is zoom/lat/lon, the order OSM and Mapbox hashes use.
 const CHOROPLETHS = ["gap", "clump", "bivariate", "density", "walk", "access",
-                     "jobs", "jobtime", "hub", "stepfree", "none"];
+                     "jobs", "jobtime", "hub", "stepfree", "bike", "none"];
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 // Reads the hash into `state` and returns the camera it asked for, if any.
@@ -669,6 +669,12 @@ function fillColor() {
   // would suggest they are different quantities.
   if (state.choropleth === "stepfree")
     return seqFill("sf", seqRamp("walk"), false);
+  // Minutes by bike, which is minutes again and in the same direction, so it
+  // shares the walk ramp for the same reason the step-free layer does. Note
+  // its breaks are its own quantiles, so the colors are NOT comparable
+  // step-for-step with the walk layer's -- the legend prints the numbers.
+  if (state.choropleth === "bike")
+    return seqFill("bike", seqRamp("walk"), false);
   const [key, ramp] = state.choropleth === "density"
     ? ["dc", densCls()] : ["wc", walkCls()];
   return ["match", ["get", key], 0, ramp[0], 1, ramp[1], 2, ramp[2], unpop()];
@@ -1256,6 +1262,8 @@ function wireHover() {
       // reads as a walk time rather than as a penalty. Deliberately after
       // the `else if` above and not between the two: inserting a statement
       // there silently re-parents the else to the new `if`.
+      if (p.bike != null)
+        html += row("By bike to a station", `${fmt(p.bike, 1)} min`);
       if (p.sf != null && p.walk != null)
         html += row("To a step-free station",
                     `${fmt(p.sf, 1)} min (+${fmt(Math.max(p.sf - p.walk, 0), 1)})`);
@@ -1618,6 +1626,41 @@ function renderLegend() {
     return;
   }
 
+  if (state.choropleth === "bike") {
+    const bk = stats.bike ?? {};
+    const ramp = seqRamp("walk");
+    const brk = seqBreaks("bike");
+    const k = (v) => `${fmt(v, 0)} min`;
+    const rows = ramp.slice(0, brk.length + 1).map((hex, i) => {
+      const lab = i === 0 ? `under ${k(brk[0])}`
+        : i === brk.length ? `over ${k(brk[i - 1])}`
+        : `${k(brk[i - 1])} – ${k(brk[i])}`;
+      return `<div class="ramprow"><i data-cls="${i}"
+              style="background:${hex}"></i>
+              <span class="lab">${lab}</span></div>`;
+    });
+    const worst = bk.bands?.[bk.bands.length - 1];
+    el.innerHTML = rows.join("")
+      + `<div class="ramprow"><i style="background:${unpop()}"></i>
+         <span class="lab">no station reachable</span></div>`
+      + `<div class="sub" style="margin-top:9px">Riding to the nearest
+         station instead of walking, on the cycling network. It closes the
+         middle of the gap and not the end of it: of the
+         ${fmt(bk.pop_beyond_walking)} people more than
+         ${fmt(bk.floor_minutes, 0)} minutes' walk from a train,
+         <strong>${fmt(bk.pct_rescued, 0)}%</strong> are inside that by
+         bike — but in the areas over
+         ${fmt(worst?.walk_from, 0)} minutes' walk, only
+         <strong>${fmt(100 * (worst?.pop_inside_by_bike ?? 0)
+           / (worst?.pop || 1), 1)}%</strong> are.</div>`
+      + `<div class="sub" style="margin-top:6px">Every street, not the
+         protected network only, so read it as the best case. It also
+         assumes somewhere to leave the bike, which at outer stations is the
+         real constraint and is in none of this data. Not part of the
+         under-service score.</div>`;
+    return;
+  }
+
   if (state.choropleth === "stepfree") {
     const sf = stats.step_free ?? {};
     const ramp = seqRamp("walk");
@@ -1765,7 +1808,8 @@ function repaint() {
 function showLayerNotes() {
   $("#gapweight").hidden = state.choropleth !== "gap";
   for (const [id, layer] of [["clumpnote", "clump"], ["binote", "bivariate"],
-                             ["sfnote", "stepfree"]]) {
+                             ["sfnote", "stepfree"],
+                             ["bikenote", "bike"]]) {
     const el = $(`#${id}`);
     if (el) el.hidden = state.choropleth !== layer;
   }

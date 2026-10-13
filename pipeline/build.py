@@ -34,6 +34,7 @@ FIELDS = {
     "geoid": "geoid", "boroname": "boro", "ntaname": "nta",
     "pop": "pop", "density_km2": "dens", "walk_min": "walk",
     "subway_walk_min": "swalk", "stepfree_min": "sf", "bivariate": "bi",
+    "bike_min": "bike",
     "density_class": "dc", "walk_class": "wc",
     "near_station": "st", "near_station_routes": "sroutes",
     "near_station_mode": "smode", "walk_min_lo": "wlo", "walk_min_hi": "whi",
@@ -75,6 +76,13 @@ FIELDS = {
 # that hitting the budget by simplification alone would have cost.
 INTERNED = ("boro", "nta", "st", "sroutes", "smode", "sst")
 
+# Fields that may legitimately be absent, with the reason. `bike_min` needs
+# the cycling graph, which is a second parse of the 153 MB extract -- a
+# checkout that has not run `make network-bike` should still build everything
+# else rather than failing here, and `app.js` already draws the layer only
+# when the field is present.
+OPTIONAL = {"bike_min": "the cycling graph (make network-bike)"}
+
 SCHEMA_DOC = {
     "geoid": "11-digit census GEOID",
     "boro": "borough name",
@@ -83,6 +91,11 @@ SCHEMA_DOC = {
     "dens": "population per square km of land",
     "walk": "median network walk time to the nearest train station, minutes",
     "swalk": "same, counting subway + Staten Island Railway only",
+    "bike": "minutes to the nearest station by bike, over the OpenStreetMap "
+            "cycling network at 3.6 m/s. Every street, not the protected "
+            "network only, so read it as an upper bound on what cycling "
+            "reaches; and it assumes somewhere to leave the bike, which at "
+            "outer stations is the binding constraint",
     "sf": "same, counting only the 219 stations with a step-free route built "
           "as of step_free.as_of -- built, not working today, since live "
           "elevator outages are not in this. null where no step-free station "
@@ -183,7 +196,12 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
 
     g = g.to_crs(C.CRS_GEO)
 
-    out = g[["geometry"] + list(FIELDS)].rename(columns=FIELDS)
+    fields = dict(FIELDS)
+    for col, why in OPTIONAL.items():
+        if col not in g.columns:
+            print(f"  skipped {FIELDS[col]}: no {col} -- needs {why}")
+            fields.pop(col, None)
+    out = g[["geometry"] + list(fields)].rename(columns=fields)
     # One decimal everywhere. Shipping these at float64 precision -- which is
     # what happens if a new numeric field is simply not added to this tuple --
     # cost 61 KB gzipped for four fields, 200x the 0.3 KB a rounded field costs
@@ -196,9 +214,10 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
         return (out[col].astype("float64")
                 .replace([np.inf, -np.inf], np.nan).round(places))
 
-    for col in ("walk", "swalk", "sf", "wlo", "whi", "acc", "wait", "stph",
-                "nveh", "pov", "tcom", "u18", "o65", "dis"):
-        out[col] = rounded(col, 1)
+    for col in ("walk", "swalk", "sf", "bike", "wlo", "whi", "acc", "wait",
+                "stph", "nveh", "pov", "tcom", "u18", "o65", "dis"):
+        if col in out.columns:
+            out[col] = rounded(col, 1)
     # Two decimals, because the detour factor's middle 80% is 0.79 to 1.28 --
     # rounding it to one would quantize the layer into four values. Three
     # decimals costs 8.0 KB against 4.6 and shows nothing.

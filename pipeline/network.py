@@ -1,10 +1,15 @@
-"""Stage 2: OSM .pbf -> cached undirected walking graph.
+"""Stage 2: OSM .pbf -> cached undirected walking (or cycling) graph.
 
 Deliberately avoids OSMnx's Overpass download path (unreliable on some
 networks) and any routing server. Output is a plain CSR adjacency plus node
 coordinates, which stages 4-6 reload in under a second.
 
-Run:  python -m pipeline.network [--force]
+The cycling graph is the same code with `network_type="cycling"` and its own
+cache, which is the whole reason the bike question is cheap: the one-Dijkstra
+design does not care which network it is given, so bike minutes to the
+nearest station fall out of a different edge set and a different speed.
+
+Run:  python -m pipeline.network [--force] [--bike]
 """
 
 from __future__ import annotations
@@ -36,9 +41,11 @@ def study_area_bbox():
     return [float(minx), float(miny), float(maxx), float(maxy)]
 
 
-def build(force: bool = False) -> None:
-    if C.P_GRAPH.exists() and not force:
-        print(f"  cached  {C.P_GRAPH.name}")
+def build(force: bool = False, bike: bool = False) -> None:
+    dest = C.P_BIKE_GRAPH if bike else C.P_GRAPH
+    kind = "cycling" if bike else "walking"
+    if dest.exists() and not force:
+        print(f"  cached  {dest.name}")
         return
     if not C.P_PBF.exists():
         raise SystemExit(f"Missing {C.P_PBF}. Run: python -m pipeline.fetch")
@@ -49,9 +56,9 @@ def build(force: bool = False) -> None:
     print(f"  bbox    {[round(v, 4) for v in bbox]}")
 
     t0 = time.time()
-    print("  parsing walking network from .pbf (this takes a minute or two)")
+    print(f"  parsing {kind} network from .pbf (this takes a minute or two)")
     osm = OSM(str(C.P_PBF), bounding_box=bbox)
-    nodes, edges = osm.get_network(network_type="walking", nodes=True)
+    nodes, edges = osm.get_network(network_type=kind, nodes=True)
     print(f"  parsed  {len(nodes):,} nodes / {len(edges):,} edges "
           f"in {time.time() - t0:.0f}s")
 
@@ -107,16 +114,19 @@ def build(force: bool = False) -> None:
     print(f"            {tiny:,} components under 50 nodes "
           f"({sizes[sizes < 50].sum():,} nodes total)")
 
-    save_graph(C.P_GRAPH, csr.tocsr(), x, y, osmid, labels)
-    size_mb = C.P_GRAPH.stat().st_size / 1e6
-    print(f"  saved   {C.P_GRAPH.name} ({size_mb:.1f} MB) in {time.time() - t0:.0f}s total")
+    save_graph(dest, csr.tocsr(), x, y, osmid, labels)
+    size_mb = dest.stat().st_size / 1e6
+    print(f"  saved   {dest.name} ({size_mb:.1f} MB) in {time.time() - t0:.0f}s total")
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Build the cached walking graph.")
+    ap = argparse.ArgumentParser(
+        description="Build the cached walking or cycling graph.")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--bike", action="store_true",
+                    help="build the cycling graph instead of the walking one")
     args = ap.parse_args(argv)
-    build(args.force)
+    build(args.force, bike=args.bike)
     print("\nStage 2 complete.")
     return 0
 

@@ -20,6 +20,17 @@ CRS_GEO = "EPSG:4326"
 
 # --- Analysis parameters ----------------------------------------------------
 WALK_SPEED_MPS = 1.35          # ~3.0 mph, standard pedestrian planning speed
+# Cycling, for the bike variant of the same pass. 3.6 m/s is 13 km/h, inside
+# the 12-16 km/h range urban cycling is normally planned at and close to the
+# average trip speed bike-share operators report for a classic bike.
+#
+# The thing worth knowing about this number: **it cannot change which areas
+# the bike layer ranks worst.** Bike minutes are bike distance divided by a
+# constant, so the ordering is the distance ordering whatever the speed is.
+# What the speed moves is only where a fixed threshold falls -- "within 10
+# minutes by bike" -- and the comparisons this layer exists to make are
+# ratios against the walk, which are also speed-free in their shape.
+BIKE_SPEED_MPS = 3.6
 WALK_THRESHOLDS_MINUTES = (5, 10, 15)
 HALF_MILE_METERS = 804.672     # for the published-benchmark cross-check
 
@@ -562,6 +573,7 @@ P_GTFS_FERRY = RAW / f"gtfs_{GTFS_FERRY_FEED[0]}.zip"
 P_GTFS_BUS = {k: RAW / f"gtfs_bus_{k}.zip" for k in GTFS_BUS_FEEDS}
 
 P_GRAPH = PROCESSED / "walk_graph.npz"
+P_BIKE_GRAPH = PROCESSED / "bike_graph.npz"
 P_STATIONS = PROCESSED / "stations.parquet"
 P_NODE_DIST = PROCESSED / "node_distance.npz"
 P_GEO_STATS = PROCESSED / f"{GEO_LEVEL}_stats.parquet"
@@ -574,6 +586,12 @@ P_TRANSIT_STATIONS = PROCESSED / "transit_graph.parquet"
 P_RIDE_TIME = PROCESSED / "rail_station_time.npz"
 P_TRACT_TIME = PROCESSED / f"{GEO_LEVEL}_transit_time.npz"
 P_ACCESS = PROCESSED / f"{GEO_LEVEL}_accessibility.parquet"
+
+
+def bike_minutes(meters):
+    """Meters on the cycling network to minutes at BIKE_SPEED_MPS."""
+    import numpy as _np
+    return _np.asarray(meters, dtype=float) / BIKE_SPEED_MPS / 60.0
 
 
 def minutes(meters):

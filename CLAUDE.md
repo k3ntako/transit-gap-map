@@ -109,7 +109,7 @@ downstream of the expensive parse.
 | Stage | Module | Writes |
 |---|---|---|
 | 1 | `fetch.py` | `data/raw/` — stations, boundaries, census, 3 GTFS feeds, 153 MB OSM extract |
-| 2 | `network.py` | `walk_graph.npz` — undirected CSR adjacency + node coords |
+| 2 | `network.py` | `walk_graph.npz` — undirected CSR adjacency + node coords; `--bike` writes `bike_graph.npz` from the same code |
 | 3 | `service.py` | `station_service.parquet` + `bus_stop_service.parquet` — trains and buses per hour, from GTFS |
 | 4 | `distance.py` | `node_distance.npz` — nearest-station distance per node |
 | 5 | `aggregate.py` | `tract_stats.parquet` — per-geography statistics |
@@ -517,6 +517,46 @@ of elevators that fixes this, so the table publishes 40 rows
 is labeled "step-free **by design** as of ⟨fetch date⟩", from the station
 table's mtime rather than from prose, because the flag means a route was
 built and MTA's live outages are not in this.
+
+**A bike closes the middle of the gap and barely touches the end of it, and
+that is the whole finding.** Added 2026-10-12, Phase 6. `network.py --bike`
+parses the same extract as a cycling network (1.02M nodes against the walk
+graph's 1.84M), `distance.py --bike` runs the identical multi-source pass over
+it, and `C.bike_minutes` converts at `BIKE_SPEED_MPS` = 3.6 m/s (13 km/h).
+Nothing downstream changed shape, which is what the one-Dijkstra design was
+for. Measured, by how far the walk is today:
+
+| walk today | population | median ride | inside 10 min by bike |
+|---|---|---|---|
+| 0–10 min | 5,464,431 | 2.2 min | 100% |
+| 10–20 min | 1,814,076 | 5.1 min | 100% |
+| 20–30 min | 666,157 | 9.0 min | 72% |
+| over 30 min | 571,538 | 14.7 min | **0.5%** |
+
+Citywide that reads "75% of the 3.05M people past the walking standard are
+inside it by bike", and quoting that alone would be close to a lie: the
+figure is carried by the middle band, and **3,109 of the 571,538 people in
+the worst areas** are rescued. Those places are far by street *network*, not
+merely far on foot, so a bike moves a 39-minute walk to a 15-minute ride.
+That is the measured case against treating bike lanes as a substitute for a
+line, and the case for them in the middle band.
+
+Two things to state with any bike number, both in the schema and on the
+page: it is **every street** and not the protected network, because matching
+the DOT facility data onto OSM edges is a method decision the roadmap has
+not settled, so this is a best case; and it assumes somewhere to leave the
+bike, which at outer stations is the binding constraint and is in none of
+this data.
+
+`bike_min` is the first **optional** payload field (`build.py:OPTIONAL`): the
+cycling graph is a second four-minute parse, so a checkout without it builds
+everything else and the layer hides itself. One trap worth not re-deriving —
+`distance.py`'s node-level distance line is **not comparable between
+variants**: the bike median reads 3,536 m against the walk's 1,079 because
+the cycling network joins the far corners of the buffered bbox into one
+component where the pedestrian network leaves them in station-less fragments
+the serviceable mask drops. At geography level the ride is shorter than the
+walk everywhere, as it must be.
 
 **Where one more station would help most is a ranking of points, measured in
 the score's own unit.** Added 2026-10-12, Phase 7. `siting.py` puts one

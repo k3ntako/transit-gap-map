@@ -3,13 +3,14 @@ PY := .venv/bin/python
 PORT ?= 8000
 
 .PHONY: help setup fetch network service distance transit access aggregate \
-        siting palette surface build verify all serve clean lock \
+        network-bike siting palette surface build verify all serve clean lock \
         publish publish-code smoke
 
 help:
 	@echo "make setup    create .venv (Python 3.14) and install dependencies"
 	@echo "make fetch    stations, boundaries, census, GTFS (~68 MB), OSM extract (~153 MB)"
 	@echo "make network  parse the .pbf into a cached walking graph (~4-5 min)"
+	@echo "make network-bike  the same for the cycling graph, for the bike lens"
 	@echo "make service  scheduled trains and buses per hour, from GTFS"
 	@echo "make distance multi-source Dijkstra: nearest station per graph node"
 	@echo "make transit  rail transit graph: station-to-station travel time"
@@ -46,6 +47,13 @@ fetch:
 
 network:
 	$(PY) -m pipeline.network
+
+# The cycling network, for the bike lens. A second parse of the same extract,
+# so it is its own target rather than part of `network`; everything
+# downstream treats the bike field as optional and skips it if this has not
+# been run.
+network-bike:
+	$(PY) -m pipeline.network --bike
 
 # Needs only the station tables and the GTFS feeds, not the walk graph.
 service: fetch
@@ -90,8 +98,8 @@ build: access
 verify:
 	$(PY) -m pipeline.verify
 
-all: fetch network service distance transit access siting palette surface \
-     build verify
+all: fetch network network-bike service distance transit access siting \
+     palette surface build verify
 
 # serve.py rather than python -m http.server: the stdlib server sends no
 # Cache-Control, so a browser can keep serving an edited page from its own

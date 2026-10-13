@@ -5,6 +5,11 @@ a virtual source node joined to its snapped graph node by the snap offset, so a
 station sitting off the mapped network pays for that gap -- and the returned
 `sources` array still identifies which station is nearest.
 
+The `bike` variant swaps the graph rather than the source set: the same
+multi-source pass over the cycling network, at the cycling speed. Nothing
+downstream changes shape, which is the point -- see Phase 6 in ROADMAP.md for
+what it does and does not answer.
+
 The `step_free` variant restricts the source set to the 219 stations with a
 step-free route built, which is the city as a rider who cannot use stairs sees
 it. It is a lens and not a term in the score: the score ranks geographies and
@@ -50,7 +55,7 @@ SUBWAY_MODES = ("subway", "sir")
 
 
 def cache_path(subway_only: bool, weighted: bool = False,
-               step_free: bool = False):
+               step_free: bool = False, bike: bool = False):
     stem = C.P_NODE_DIST.stem
     if subway_only:
         stem += "_subway"
@@ -58,11 +63,14 @@ def cache_path(subway_only: bool, weighted: bool = False,
         stem += "_weighted"
     if step_free:
         stem += "_stepfree"
+    if bike:
+        stem += "_bike"
     return C.P_NODE_DIST.with_name(stem + ".npz")
 
 
 def compute(force: bool = False, subway_only: bool = False,
-            weighted: bool = False, step_free: bool = False):
+            weighted: bool = False, step_free: bool = False,
+            bike: bool = False):
     """Per-node cost to the nearest station.
 
     `subway_only` restricts sources to subway + SIR, which is what published
@@ -79,22 +87,28 @@ def compute(force: bool = False, subway_only: bool = False,
     a static map cannot say "out until April" -- so everything downstream
     labels it by the fetch date rather than as current.
 
+    `bike` runs the identical pass over the cycling network instead of the
+    pedestrian one. The distances it returns are *cycling* meters, so they
+    convert with `C.bike_minutes` and not `C.minutes`, and its node indices
+    address the bike graph -- they are not comparable with any other
+    variant's node for node, only geography by geography.
+
     Returns (dist_m, nearest_station_idx, serviceable_mask).
     """
-    out = cache_path(subway_only, weighted, step_free)
+    out = cache_path(subway_only, weighted, step_free, bike)
     if out.exists() and not force:
         print(f"  cached  {out.name}")
         z = np.load(out, allow_pickle=True)
         return z["dist"], z["nearest"], z["serviceable"]
 
-    g = load_graph(C.P_GRAPH)
+    g = load_graph(C.P_BIKE_GRAPH if bike else C.P_GRAPH)
     csr, x, y, comp = g.csr, g.x, g.y, g.component
     n = csr.shape[0]
     print(f"  graph   {n:,} nodes / {csr.nnz // 2:,} undirected edges, "
           f"{comp.max() + 1:,} components")
 
     st = load_stations(
-        verbose=not subway_only and not weighted and not step_free)
+        verbose=not (subway_only or weighted or step_free or bike))
     if subway_only:
         st = st.loc[st["mode"].isin(SUBWAY_MODES)].reset_index(drop=True)
         print(f"  subway-only variant: {len(st)} stations")
@@ -181,14 +195,25 @@ def compute(force: bool = False, subway_only: bool = False,
     print(f"  reached {reach.sum():,}/{n:,} nodes ({100 * reach.mean():.2f}%); "
           f"of serviceable nodes {100 * reach[serviceable].mean():.2f}%")
     d = dist[reach]
-    label = "access cost" if weighted else "walk distance"
+    # Note for anyone comparing this line between variants: it is a
+    # distribution over *nodes*, and the bike graph's nodes are not the walk
+    # graph's. Measured, the bike median is 3,536 m against the walk's 1,079
+    # and the p75 is 22 km, which is not a finding about cycling -- the
+    # cycling network connects the far corners of the buffered bbox (Nassau,
+    # New Jersey) into one component, where the pedestrian network leaves
+    # them in station-less fragments that the serviceable mask drops. At
+    # geography level, which is what ships, the bike ride is shorter than the
+    # walk everywhere, as it must be.
+    label = ("access cost" if weighted else "bike distance" if bike
+             else "walk distance")
+    to_min = C.bike_minutes if bike else C.minutes
     print(f"  {label}: median {np.median(d):.0f} m, "
           f"p90 {np.percentile(d, 90):.0f} m, max {d.max():.0f} m "
-          f"({C.minutes(np.median(d)):.1f} min median)")
+          f"({to_min(np.median(d)):.1f} min median)")
 
     np.savez_compressed(out, dist=dist, nearest=nearest, serviceable=serviceable)
     saved = [out.name]
-    if not subway_only and not weighted and not step_free:
+    if not (subway_only or weighted or step_free or bike):
         st_geo = st.to_crs(C.CRS_GEO)
         st.drop(columns="geometry").assign(
             snap_offset_m=offs,
@@ -212,6 +237,12 @@ def main(argv=None) -> int:
     compute(args.force, subway_only=False, weighted=True)
     print("\nStep-free stations only (the accessibility lens):")
     compute(args.force, subway_only=False, step_free=True)
+    if C.P_BIKE_GRAPH.exists():
+        print("\nAll rail modes, by bike (the cycling network):")
+        compute(args.force, subway_only=False, bike=True)
+    else:
+        print(f"\nNo {C.P_BIKE_GRAPH.name}; skipping the bike pass. Build it "
+              f"with: python -m pipeline.network --bike")
     print("\nStage 4 complete.")
     return 0
 

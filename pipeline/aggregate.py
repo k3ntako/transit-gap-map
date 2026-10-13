@@ -293,15 +293,20 @@ def _refine(small: gpd.GeoDataFrame, spacing: float, measure) -> dict:
     return found
 
 
-def geography_distance(gdf, dist, serviceable, spacing):
+def geography_distance(gdf, dist, serviceable, spacing, graph_path=None):
     """Median network walk distance per geography, from sampled points.
 
     Samples snap only to nodes in a station-bearing component. Snapping to any
     node would let a point attach to an isolated park path or pier and come
     back as having no transit access, when the street it actually sits on is
     a few meters away.
+
+    `graph_path` is the network those distances were measured on, and it has
+    to be that one: the bike variant's node indices address the cycling
+    graph, so snapping its distances against walk-graph coordinates would
+    quietly measure a different city.
     """
-    g = load_graph(C.P_GRAPH)
+    g = load_graph(graph_path or C.P_GRAPH)
     x, y = g.x, g.y
     keep = np.flatnonzero(serviceable)
     tree = cKDTree(np.column_stack([x[keep], y[keep]]))
@@ -453,6 +458,71 @@ def margin_stats(df) -> dict:
         "n_unreliable": unrel,
         "pct_unreliable": round(100 * unrel / n, 1) if n else None,
     }
+
+
+def bike_stats(df) -> dict:
+    """Does a bike close the gap, or move it?
+
+    The question Phase 6 asks, and the shape of the answer matters more than
+    the level: expect a bike to rescue the *middle* of the distribution and
+    to do much less for the worst areas, because those are far by street
+    network rather than merely far on foot. So the figures are reported by
+    walk-time band, since a single citywide ratio cannot show that shape.
+
+    Two cautions belong with any number here. **A bike catchment computed
+    over every street is a fantasy catchment** -- the protected-only version
+    is the one that measures whether the city has built a usable approach to
+    its own stations, and it is not built (Phase 6 says why). And a bike
+    catchment assumes you can leave the bike somewhere, which at outer
+    stations is the binding constraint and is in none of this data.
+    """
+    m = (df["is_populated"] & np.isfinite(df["bike_min"])
+         & np.isfinite(df["walk_min"])).to_numpy()
+    pop = df.loc[m, "pop"].to_numpy()
+    walk = df.loc[m, "walk_min"].to_numpy()
+    bike = df.loc[m, "bike_min"].to_numpy()
+    floor = C.ACCESS_FLOOR_MINUTES
+
+    bands = [(0.0, floor), (floor, 2 * floor), (2 * floor, 3 * floor),
+             (3 * floor, np.inf)]
+    rows = []
+    for lo, hi in bands:
+        sel = (walk >= lo) & (walk < hi)
+        if not sel.any():
+            continue
+        rows.append({
+            "walk_from": lo, "walk_to": None if not np.isfinite(hi) else hi,
+            "n_geographies": int(sel.sum()),
+            "pop": int(pop[sel].sum()),
+            "median_walk_min": round(float(np.median(walk[sel])), 1),
+            "median_bike_min": round(float(np.median(bike[sel])), 1),
+            # Population this band brings inside the standard by cycling.
+            "pop_inside_by_bike": int(pop[sel & (bike <= floor)].sum()),
+        })
+    out = {
+        "speed_mps": C.BIKE_SPEED_MPS,
+        "floor_minutes": floor,
+        "median_walk_min": round(float(np.median(walk)), 1),
+        "median_bike_min": round(float(np.median(bike)), 1),
+        "pop_beyond_walking": int(pop[walk > floor].sum()),
+        "pop_beyond_both": int(pop[(walk > floor) & (bike > floor)].sum()),
+        "bands": rows,
+    }
+    out["pct_rescued"] = round(
+        100 * (1 - out["pop_beyond_both"] / out["pop_beyond_walking"]), 1)
+    print(f"  bikes   median walk {out['median_walk_min']} min, median ride "
+          f"{out['median_bike_min']} min")
+    print(f"          of the {out['pop_beyond_walking']:,} people past the "
+          f"{floor:.0f}-minute walking standard, "
+          f"{out['pop_beyond_walking'] - out['pop_beyond_both']:,} "
+          f"({out['pct_rescued']}%) are inside it by bike")
+    for r in rows:
+        hi = "and up" if r["walk_to"] is None else f"to {r['walk_to']:.0f}"
+        print(f"          walk {r['walk_from']:>2.0f} {hi:>7} min: "
+              f"{r['n_geographies']:>4} areas, {r['pop']:>9,} people, "
+              f"median ride {r['median_bike_min']:>5} min, "
+              f"{r['pop_inside_by_bike']:>9,} inside by bike")
+    return out
 
 
 def need_cross_stats(df) -> dict:
@@ -1010,6 +1080,21 @@ def run(force: bool = False):
     d_sf = geography_distance(gdf, dist_sf, serv_sf,
                               C.TRACT_SAMPLE_SPACING_METERS)
 
+    # Bikes, if the cycling graph has been built. Optional on purpose: it is
+    # a second parse of the 153 MB extract and a second graph on disk for one
+    # lens, so a checkout without it still builds everything else.
+    d_bike = None
+    if C.P_BIKE_GRAPH.exists():
+        print("Network distance (by bike, on the cycling network):")
+        dist_bk, _nbk, serv_bk = compute_dist(
+            force=False, subway_only=False, bike=True)
+        d_bike = geography_distance(gdf, dist_bk, serv_bk,
+                                    C.TRACT_SAMPLE_SPACING_METERS,
+                                    graph_path=C.P_BIKE_GRAPH)
+    else:
+        print(f"No {C.P_BIKE_GRAPH.name}; skipping the bike lens "
+              f"(python -m pipeline.network --bike builds it)")
+
     df = gdf.merge(d_all, on="geoid", how="left")
     df["subway_walk_m"] = d_sub["walk_m"].to_numpy()
     df["access_m"] = d_acc["walk_m"].to_numpy()
@@ -1018,6 +1103,12 @@ def run(force: bool = False):
     df["subway_walk_min"] = C.minutes(df["subway_walk_m"])
     df["access_min"] = C.minutes(df["access_m"])
     df["stepfree_min"] = C.minutes(df["stepfree_m"])
+    if d_bike is not None:
+        df["bike_m"] = d_bike["walk_m"].to_numpy()
+        # `bike_minutes`, not `minutes`: a different network and a different
+        # speed, and the walk converter here would report 13 km/h of cycling
+        # as if it were 4.9 km/h of walking.
+        df["bike_min"] = C.bike_minutes(df["bike_m"])
     # The two medians are taken over the same sample grid but reduced
     # independently, so this is the difference of medians and not the median of
     # differences -- and it can go slightly negative where the weighted pass
@@ -1046,6 +1137,8 @@ def run(force: bool = False):
     print("Step-free access:")
     stepfree = stepfree_stats(df)
 
+    bike = bike_stats(df) if "bike_min" in df.columns else {}
+
     print("Who lives there:")
     cross = need_cross_stats(df)
     margins = margin_stats(df)
@@ -1059,6 +1152,8 @@ def run(force: bool = False):
     stats["step_free"] = stepfree
     stats["need_cross"] = cross
     stats["margins"] = margins
+    if bike:
+        stats["bike"] = bike
     if acc_stats:
         stats["accessibility"] = acc_stats
     stats["hub_columns"] = hub_cols
