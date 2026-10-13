@@ -468,6 +468,16 @@ question is already answered and the real question is the build.
 
 ## Payload debt
 
+**Paid 2026-10-12** — kept here until Phase 6 closes, because this section is
+what its commit message answers to. `tracts.geojson` is geometry plus `geoid`
+and every column is a parallel array in `tract_cols.json`: 350 KB interleaved
+became 216 KB of geometry plus 76 KB of 28 columns, so a column now costs
+about 2 KB rather than 5 and the headroom is roughly sixty fields rather than
+four. `BUDGET_TRACTS_WIRE_KB` stays 420 and is asserted against the pair. The
+values were proved unchanged per geoid, with one correction falling out of it:
+89 tracts had been shipping `det` as 1.1900001, a float32 column rounded in
+float32, and every rounded column is now cast to float64 first.
+
 One item, and it is the oldest unpaid thing in this file. It sits in no phase
 because it answers no question: it is the carrying cost of the last phase, and
 it comes due on whichever phase adds the next numeric field.
@@ -609,7 +619,15 @@ citywide layer.
 ## Phase 6 — access cost, done properly
 
 - **Step-free access — a lens and a station ranking, explicitly not a term in
-  the score.** 2,120 subway entrances exist; **116 are step-free** (102
+  the score.** **Half built, 2026-10-12.** The filtered Dijkstra ships:
+  `distance.py --step-free` is a third variant beside `subway_only` and
+  `weighted`, 219 of 557 stations, and the median walk to the nearest
+  step-free station comes out at **19.3 minutes against 6.9** to the nearest
+  station of any kind. What is *not* built yet, and is the whole point of
+  having run it: the per-geography field in `tract_cols.json`, the layer on
+  the map, and the elevator-priority station table below. Those are next and
+  nothing blocks them — the payload sidecar that was their precondition is
+  paid for. 2,120 subway entrances exist; **116 are step-free** (102
   elevators, 10 ramps, 4 combinations). At station level, measured 2026-10-11
   from `stations.parquet`:
 
