@@ -20,5 +20,10 @@ web/data/*
 # pip freeze output from `make lock` is platform-specific
 requirements.lock.txt
 
+# Agent worktrees are checkouts of this repo inside itself, so git offers to
+# add them as an embedded repository and `git add -A` picks them up. The rest of
+# .claude/ is deliberately not ignored: skills and settings there are source.
+.claude/worktrees/
+
 # macOS
 .DS_Store
