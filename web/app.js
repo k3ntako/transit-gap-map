@@ -92,6 +92,11 @@ const state = {
   stations: true,
   busFtn: false,
   siting: false,
+  // Which bivariate cell is isolated, -1 for none. The roadmap asks for this
+  // by name, and for a specific reason: low density x short walk is a cell
+  // that is computed, painted and nameless, and it is the cheap version of
+  // "where could housing go next to transit that already exists".
+  biCell: -1,
   hovered: null,
   hoveredStation: null,
   densFloor: 0,
@@ -147,6 +152,10 @@ function applyHash() {
   if (CHOROPLETHS.includes(q.get("c"))) state.choropleth = q.get("c");
   if (q.has("bus")) state.busFtn = q.get("bus") === "1";
   if (q.has("sites")) state.siting = q.get("sites") === "1";
+  if (q.has("cell")) {
+    const v = Number(q.get("cell"));
+    state.biCell = Number.isInteger(v) && v >= 0 && v <= 8 ? v : -1;
+  }
   if (q.has("served")) state.servedFaded = q.get("served") === "1";
   const dens = num("dens", 0, 30000);
   if (dens != null) state.densFloor = dens;
@@ -190,6 +199,8 @@ function syncHash() {
     if (state.surface) q.push("surface=1");
     if (state.busFtn) q.push("bus=1");
     if (state.siting) q.push("sites=1");
+    if (state.biCell >= 0 && state.choropleth === "bivariate")
+      q.push(`cell=${state.biCell}`);
     if (!state.walksheds) q.push("sheds=0");
     if (!state.stations) q.push("stations=0");
     const c = map.getCenter();
@@ -685,6 +696,12 @@ const belowFloor = () => {
   // `coalesce` because `exc` is only written onto scored tracts -- an
   // unpopulated one has no excess and should fade with the rest.
   if (state.servedFaded) any.push(["<=", ["coalesce", ["get", "exc"], 0], 0]);
+  // Isolating one cell of the matrix is the same kind of filter as a floor:
+  // the other cells fade, they keep their outline and their tooltip, and they
+  // still count in every published figure. Only meaningful on the layer that
+  // paints `bi`, so it is scoped to it rather than leaking onto the ramps.
+  if (state.biCell >= 0 && state.choropleth === "bivariate")
+    any.push(["!=", ["coalesce", ["get", "bi"], -1], state.biCell]);
   return any;
 };
 
@@ -724,6 +741,8 @@ const fadedBy = (p) => {
   if ((p.dens ?? 0) < state.densFloor) on.push("the density floor");
   if ((p.pop ?? 0) < state.popFloor) on.push("the population floor");
   if (state.servedFaded && (p.exc ?? 0) <= 0) on.push("“meets the standard”");
+  if (state.biCell >= 0 && state.choropleth === "bivariate"
+      && (p.bi ?? -1) !== state.biCell) on.push("the chosen cell");
   return on;
 };
 
@@ -1372,6 +1391,39 @@ function gapBand(p) {
   return i;
 }
 
+// What each cell of the matrix is, indexed by `bi` = density class * 3 + walk
+// class. Two of the nine have names worth saying out loud: cell 8 is the
+// finding the map exists for, and cell 0 is its dual -- the one the roadmap
+// calls "where should the density go", which was computed and painted and
+// nameless until now.
+const BI_CELLS = [
+  "few people, short walk", "few people, middling walk",
+  "few people, long walk",
+  "middling density, short walk", "middling density, middling walk",
+  "middling density, long walk",
+  "dense, short walk", "dense, middling walk", "dense and far from a train",
+];
+
+// Clicking a cell isolates it. Delegated from the legend body, because the
+// grid is rebuilt on every render and a handler per swatch would leak.
+function wireLegendClicks() {
+  const el = $("#legendbody");
+  if (!el || el.dataset.wired) return;
+  el.dataset.wired = "1";
+  el.addEventListener("click", (e) => {
+    const cell = e.target.closest?.("i[data-bi]");
+    if (!cell || state.choropleth !== "bivariate") return;
+    const v = Number(cell.getAttribute("data-bi"));
+    state.biCell = state.biCell === v ? -1 : v;
+    map.setPaintProperty("tracts-fill", "fill-opacity", fillOpacity());
+    map.setPaintProperty("tracts-line", "line-opacity", lineOpacity());
+    map.setPaintProperty("tracts-line", "line-color", lineColor());
+    renderLegend();
+    showCount();
+    syncHash();
+  });
+}
+
 // Outlines the legend cell the hovered feature falls in, which teaches the
 // legend rather than replacing it. The cells carry data-bi / data-cls for this.
 function highlightLegend(p) {
@@ -1414,6 +1466,7 @@ function renderLegend() {
     const cells = [2, 1, 0].map((i) =>
       c[i].map((hex, j) =>
         `<i data-bi="${i * 3 + j}" style="background:${hex}"></i>`).join("")).join("");
+    const sel = state.biCell >= 0 ? BI_CELLS[state.biCell] : null;
     el.innerHTML = `
       <div class="bivwrap">
         <div class="bivaxis-y">Density <span class="arrow">→</span></div>
@@ -1425,8 +1478,16 @@ function renderLegend() {
       <div class="sub" style="margin-top:9px">
         The top-right corner is <strong>dense and far from a train</strong>:
         over ${fmt(b.density[1])} people/km² and over
-        ${fmt(b.walk_min[1], 1)} min walk.
-      </div>`;
+        ${fmt(b.walk_min[1], 1)} min walk. The bottom-left is the opposite
+        and is worth a name of its own —
+        <strong>few people, short walk</strong>: land near transit the city
+        has already built, which is where housing could go without a new
+        line.
+      </div>
+      <div class="sub" style="margin-top:9px">${sel
+        ? `Showing <strong>${esc(sel)}</strong> only. Click it again to show
+           every cell.`
+        : "Click a cell to show only the areas in it."}</div>`;
     return;
   }
 
@@ -1695,6 +1756,7 @@ function repaint() {
   map.setPaintProperty("tracts-fill", "fill-color", fillColor());
   syncHubMarks();
   renderLegend();
+  wireLegendClicks();
 }
 
 // Each layer's own control or caveat, shown only while that layer is on
@@ -1769,6 +1831,16 @@ function wireControls() {
       if (on) repaint(); else renderLegend();
       showLayerNotes();
       showHubPick();
+      // Leaving the matrix clears the isolated cell: `bi` means nothing on
+      // the other eight layers, so a filter left on would fade most of the
+      // map with no control on screen explaining it.
+      if (r.value !== "bivariate" && state.biCell >= 0) {
+        state.biCell = -1;
+        map.setPaintProperty("tracts-fill", "fill-opacity", fillOpacity());
+        map.setPaintProperty("tracts-line", "line-opacity", lineOpacity());
+        map.setPaintProperty("tracts-line", "line-color", lineColor());
+        showCount();
+      }
       syncHash();
     });
   });
@@ -2003,6 +2075,7 @@ async function main() {
   map.on("load", () => {
     addLayers();
     renderLegend();
+    wireLegendClicks();
     renderKeys();
     renderTable();
     reflectState();
