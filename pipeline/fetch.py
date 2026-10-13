@@ -363,6 +363,7 @@ def main(argv=None) -> int:
         print("Stations:")
         download(C.SOC_SUBWAY, C.P_SUBWAY, args.force, kind="stations")
         download(C.SOC_RAIL, C.P_RAIL, args.force, kind="stations")
+        download(C.SOC_ENTRANCES, C.P_ENTRANCES, args.force, kind="stations")
         print("Boundaries:")
         download(geoms_url, C.P_GEOMS, args.force, kind="boundaries")
         download(C.NYC_BOROUGHS_GEOJSON, C.P_BOROS, args.force, kind="boundaries")

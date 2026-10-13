@@ -144,6 +144,46 @@ mapped network pays for that gap rather than being treated as on it. This is als
 the hook for future wait penalties (see Phase 2 in `ROADMAP.md`) — add to the
 source cost, don't restructure the pass.
 
+**And a station is a set of doors, not a point.** Changed 2026-10-12
+(`C.USE_STATION_ENTRANCES`). 2,072 entry-allowed entrances cover 482 of the
+496 subway stations, joined on `gtfs_stop_id` like every other join here, so
+the pass runs from **2,133 sources for 557 stations** — several sources
+carrying the same station index, which `src_row` maps back so `nearest` still
+names a station. An exit-only stair is not a way in and is excluded. A
+station with no entrance row keeps its point: all of commuter rail, and 14
+subway stations.
+
+**Every published figure moved, and the direction is the opposite of what the
+roadmap predicted.** It said this would remove a bias that "flatters the
+map"; measured, a walk is a *minimum over sources*, so more doors can only
+shorten it:
+
+| | before | after |
+|---|---|---|
+| population-weighted mean walk | 12.01 min | 11.32 min |
+| within 10 minutes | 64.2% | 67.5% |
+| within 5 minutes | 23.2% | 32.4% |
+| half mile of a subway, by network | 62.2% | 65.8% |
+| excess person-minutes | 39.1M | 37.1M |
+| people past the standard | 3,051,771 | 2,767,141 |
+| largest contiguous block | 430 tracts | 257 tracts |
+
+Per geography: median −0.50 min, 1,892 areas shorter, 313 unchanged and
+**119 longer** by up to 1.1 minutes. The last column is the part worth
+keeping — where the entrance table covers a station its *point* stops being a
+source, so a station whose label sits closer to the network than its doors do
+gets correctly worse. The extreme case is a diagnostic in `verify.py`:
+**Whitlock Av's labeled point is 1,733 m of walking from its own nearest
+door.** Straight-line, no station point is more than 161 m from a door, so
+that number is all barrier.
+
+`verify.py` gates on the right thing as a result: entrances measured from
+their own coordinates come back at a median of **14 m** against a 60 m gate,
+which is what proves the virtual-source wiring. Measuring a station *point*
+against itself is no longer a tautology and is reported rather than gated.
+The alignment test survives the change: 80% at worst-25 and 51% clumped
+against a 36% floor, from 80% and 52%.
+
 **The pedestrian network is genuinely disconnected.** Staten Island has no
 walkable link to the other boroughs, so stage 4 works per connected component
 and publishes a `serviceable` mask: nodes in a component that actually contains a
@@ -910,9 +950,23 @@ the first four arrive free.
 **Contiguity is reported beside the per-tract score**, because a line serves a
 corridor. Connected components over land adjacency — the DCP polygons exclude
 water, so tracts across the East River don't touch, and no bridge edges are
-added. The result is the headline no per-tract ranking can produce: **430
-contiguous tracts holding 1.31M people** past the standard, Canarsie through
-Flatlands to St. Albans, while 24 of the 58 blocks are a single isolated tract.
+added. The result is the headline no per-tract ranking can produce: **257
+contiguous tracts holding 818,291 people** past the standard in southeast
+Queens (St. Albans, Baisley Park, Queens Village), a second block of **149
+and 412,356** in Brooklyn (Canarsie through Marine Park) and a third of
+**102 and 410,258** on Staten Island, while 19 of the 56 blocks are a single
+isolated tract.
+
+**Those figures are the post-entrance-snapping ones and the band used to be
+one block, not two.** Until 2026-10-12 this read "430 contiguous tracts
+holding 1.31M people, Canarsie through Flatlands to St. Albans". Snapping to
+real doors split it in two at the Brooklyn-Queens line, which is a result and
+not an artifact: part of what joined the two halves was tracts that are only
+past the standard when their walk is measured to a station *point* rather
+than to a way in. Note what this did to the argument for a spatial
+statistic — the roadmap wanted Local Moran's I partly because "a component
+count cannot split the 430-tract band", and a more accurate walk did it
+first.
 
 ## Verification
 
@@ -934,9 +988,10 @@ its own commit messages.
 Stage 5 prints three more cross-checks, and these **warn rather than fail** —
 read the output, don't assume a zero exit means they passed: unmatched DCP
 geoids (filled with 0 population), a total-population band of 8.0-9.5M, and the
-half-mile subway share against published figures (62.2% network vs 71.6%
-straight-line, a 9.5-point routing penalty that is itself a result worth
-quoting). `palette.py`'s gates, by contrast, are hard `assert`s.
+half-mile subway share against published figures (65.8% network vs 71.6%
+straight-line, a 5.9-point routing penalty that is itself a result worth
+quoting — it was 9.5 points until stations were snapped at their doors
+rather than at one point each). `palette.py`'s gates, by contrast, are hard `assert`s.
 
 ## Conventions
 

@@ -207,11 +207,13 @@ proposes a bike lane as an answer to a transit desert.
 
 **Contiguity was the sleeper and it paid off.** It needed nothing but an
 adjacency graph over polygons already on disk, and it produced the one headline
-no per-tract score can: 430 contiguous tracts holding 1.31M people, Canarsie
-through Flatlands to St. Albans. The honest caveat is that a block that large
-is arguably not a project unit but "the whole outer ring", which is the
-argument for the spatial statistic — a Local Moran's I could split that band
-into genuine hot spots, where the component count cannot.
+no per-tract score can: 257 contiguous tracts holding 818,291 people in
+southeast Queens, and 149 more in Brooklyn. The honest caveat used to be that
+a block that large is not a project unit but "the whole outer ring", which
+was the argument for the spatial statistic. Entrance snapping has already
+split the band once, on 2026-10-12, from one 430-tract block into these two
+— so that argument is now about splitting 257, not 430. See *The spatial
+statistic* in Phase 8.
 
 Proposed-line toggles (IBX, the T) are the most tempting thing to pull forward,
 and they should not be. Their entire value is the before/after comparison, so
@@ -699,19 +701,28 @@ citywide layer.
   **Not asserted here:** the size or schedule of MTA's accessibility
   commitment. There is no citation for it in this repo, and Phase 9 records
   what happens to figures written from memory.
-- **Entrance-level snapping.** The pipeline currently snaps 496 station *points*;
-  the entrances dataset (`i9wp-a4ja`, 2,120 rows, 2,072 entry-allowed, with
-  `entrance_latitude`/`longitude` and `gtfs_stop_id`) gives the real doors. For
-  long complexes — 14 St–Union Sq, Times Sq, the half-mile-long platforms on the
-  7 — the difference is a few hundred meters of walking, in the direction that
-  currently flatters the map.
+- **Entrance-level snapping. Done 2026-10-12, and the prediction below was
+  backwards.** The pass now runs from 2,133 sources for 557 stations — 2,072
+  entry-allowed doors from `i9wp-a4ja` covering 482 of the 496 subway
+  stations, with a station point for the rest, all joined on `gtfs_stop_id`.
+  This entry used to say the difference would run "in the direction that
+  currently flatters the map". It runs the other way, for a reason that is
+  obvious once stated: a walk is a *minimum over sources*, so adding doors
+  can only shorten it. Population-weighted mean walk 12.01 → 11.32 min,
+  within ten minutes 64.2% → 67.5%, half a mile of a subway 62.2% → 65.8%,
+  and the largest contiguous under-served block 430 tracts → 257. 119 areas
+  did get *worse*, by up to 1.1 minutes, which is the half of the prediction
+  that was right: where the entrance table covers a station its point stops
+  being a source, so a station labeled closer to the network than its doors
+  are loses that flattery. `C.USE_STATION_ENTRANCES` turns it off and
+  reproduces every old figure.
 - **Slope.** Washington Heights, Staten Island's spine, Riverdale. A DEM plus a
   slope-dependent walk speed (Tobler's hiking function is the standard) changes
   real walk times in exactly the neighborhoods that already score badly.
-- **Barrier and crossing cost.** The network already captures rivers and rail
-  cuts correctly (mean detour factor 1.68× vs straight line). A signalized-
-  crossing delay would add realism, but OSM crossing tagging is uneven in NYC —
-  check coverage before building on it.
+- **Barrier and crossing cost.** Not done. The network already captures
+  rivers and rail cuts correctly (mean barrier-probe detour 1.65× vs straight
+  line). A signalized-crossing delay would add realism, but OSM crossing
+  tagging is uneven in NYC — check coverage before building on it.
 
 ### Bikes
 
@@ -1017,7 +1028,7 @@ for: from "where is service missing" to "where could housing go".
   penalty, bus multiplier, score weights, sample spacing — stated with its value
   and its justification. The map makes claims; this is where they are defensible.
 - **Benchmark against published figures.** The pipeline already cross-checks the
-  half-mile subway share (62.2% network vs 71.6% straight-line, a 9.5-point
+  half-mile subway share (65.8% network vs 71.6% straight-line, a 5.9-point
   penalty — itself a finding worth stating prominently). Extend that to any
   published frequency or accessibility figures so a reader can locate this
   work against numbers they already trust.
@@ -1060,10 +1071,20 @@ Cluster size and cluster population now ship, and that was the cheap 90%. A
 statistic) is the formal way to say the same thing and distinguishes a real hot
 spot from a run of noise. It earns its place only now that the plain component
 count is on the page, and it is harder to explain, so it needs a reason beyond
-rigor. The reason to want it: the largest block is **430 tracts and 1.31M
+rigor. The reason to want it was: the largest block is **430 tracts and 1.31M
 people**, which is so large it is arguably not a project unit but "the whole
 outer ring" — a statistic that can split that band into genuine hot spots would
 be saying something the component count cannot.
+
+**And that reason is weaker than it was, as of 2026-10-12.** Entrance
+snapping split the band without any new statistic: the largest block is now
+257 tracts and 818,291 people in southeast Queens, with Brooklyn's 149 a
+separate block. Part of what joined the two halves was tracts that are only
+past the standard when their walk is measured to a station point rather than
+to a way in. So the case for Local Moran's I is now "split 257 further",
+which is a smaller prize than "split 430", and the cheaper lesson is the
+general one: before reaching for a spatial statistic to divide a band, check
+whether the band is partly a measurement artifact.
 
 **Why it might not be worth it.** Three costs, and the third is the real one.
 It adds two dependencies (`libpysal`, `esda`) to a pipeline whose only heavy
@@ -1228,7 +1249,8 @@ move tracts:
   map can point at things no agency would fund. Phase 6 is about the rider's
   cost, not the builder's.
 - **Contiguity.** Now measured, and it was as consequential as expected: the
-  largest contiguous block past the standard is 430 tracts and 1.31M people.
+  largest contiguous block past the standard is 257 tracts and 818,291
+  people, and it was 430 and 1.31M before entrance snapping split the band.
   What remains is to measure *precision at the cluster level*, since corridors
   are runs of tracts and the table above compares a point measure against a
   line measure. Clumped precision was measured on 2026-10-11 and now gates the
@@ -1612,8 +1634,9 @@ near-constant field drawn as one would be a uniform map pretending to be a
 finding.
 
 **The bonus is outcome 2 in miniature, and it was not predicted.** The largest
-detour block is not one of the eight proposed corridors' shapes, and **44 of
-its 57 tracts also sit in a contiguous under-service block past 100 tracts**.
+detour block is not one of the eight proposed corridors' shapes, and **42 of
+its 57 tracts also sit in a contiguous under-service block past 100 tracts**
+(44 before entrance snapping, on which more below).
 Two measures that share no inputs agree there: the under-service score is
 walk-and-density and knows nothing about travel time, and the detour factor is
 travel time and knows nothing about population. `accessibility.py` prints the
@@ -1627,9 +1650,18 @@ survived the change in the measure, which is a stronger result than the
 original, since the two measures now coincide somewhere the first version of
 the detour factor could not even see. One wording trap it exposed: the
 cross-check matches against **any** under-service block past 100 tracts and
-there are two of them — 430 across Brooklyn and Queens, 105 on Staten
-Island — so "the largest" was accidentally true before and false after,
-and `accessibility.py` no longer says it.)*
+there is more than one of them — 430 across Brooklyn and Queens and 105 on
+Staten Island at the time, 257 in southeast Queens, 149 in Brooklyn and 102
+on Staten Island after entrance snapping — so "the largest" was accidentally
+true before and false after, and `accessibility.py` no longer says it.)*
+
+*(And restated once more on 2026-10-12, by entrance snapping. The overlap
+went 44 of 57 to **42 of 57** while every walk time in the city moved and
+the under-service blocks were redrawn, which is the third time this
+pre-registered result has survived a change to one of its two measures. It
+is worth saying why that is the interesting part rather than a formality: a
+cross-check that moved with every adjustment would be measuring the
+adjustment.)*
 
 ### Jobs accessibility lowered alignment, as predicted — for the wrong reason
 

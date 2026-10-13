@@ -627,10 +627,12 @@ def _report(gdf, out, hubs, jobs, measured_kmh, total) -> dict:
         if band:
             hit = sum(1 for gid in gdf.iloc[members]["geoid"] if gid in band)
             # Not "the largest" block: `band` is every under-service block
-            # past 100 tracts, and there are two of them -- 430 tracts across
-            # Brooklyn and Queens, and 105 on Staten Island. That distinction
-            # was invisible while the largest detour block was in Brooklyn
-            # and became load-bearing the moment the ferry edge moved it.
+            # past 100 tracts, and there is more than one -- as of entrance
+            # snapping, 257 tracts in southeast Queens, 149 in Brooklyn and
+            # 102 on Staten Island, where before it was 430 across Brooklyn
+            # and Queens plus 105 on Staten Island. That distinction was
+            # invisible while the largest detour block was in Brooklyn and
+            # became load-bearing the moment the ferry edge moved it.
             print(f"    {hit} of those {len(members)} tracts also sit in a "
                   f"contiguous under-service\n    block past 100 tracts, "
                   f"which is a separate measure over separate inputs")

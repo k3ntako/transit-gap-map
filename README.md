@@ -266,14 +266,17 @@ stations, the only difference being routed versus crow-flies:
 ```
 Within a half mile of a subway/SIR station:
   straight-line      :  71.6%
-  walking network    :  62.2%   (9.5 points lower)
+  walking network    :  65.8%   (5.9 points lower)
 ```
 
 That pair is self-checking: routed distance is always >= straight-line
 distance, so the network share can never exceed the straight-line share. If it
-ever did, the projection, the join or the snapping would be wrong. The 9.5-point
-gap is the cost of NYC's actual geography, and the median tract detour factor
-is 1.34x.
+ever did, the projection, the join or the snapping would be wrong. The
+5.9-point gap is the cost of NYC's actual geography. It was 9.5 points until
+2026-10-12, when stations started being snapped at their 2,072 real
+entrances instead of at one point each -- `verify.py`'s barrier probes still
+average a 1.65x detour, so the geography has not moved, only the measurement
+of where a rider can get in.
 
 ## The color system
 
@@ -461,10 +464,16 @@ shipped score drops below a 40% floor.
 
 Because a line serves a corridor rather than a tract, the score is reported
 beside its **contiguity**: connected components over land adjacency. The largest
-block is **430 contiguous tracts holding 1,313,894 people**, running from
-Canarsie through Flatlands to St. Albans — a finding no per-tract ranking can
-produce. 24 of the 58 blocks are a single isolated tract, which is a complaint
-rather than a project. The map draws this as its own **Under-served zones**
+block is **257 contiguous tracts holding 818,291 people** in southeast Queens
+— St. Albans, Baisley Park, Queens Village — with a second of 149 and 412,356
+in Brooklyn from Canarsie through Marine Park and a third of 102 and 410,258
+on Staten Island. That is a finding no per-tract ranking can produce. 19 of
+the 56 blocks are a single isolated tract, which is a complaint rather than a
+project. Until 2026-10-12 the first two were one 430-tract block of 1.31M
+people: snapping stations at their real entrances split it at the
+Brooklyn-Queens line, because part of what joined the halves was tracts that
+are only past the standard when the walk is measured to a station point
+rather than to a way in. The map draws this as its own **Under-served zones**
 layer (the pages say "zone" for a block and "area" for a tract, since a reader
 would picture a city block), shaded by the population of the whole block
 rather than of the tract,

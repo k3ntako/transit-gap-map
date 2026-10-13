@@ -258,6 +258,13 @@ CENSUS_CV_UNRELIABLE = 0.30
 # --- Data sources (all verified reachable 2026-10-09) -----------------------
 SOC_SUBWAY = "https://data.ny.gov/resource/39hk-dx4f.csv?$limit=1000"
 SOC_RAIL = "https://data.ny.gov/resource/wxmd-5cpm.csv?$limit=1000"
+# Subway entrances: the real doors, 2,120 of them, keyed on `gtfs_stop_id`,
+# which is the same key the station table joins on -- so this is a key join
+# like every other one here and not a name match. `entry_allowed` matters
+# because an exit-only stair is not a way in, and `entrance_type` carries
+# Elevator, which is the step-free question at door level rather than at
+# station level.
+SOC_ENTRANCES = "https://data.ny.gov/resource/i9wp-a4ja.csv?$limit=5000"
 NYC_TRACTS_GEOJSON = (
     "https://data.cityofnewyork.us/api/geospatial/63ge-mke6?method=export&format=GeoJSON"
 )
@@ -563,6 +570,7 @@ SOURCE_URL = "https://github.com/k3ntako/transit-gap-map"
 # --- Derived file paths -----------------------------------------------------
 P_SUBWAY = RAW / "subway_stations.csv"
 P_RAIL = RAW / "rail_stations.csv"
+P_ENTRANCES = RAW / "subway_entrances.csv"
 P_GEOMS = RAW / f"nyc_{GEO_LEVEL}.geojson"
 P_BOROS = RAW / "nyc_boroughs.geojson"
 P_PBF = RAW / "NewYork.osm.pbf"
@@ -613,6 +621,20 @@ def wire_kb(path) -> float:
 # from happening: a station entrance mapped on a stray footway fragment becomes
 # its own "network", serving only itself.
 MIN_COMPONENT_NODES = 200
+
+# Snap each subway station at its real doors rather than at one station
+# point. A long complex is a few hundred meters end to end, so a single point
+# measures a walk to the middle of a platform that nobody can enter. 2,072
+# entry-allowed doors cover 485 of the 496 subway stations; the rest keep
+# their point, and commuter rail has no entrance table so it keeps its
+# point too.
+#
+# The measured effect is in CLAUDE.md and it is not symmetric: more sources
+# can only shorten a walk, so turning this on moves every walk time down or
+# leaves it alone. Kept as a flag because it is the one switch that changes
+# every published figure at once, and a comparison anybody can rerun is
+# worth more than a sentence claiming the difference is small.
+USE_STATION_ENTRANCES = True
 
 # The surface raster and walksheds take their value from the nearest network
 # node, so this cap is tighter than MAX_SNAP_METERS: without it a cell on the

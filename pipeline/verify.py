@@ -174,15 +174,35 @@ def main() -> int:
             f"mean barrier detour factor {np.mean(detours):.2f} is too low -- "
             "distances may not be following the network")
 
-    # A station's own location must come back at ~0, which also proves the
-    # virtual-source wiring and the snap-offset bookkeeping are right.
+    # A source's own location must come back at ~0, which also proves the
+    # virtual-source wiring and the snap-offset bookkeeping are right. The
+    # sources are the station entrances now, so that is what this measures:
+    # since 2026-10-12 a station *point* is no longer a source where the
+    # entrance table covers it, and measuring from one legitimately returns
+    # the walk to the nearest door rather than zero.
+    from pipeline.stations import load_entrances
+    ent = load_entrances(verbose=False) if C.USE_STATION_ENTRANCES else None
+    if ent is not None and len(ent):
+        enet, _el, _ = measure(ent["lon"].to_numpy(), ent["lat"].to_numpy(),
+                               dist, keep, tree, st_tree, to_proj)
+        print(f"\nEntrances measured from their own coordinates: "
+              f"median {np.median(enet):.0f} m, "
+              f"p95 {np.percentile(enet, 95):.0f} m, max {enet.max():.0f} m")
+        if np.median(enet) > 60:
+            failures.append(
+                f"entrances median self-distance {np.median(enet):.0f} m is "
+                f"too high")
     snet, _sline, _ = measure(st["lon"].to_numpy(), st["lat"].to_numpy(),
                               dist, keep, tree, st_tree, to_proj)
-    print(f"\nStations measured from their own coordinates: "
+    # Reported, not gated. This is now a real quantity rather than a tautology
+    # -- how far a station's labeled point is from the nearest way in, along
+    # the network -- and the old model treated it as zero for everybody. The
+    # tail is the interesting part: a point dropped in a park or on the far
+    # side of a cut reads in the hundreds of meters.
+    worst = int(np.argmax(snet))
+    print(f"Station points, by the walk to their own nearest door: "
           f"median {np.median(snet):.0f} m, p95 {np.percentile(snet, 95):.0f} m, "
-          f"max {snet.max():.0f} m")
-    if np.median(snet) > 60:
-        failures.append(f"stations median self-distance {np.median(snet):.0f} m is too high")
+          f"max {snet.max():.0f} m at {st['name'].to_numpy()[worst]}")
 
     failures += transit_checks()
 

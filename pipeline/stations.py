@@ -47,6 +47,35 @@ def _rail() -> pd.DataFrame:
     return out
 
 
+def load_entrances(verbose: bool = True) -> pd.DataFrame:
+    """Entry-allowed subway doors, keyed to the station they belong to.
+
+    2,072 of 2,120 rows allow entry -- an exit-only stair is not a way in --
+    and they cover 485 of the 496 subway stations, joining on `gtfs_stop_id`,
+    the same key `_subway` above uses. The 11 stations with no row keep their
+    station point, which is why the caller merges rather than replaces.
+    """
+    if not C.P_ENTRANCES.exists():
+        if verbose:
+            print(f"  no {C.P_ENTRANCES.name}; stations stay single points")
+        return pd.DataFrame(columns=["station_key", "lat", "lon", "kind"])
+    df = pd.read_csv(C.P_ENTRANCES)
+    allowed = df["entry_allowed"].astype(str).str.upper().eq("YES")
+    df = df.loc[allowed]
+    out = pd.DataFrame({
+        "station_key": "sub-" + df["gtfs_stop_id"].astype(str),
+        "lat": pd.to_numeric(df["entrance_latitude"], errors="coerce"),
+        "lon": pd.to_numeric(df["entrance_longitude"], errors="coerce"),
+        "kind": df["entrance_type"].fillna("").astype(str),
+    }).dropna(subset=["lat", "lon"])
+    if verbose:
+        print(f"  entrances: {len(out)} entry-allowed doors at "
+              f"{out['station_key'].nunique()} stations "
+              f"(median {out.groupby('station_key').size().median():.0f}, "
+              f"max {out.groupby('station_key').size().max()})")
+    return out
+
+
 def load_stations(verbose: bool = True) -> gpd.GeoDataFrame:
     """All subway + SIR stations, plus commuter-rail stations near enough to NYC.
 

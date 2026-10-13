@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import time
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 from scipy.sparse import coo_matrix, csr_matrix, hstack, vstack
@@ -49,7 +50,7 @@ from scipy.spatial import cKDTree
 import config as C
 from pipeline.graphutil import load_graph
 from pipeline.service import compute as compute_service
-from pipeline.stations import load_stations
+from pipeline.stations import load_entrances, load_stations
 
 SUBWAY_MODES = ("subway", "sir")
 
@@ -143,6 +144,36 @@ def compute(force: bool = False, subway_only: bool = False,
               f"{wait_min.max():.1f} min (median {np.median(wait_min):.1f}), "
               f"worth {np.median(wait_m):.0f} m of walking at the median")
 
+    # --- one source per door, not per station ------------------------------
+    # A station is a set of entrances, and `src_row` is what keeps the pass
+    # honest about that: several sources can carry the same station index, so
+    # the returned `nearest` still names a station while the walk is measured
+    # to the nearest door. Stations with no entrance row -- all of commuter
+    # rail, and 11 subway stations -- contribute their station point.
+    sx = st.geometry.x.to_numpy()
+    sy = st.geometry.y.to_numpy()
+    src_row = np.arange(len(st))
+    n_doors = 0
+    if C.USE_STATION_ENTRANCES:
+        ent = load_entrances(verbose=not (subway_only or weighted or step_free
+                                          or bike))
+        if len(ent):
+            have = dict((k, i) for i, k in enumerate(st["station_key"]))
+            rows = ent["station_key"].map(lambda k: have.get(k, -1)).to_numpy()
+            ent = ent.loc[rows >= 0]
+            rows = rows[rows >= 0]
+            pts = gpd.GeoSeries(
+                gpd.points_from_xy(ent["lon"], ent["lat"]), crs=C.CRS_GEO
+            ).to_crs(C.CRS_PROJ)
+            keep_pt = ~np.isin(np.arange(len(st)), rows)
+            sx = np.concatenate([sx[keep_pt], pts.x.to_numpy()])
+            sy = np.concatenate([sy[keep_pt], pts.y.to_numpy()])
+            src_row = np.concatenate([np.flatnonzero(keep_pt), rows])
+            n_doors = len(rows)
+            print(f"  doors   {len(src_row)} sources for {len(st)} stations: "
+                  f"{n_doors} entrances at {len(st) - int(keep_pt.sum())} "
+                  f"stations, {int(keep_pt.sum())} station points for the rest")
+
     # Snap stations only onto substantive networks, so a station mapped on a
     # stray footway fragment doesn't become an island serving nobody.
     sizes = np.bincount(comp, minlength=comp.max() + 1)
@@ -150,17 +181,18 @@ def compute(force: bool = False, subway_only: bool = False,
     sub_idx = np.flatnonzero(substantive)
     tree_st = cKDTree(np.column_stack([x[sub_idx], y[sub_idx]]))
 
-    offs, loc = tree_st.query(
-        np.column_stack([st.geometry.x.to_numpy(), st.geometry.y.to_numpy()]), k=1)
+    offs, loc = tree_st.query(np.column_stack([sx, sy]), k=1)
     snode = sub_idx[loc]
 
     far = offs > C.SNAP_WARN_METERS
     if far.any():
-        print(f"  WARNING {far.sum()} station(s) snapped >{C.SNAP_WARN_METERS} m from the "
+        names = st["name"].to_numpy()[src_row[far]]
+        print(f"  WARNING {far.sum()} source(s) snapped >{C.SNAP_WARN_METERS} m from the "
               f"walk network (max {offs.max():.0f} m):")
-        for nm, d in zip(st.loc[far, "name"].head(8), offs[far][:8]):
+        for nm, d in zip(names[:8], offs[far][:8]):
             print(f"            {d:6.0f} m  {nm}")
-    print(f"  snapped {len(st)} stations (median offset {np.median(offs):.0f} m, "
+    print(f"  snapped {len(src_row)} sources for {len(st)} stations "
+          f"(median offset {np.median(offs):.0f} m, "
           f"p95 {np.percentile(offs, 95):.0f} m)")
 
     # Components that actually contain a station.
@@ -171,12 +203,12 @@ def compute(force: bool = False, subway_only: bool = False,
           f"({100 * serviceable.mean():.1f}%) in {served.sum():,} station-bearing "
           f"components")
 
-    # --- extend the graph with one virtual source per station --------------
-    m = len(st)
+    # --- extend the graph with one virtual source per door -----------------
+    m = len(src_row)
     # The virtual source sits at cost 0 and this edge carries everything it
     # takes to be on a train: the walk to the mapped network, plus the wait
     # once there. Both are already in meters.
-    source_cost = np.maximum(offs + wait_m, 1e-6)
+    source_cost = np.maximum(offs + wait_m[src_row], 1e-6)
     link = coo_matrix((source_cost, (np.arange(m), snode)), shape=(m, n))
     top = hstack([csr, link.T.tocsr()], format="csr")
     bot = hstack([link.tocsr(), csr_matrix((m, m))], format="csr")
@@ -188,8 +220,12 @@ def compute(force: bool = False, subway_only: bool = False,
     print(f"  dijkstra {time.time() - t0:.1f}s over {ext.shape[0]:,} nodes")
 
     dist = dist[:n]
-    nearest = sources[:n] - n          # virtual index -> station row index
-    nearest[(nearest < 0) | ~np.isfinite(dist)] = -1
+    src = sources[:n] - n              # virtual index -> source row
+    ok_src = (src >= 0) & np.isfinite(dist)
+    # Back to a station index, because a door is not a thing the rest of the
+    # pipeline knows about: `nearest` names the station a node is nearest to,
+    # whichever of its doors did the work.
+    nearest = np.where(ok_src, src_row[np.clip(src, 0, m - 1)], -1)
 
     reach = np.isfinite(dist)
     print(f"  reached {reach.sum():,}/{n:,} nodes ({100 * reach.mean():.2f}%); "
@@ -215,8 +251,17 @@ def compute(force: bool = False, subway_only: bool = False,
     saved = [out.name]
     if not (subway_only or weighted or step_free or bike):
         st_geo = st.to_crs(C.CRS_GEO)
+        # Per station now that sources are per door: the offset recorded is
+        # the *nearest* door's, since that is the one a walk is measured to,
+        # and `n_sources` says how many doors stood behind it. The station's
+        # own coordinates stay the station's, because that is what the map
+        # draws a dot at.
+        per_station = pd.DataFrame({"row": src_row, "off": offs})
+        agg = per_station.groupby("row")["off"].agg(["min", "size"])
+        agg = agg.reindex(np.arange(len(st)))
         st.drop(columns="geometry").assign(
-            snap_offset_m=offs,
+            snap_offset_m=agg["min"].to_numpy(),
+            n_sources=agg["size"].fillna(0).astype("int32").to_numpy(),
             lon=st_geo.geometry.x.to_numpy(),
             lat=st_geo.geometry.y.to_numpy(),
         ).to_parquet(C.P_STATIONS)
