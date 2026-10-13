@@ -213,7 +213,14 @@ function reflectState() {
 // They remain available as sliders, because the MTA defines its own Equity
 // Areas by exactly the zero-vehicle variable and a reader is entitled to
 // weight it; the default is zero, and the measurement is why.
-const GAP_BANDS = 7;
+// How many bands the score paints: band 0, inside the standard, plus
+// quantiles of the tracts past it. Read from the ramp rather than written
+// down, because it was written down: palette.py cut GAP_STEPS from seven to
+// six on 2026-10-11 and this stayed at 7, so the paint expression asked for
+// ramp[6], got undefined, and MapLibre rejected the whole layer -- a `c=gap`
+// permalink opened on a map with no tracts at all. The band count is the
+// palette's to decide, so this asks it.
+const gapBands = () => pal.gap_classes.length;
 
 // The floor, in minutes, below which there is no gap to measure. Must match
 // C.ACCESS_FLOOR_MINUTES; shipped in stats.json so it cannot drift.
@@ -348,7 +355,7 @@ const gapScore = (p, w) => (p.pop ?? 0) * (p.exc ?? 0) * needBlend(p, w);
 // The bands come out equal to within a tract or two, except at w=0 or w=1,
 // where the score collapses to one variable and that variable's ties cannot be
 // split: walk time ships rounded to 0.1 min, so those bands run ~300-345.
-// Band 0 is "inside the standard", and the other six are quantiles of the
+// Band 0 is "inside the standard", and the others are quantiles of the
 // tracts that are not. This is structural, not cosmetic: 58.8% of tracts score
 // exactly zero because they are within a ten-minute walk, and quantile breaks
 // cannot split a tie, so plain septiles left three of the seven colors empty.
@@ -362,8 +369,9 @@ function gapCompute(w) {
   const all = scored.map((f) => gapScore(f.properties, w));
   const over = all.filter((v) => v > 0).sort((a, b) => a - b);
   const breaks = [1e-9];          // anything above zero leaves band 0
-  for (let i = 1; i < GAP_BANDS - 1; i++) {
-    let b = over[Math.floor(i * over.length / (GAP_BANDS - 1))];
+  const n = gapBands();
+  for (let i = 1; i < n - 1; i++) {
+    let b = over[Math.floor(i * over.length / (n - 1))];
     const prev = breaks[breaks.length - 1];
     // `step` requires strictly ascending stops, and a quantile can repeat when
     // many tracts share a score. Nudging keeps the band empty instead of
@@ -1127,7 +1135,7 @@ function wireHover() {
   canvas.addEventListener("mouseout", clear);
 }
 
-// Which of the 7 gap bands a tract falls in, or -1 if it has no score.
+// Which gap band a tract falls in, or -1 if it has no score.
 function gapBand(p) {
   if (p.rd == null) return -1;
   const s = gapScore(p, state.gapWeight);
@@ -1205,11 +1213,12 @@ function renderLegend() {
     // rank product it replaced.
     const k = (v) => v >= 1000 ? `${fmt(v / 1000, 0)}k` : fmt(v, 0);
     const rows = [];
-    for (let i = GAP_BANDS - 1; i >= 1; i--) {
+    const n = gapBands();
+    for (let i = n - 1; i >= 1; i--) {
       const lo = breaks[i - 1], hi = breaks[i];
       rows.push(`<div class="ramprow"><i data-cls="${i}" style="background:${
         ramp[i]}"></i><span class="lab">${
-        i === GAP_BANDS - 1 ? `over ${k(lo)}` : `${k(lo)} – ${k(hi)}`
+        i === n - 1 ? `over ${k(lo)}` : `${k(lo)} – ${k(hi)}`
       }</span></div>`);
     }
     el.innerHTML = rows.join("")
