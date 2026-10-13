@@ -15,8 +15,9 @@ Three outputs, all from one travel-time matrix:
    jobs rather than by ridership. Ridership was tried as the arbiter and is
    circular: the subway is radial, so its busiest stations are the radial
    ones, and using them to choose *secondary* hubs selects for exactly the
-   bias secondary hubs exist to correct. ROADMAP.md Phase 4 has the ranks
-   that broke the rule.
+   bias secondary hubs exist to correct. ROADMAP.md records the test that
+   broke the rule, under *Ridership and crowding*; the ranks themselves are
+   gone from that file, and `pick_hubs` below carries what replaced them.
 3. **The detour factor** -- transit time over straight-line time at a
    reference speed. This project already relies on that ratio: `verify.py`
    requires an inflated network-to-straight-line ratio at the barrier probes,

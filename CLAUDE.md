@@ -12,6 +12,13 @@ emits a handful of small payloads; the browser only draws them.
 `ROADMAP.md` is the plan of record for where this is going and carries the
 reasoning behind choices already made — read it before proposing a feature, and
 check whether an idea is already there (often with an argument against it).
+Reorganized 2026-10-12 and it has four parts now: *Suggested order* near the
+front is a ranked table of everything left, a phase per question in the
+middle, *Decisions still open* for the choices that block work and are not
+settled by measurement, and *The record* at the back for the pre-registered
+results and the corrections. **A phase number is not a priority** — Phase 10
+is ranked seventh — and nothing punted sits at the top of the file any more:
+an unfinished item lives in the phase that owns its question.
 
 ## Working with the owner
 
