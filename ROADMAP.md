@@ -60,8 +60,17 @@ only `web/`. None of it depends on a phase below.
   predicted, built the way it predicted — `belowFloor()` gains a test, the
   permalink gains `served=1`, and `showCount()` reports how many tracts are
   left, because the caution about stacked floors emptying the map was right.
-  It fades rather than hides, for the reason given here: a missing tract reads
-  as missing data rather than as filtered data.
+  It no longer *fades*, though, and the correction is worth keeping because
+  this entry's reasoning was right about the goal and wrong about the mark.
+  0.12 of the data color was the first answer; measured on a dark basemap, a
+  hue at low alpha composites to a muddy brown that still reads as a color, so
+  the reader decodes it and "this is excluded" is the one thing it cannot say.
+  Changed 2026-10-12: the fill goes to 0 and the **outline** carries the
+  polygon, in the secondary ink at 0.40 — 2.6:1 against dark-matter's land
+  against the 1.01:1 the old faded outline managed, which is to say nothing.
+  The objection this entry raised still stands and is answered one mark over:
+  a missing tract reads as missing data, so the tract does not go missing.
+  The control now reads "Hide areas meeting the standard".
 
   What is **not** done is the per-class version. The shipped control uses one
   definition across all nine layers — `exc <= 0`, the project's own
@@ -584,12 +593,20 @@ across thresholds from 2% to 25% of the city's jobs.
   57 tracts entirely on Staten Island with **44 inside the 105-tract Staten
   Island under-service block**. Two measures over separate inputs still agree;
   they now agree somewhere else.
-- **A diverging ramp for the detour factor**, if it ever gets a layer. It is a
-  ratio centered on 1.0 and the palette has no diverging pair; adding one
-  means new steps through `palette.py`'s `audit()` gates, and the flatness
-  above says the layer is low-value anyway. Recorded so the absence reads as a
-  decision.
-- **Hub granularity.** Staten Island's job center comes back as
+- ~~**A diverging ramp for the detour factor.**~~ **Closed 2026-10-12**, as a
+  decision rather than as work done. It was always conditional — "if it ever
+  gets a layer" — and the condition has since been answered the other way:
+  the factor's CoV is 0.19, near-constant citywide, which is itself the result
+  the ring test was built to find. A ramp for a layer that should not exist is
+  not a leftover. If the detour ever does earn a layer, the cost is new steps
+  through `palette.py`'s `audit()` gates plus a diverging pair the palette
+  does not have, and this paragraph is the starting point.
+- ~~**Hub granularity.**~~ **Closed 2026-10-12**, on this entry's own
+  verdict: it says "a presentation wobble, not a wrong number", and a wobble
+  that has been measured, named and explained is documentation rather than
+  debt. Left in full because the mechanism is the useful part, and because it
+  is the visible edge of a coarseness that will come back in any phase that
+  reads a per-tract median as if it were a point. Staten Island's job center comes back as
   **Tompkinsville** rather than St George, one stop away, because "jobs within
   a 10-minute walk" is measured to the tract *median* and the high-job tracts
   beside St George have medians just outside it. The hub list is a
@@ -1499,6 +1516,15 @@ the map *argues* rather than what it measures: the contiguous band stops
 reading as scattered polygons and starts reading as the space between the
 lines. A reader cannot currently see that without already knowing the network.
 
+**It is also the last item in this queue that does not touch the headroom
+loan**, which is the part worth not re-deriving every time this order is read.
+Rail lines ship as their own payload and add no per-tract field, so they spend
+none of the 420 KB budget — measured 2026-10-12, `tracts.geojson` sits at
+350.1 KB, about four more property-borne fields of room. Both items behind
+them want a field. So the columnar sidecar is not a separate decision to make
+later; it fires on whichever of step-free access and ridership lands first,
+and the only question still open is which one that is.
+
 **Then step-free access**, still the biggest finding available for the least
 new machinery — the subway-entrance table is fetched and verified (2,120 rows,
 116 step-free), the swap is a source-set filter on the Dijkstra, and the result
@@ -1527,9 +1553,14 @@ explicit `geoids` list, the way `hubs.json` already does, at ~2.5x less per
 column. Step-free access and ridership both want a field, so whichever lands
 first should carry this.
 
-Orthogonal to all of that, and pickable whenever: **publishing the map**, which
-needs no new data and currently blocks every other reader from seeing any of
-this, and the **small no-new-data items** — the per-class filter (the
+Orthogonal to all of that, and pickable whenever: **running the first
+deploy** — not building one. That changed on 2026-10-12 and this paragraph
+said otherwise until then: S3, CloudFront, Terraform and the Actions workflow
+all exist, so what is left is one button press and whatever a Linux runner
+says about a pipeline that has only ever run on a laptop. The *reader* problem
+is unchanged until that happens — nobody outside this checkout can see any of
+this — but it is now a smaller item with a known shape, and `DEPLOY.md` has
+the order. Beside it, the **small no-new-data items** — the per-class filter (the
 standard-based half shipped 2026-10-11), the collapsible panels, the legend
 width. The class filter is worth doing before the zoning
 work, because naming the low-density/short-walk corner of the matrix is most of
