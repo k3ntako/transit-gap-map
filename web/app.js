@@ -45,9 +45,25 @@ const CLS_DENSITY = ["lowest third", "middle third", "highest third"];
 const CLS_WALK = ["shortest third", "middle third", "longest third"];
 const CLS_ACCESS = ["cheapest third", "middle third", "costliest third"];
 
-// Tracts under a display floor fade to this instead of being filtered out. A
-// choropleth with holes in it reads as missing data, not as excluded.
-const FADED_OPACITY = 0.12;
+// Tracts under a display floor drop their fill entirely and are carried by
+// their outline instead. 0.12 of the data color was the first answer and it
+// was the wrong shape: a hue at low alpha over a near-black basemap composites
+// to a muddy brown that still reads as a *color*, so the reader decodes it,
+// and the one honest answer -- "this is excluded" -- is the one it cannot say.
+// Dropping to 0 says it exactly.
+//
+// The original objection stands and is answered by `lineOpacity`/`lineColor`
+// rather than by the fill: a choropleth with holes in it reads as missing
+// data, not as excluded, so the polygons must not disappear. They do not --
+// they become a mesh in the secondary ink, measured at 2.6:1 against
+// dark-matter's land and 1.9:1 against positron's. What used to draw them was
+// the fill alone; the outline was #000 at 0.15, which is 1.01:1 on that
+// basemap, or nothing.
+//
+// Hit testing is unaffected, which is what makes this safe: `stations-hit` in
+// this file is an invisible circle at opacity 0 whose whole job is to be
+// hovered. A faded tract keeps its tooltip and every published statistic.
+const FADED_OPACITY = 0;
 
 const $ = (s) => document.querySelector(s);
 
@@ -74,11 +90,13 @@ const state = {
   hoveredStation: null,
   densFloor: 0,
   popFloor: 0,
-  // Fade everything that already meets the standard, so the finding is not
-  // competing with two thirds of the city for attention. A *floor*, like the
-  // two above, and not a filter: the tracts stay in the tooltip and in every
-  // published statistic, because a polygon that disappears reads as missing
-  // data rather than as excluded data.
+  // Drop the fill on everything that already meets the standard, so the
+  // finding is not competing with two thirds of the city for attention. A
+  // *floor*, like the two above, and not a filter: the tracts keep their
+  // outline, their tooltip and their place in every published statistic,
+  // because a polygon that disappears reads as missing data rather than as
+  // excluded data. See FADED_OPACITY for why the fill goes to 0 rather than
+  // to a dim tint of itself.
   servedFaded: false,
   // Which job center the "time to a job center" layer shows. -1 is the
   // nearest of all of them, which is the polycentric question and the
@@ -622,18 +640,64 @@ function showCount() {
   el.style.color = none ? "var(--warn, #b4541a)" : "";
 }
 
-const isBelowFloor = (p) =>
-  (p.dens ?? 0) < state.densFloor || (p.pop ?? 0) < state.popFloor
-  || (state.servedFaded && (p.exc ?? 0) <= 0);
+const isBelowFloor = (p) => fadedBy(p).length > 0;
 
-const fillOpacity = () => ["case",
-  belowFloor(), FADED_OPACITY,
-  ["boolean", ["feature-state", "hover"], false], 0.95,
-  0.78];
+// Which filters fade a tract, named rather than counted. A tooltip that says
+// only "faded by a filter" leaves the reader unable to connect the effect to
+// the control -- three of them can do it, they stack, and the one that fires
+// most surprisingly is a floor catching a tract with a high score but few
+// residents, which looks like the map hiding the finding.
+const fadedBy = (p) => {
+  const on = [];
+  if ((p.dens ?? 0) < state.densFloor) on.push("the density floor");
+  if ((p.pop ?? 0) < state.popFloor) on.push("the population floor");
+  if (state.servedFaded && (p.exc ?? 0) <= 0) on.push("“meets the standard”");
+  return on;
+};
 
-// The outlines have to fade with the fill, or an excluded tract still reads as
-// a crisp mesh of boundaries laid over the basemap.
-const lineOpacity = () => ["case", belowFloor(), 0.15, 0.5];
+// Opaque, and `palette.py:MAP_FILL_ALPHA` must match. The ramps are audited
+// against CONTRAST_FLOOR on their own hex, so any transparency here means the
+// audited color is not the one drawn: measured at the old 0.78 over
+// dark-matter's land, the darkest step of every ramp reached the screen at
+// 1.76-1.78:1 against a 2:1 gate, and the loss fell on the under-served end --
+// the finding -- because that is the end nearest the page in dark mode.
+// Opacity is affordable to give up because the labels now draw ON TOP of the
+// choropleth (see labelAnchor), which is what the transparency was really
+// buying: at 0.78 they were washed out underneath it.
+//
+// There is no hover case any more. It used to lift the fill 0.78 -> 0.95,
+// which has nowhere to go from 1.0 and was always the weaker of the two hover
+// signals; `tracts-hover` draws a 2px ink ring, which is the mark spec.
+const fillOpacity = () => ["case", belowFloor(), FADED_OPACITY, 1.0];
+
+// The outline is now the only thing drawing an excluded tract, so it gets more
+// opacity than the fill it replaces rather than less. Still recessive: a
+// hairline mesh against solid neighbors reads as "set aside", which is the
+// intent, where a fill of any hue reads as a value.
+const lineOpacity = () => ["case", belowFloor(), 0.40, 0.5];
+
+// Two different jobs, so two colors. On a drawn tract the hairline separates
+// adjacent fills and wants to be the surface color; on an excluded one there
+// is no fill to separate and the line has to be visible against the basemap,
+// which the surface color by definition is not.
+const lineColor = () => ["case",
+  belowFloor(), pal.ink[state.theme].secondary,
+  state.theme === "dark" ? "#000" : "#fff"];
+
+// The id of the first label layer, so the choropleth can be inserted beneath
+// the basemap's text instead of on top of it. Both CARTO styles end in a run
+// of symbol-only layers -- 26 in positron, 27 in dark-matter -- and that run
+// is every place, road and water name on the map. Found by walking back from
+// the end rather than naming `watername_ocean`, which is the id both styles
+// happen to use today: a basemap that renamed it would silently put the labels
+// back underneath, and this way it degrades to appending, which is the old
+// behavior rather than a broken one.
+function labelAnchor() {
+  const layers = map.getStyle().layers || [];
+  let i = layers.length;
+  while (i > 0 && layers[i - 1].type === "symbol") i--;
+  return i < layers.length ? layers[i].id : undefined;
+}
 
 // --- layers -----------------------------------------------------------------
 
@@ -737,6 +801,11 @@ function addLayers() {
   // Visibility comes from state, not from the default: the choropleth can now
   // start hidden, because a permalink said so.
   const choro = state.choropleth === "none" ? "none" : "visible";
+  // Under the labels, so a street or neighborhood name stays readable over an
+  // opaque choropleth. Everything added after this without a `before` -- the
+  // walksheds, the surface raster, the stations, the hubs -- still goes on top
+  // of the labels, which is where those marks belong.
+  const before = labelAnchor();
   map.addLayer({
     id: "tracts-fill", type: "fill", source: "tracts",
     layout: { visibility: choro },
@@ -744,16 +813,16 @@ function addLayers() {
       "fill-color": fillColor(),
       "fill-opacity": fillOpacity(),
     },
-  });
+  }, before);
 
   map.addLayer({
     id: "tracts-line", type: "line", source: "tracts",
     layout: { visibility: choro },
     paint: {
-      "line-color": state.theme === "dark" ? "#000" : "#fff",
+      "line-color": lineColor(),
       "line-width": 0.4, "line-opacity": lineOpacity(),
     },
-  });
+  }, before);
 
   // Hover ring: 2px in the surface color, per the mark spec for overlapping marks.
   map.addLayer({
@@ -762,7 +831,7 @@ function addLayers() {
       "line-color": pal.ink[state.theme].primary,
       "line-width": ["case", ["boolean", ["feature-state", "hover"], false], 2, 0],
     },
-  });
+  }, before);
 
   // The surface is the one layer that is off by default, so it is not part of
   // the first paint -- unless a permalink asked for it, in which case the
@@ -1109,8 +1178,12 @@ function wireHover() {
     }
     if (p.pop === 0)
       html += `<div class="tnote">No residents — excluded from the statistics.</div>`;
-    else if (isBelowFloor(p))
-      html += `<div class="tnote">Faded by a filter — still counted.</div>`;
+    else if (isBelowFloor(p)) {
+      const by = fadedBy(p);
+      const list = by.length === 1 ? by[0]
+        : `${by.slice(0, -1).join(", ")} and ${by[by.length - 1]}`;
+      html += `<div class="tnote">Hidden by ${list} — still counted.</div>`;
+    }
     return html;
   };
 
@@ -1543,6 +1616,11 @@ function wireControls() {
   const applyFloors = () => {
     map.setPaintProperty("tracts-fill", "fill-opacity", fillOpacity());
     map.setPaintProperty("tracts-line", "line-opacity", lineOpacity());
+    // The line COLOR depends on the floors too now, not just its opacity: an
+    // excluded tract's outline is the only mark drawing it. Forgetting this
+    // leaves a tract that just crossed a floor outlined in the surface color
+    // over bare basemap, which is invisible -- the tract would simply vanish.
+    map.setPaintProperty("tracts-line", "line-color", lineColor());
     showCount();
   };
   const floor = (id, out, key, label) => {

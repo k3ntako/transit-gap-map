@@ -74,6 +74,22 @@ SURFACE_DARK = "#1a1a19"
 #      shared.
 CONTRAST_FLOOR = 2.0
 
+# The opacity `app.js:fillOpacity()` draws the choropleth at, and it has to
+# match -- the same standing requirement as SEQ_STEPS, and for a sharper
+# reason. `audit_ordinal` checks CONTRAST_FLOOR on a ramp's own hex, so any
+# transparency on the map means the gate is measuring a color the reader never
+# sees. Measured at the 0.78 this shipped with until 2026-10-12, composited
+# over dark-matter's land: every ramp's darkest step reached the screen at
+# 1.76-1.78:1 against this 2.0 floor, and the shortfall landed on the
+# under-served end, because that is the end nearest the page in dark mode. A
+# swept band confirms the gate was not merely mis-reported but unmeetable --
+# at 0.78 the band holds four steps of 0.06 lightness, not six.
+#
+# Lowering this is therefore a palette decision, not a styling one: it narrows
+# the band every shared ramp is cut from. The gate below composites at this
+# value so the two cannot drift apart again silently.
+MAP_FILL_ALPHA = 1.0
+
 # Steps in a ramp the reader sees as discrete bands. Six, not seven, and the
 # reason is the band: seven steps inside it are 0.055 of lightness apart and
 # an ordered ramp needs 0.06, so the step count gave way rather than the gate.
@@ -369,6 +385,17 @@ def audit(matrix, rising: bool = False) -> dict:
     }
 
 
+def composite(fg: str, bg: str, alpha: float = MAP_FILL_ALPHA) -> str:
+    """`fg` drawn over `bg` at `alpha`, which is what the map actually paints.
+
+    sRGB, because that is the space the GPU blends `fill-opacity` in. Blending
+    in OKLab would be the better-looking choice and would be the wrong answer
+    here: the job is to predict the pixel, not to improve it.
+    """
+    f, b = hex_to_rgb(fg), hex_to_rgb(bg)
+    return rgb_to_hex([alpha * f[i] + (1 - alpha) * b[i] for i in range(3)])
+
+
 def audit_ordinal(ramp: list[str], surfaces) -> dict:
     """Checks for an ordered ramp, which are not the checks for a matrix.
 
@@ -386,6 +413,10 @@ def audit_ordinal(ramp: list[str], surfaces) -> dict:
     """
     if isinstance(surfaces, str):
         surfaces = (surfaces,)
+    # Contrast is checked on the ramp as COMPOSITED over each surface at the
+    # opacity the map draws it with, which at MAP_FILL_ALPHA = 1 is the hex
+    # itself. The lightness, hue and separation checks stay on the source
+    # colors: those describe the ramp, while contrast describes the pixel.
     L = [lightness(h) for h in ramp]
     deltas = [abs(b - a) for a, b in zip(L, L[1:])]
     rising = L[-1] > L[0]
@@ -394,7 +425,7 @@ def audit_ordinal(ramp: list[str], surfaces) -> dict:
         "steps": len(ramp),
         "min_delta_l": round(min(deltas), 3),
         "min_delta_e": round(min(delta_e(a, b) for a, b in zip(ramp, ramp[1:])), 1),
-        "surface_contrast": round(min(contrast(h, s)
+        "surface_contrast": round(min(contrast(composite(h, s), s)
                                       for h in ramp for s in surfaces), 2),
         "hue_spread_deg": round(max(hues) - min(hues), 1),
         "lightness_monotone": bool(all((b > a) == rising for a, b in zip(L, L[1:]))),

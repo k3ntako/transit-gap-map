@@ -227,6 +227,39 @@ decides it. Four consequences, all measured:
 plural is the gate: a shared ramp checked against one surface is checked
 against half of what it claims. All seven shared ramps land at 2.01:1.
 
+**And it was checking a color the map never drew.** Found 2026-10-12 from a
+screenshot, fixed the same day. The gate reads `contrast(hex, surface)` while
+`app.js` drew the choropleth at `fill-opacity: 0.78`, so the audited 2.01:1
+was the contrast of a swatch, not of a tract. Composited, every shared ramp's
+darkest step reached the screen at **1.66:1** against the page and **1.76:1**
+over dark-matter's actual land, which is darker than `SURFACE_DARK` because
+that constant is the *page* color and not the basemap's. The shortfall landed
+entirely on the under-served end, since that is the end nearest the page in
+dark mode — the gate was softest exactly where the finding lives.
+
+Two things follow, and the second is the general one. `MAP_FILL_ALPHA` now
+sits beside `CONTRAST_FLOOR`, `audit_ordinal` composites at it before
+measuring, and `app.js:fillOpacity()` must match it — the same standing
+requirement as `SEQ_STEPS`, enforced the same way, by a gate that fails rather
+than by a comment. Lowering it is a palette decision and not a styling one:
+swept against the 0.06 lightness gate, the shared band holds **four** steps at
+0.78, six exactly on the floor at 0.90, and the shipped six at 1.0. And the
+opacity turned out to be unaffordable for a reason that had nothing to do with
+color: `tracts-fill` was added with no `beforeId`, so it sat on top of the
+entire basemap *including every label*, and the transparency was buying washed
+out street names under a choropleth rather than context. The tract layers now
+insert beneath the basemap's trailing run of symbol layers — 26 in positron,
+27 in dark-matter, zero non-symbol layers above the anchor in either — so the
+labels draw on top and the fill can be opaque. `labelAnchor()` walks back from
+the end of the style rather than naming `watername_ocean`, so a renamed layer
+degrades to the old appending behavior instead of throwing.
+
+The general lesson is the one this file already states about censored
+measures, in a second costume: **a gate that measures the input rather than
+the output will pass a thing that fails.** `verify.py` has the same hazard
+and avoids it by construction, measuring the shipped artifact; `palette.py`
+measured its own intermediate for a day.
+
 **The bivariate matrix is the one exception, and it is measured rather than
 conceded.** It stays stepped per mode (`FIELD` keeps both entries) because it
 is the only layer where lightness carries *two* variables and therefore needs
