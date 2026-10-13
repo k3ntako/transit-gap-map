@@ -402,6 +402,26 @@ const needBlend = (p, w) =>
 // `rankOr` -- which is why rankInto leaves a missing rank unset rather than
 // ranking it zero. Keeping the two definitions the same shape is the point:
 // the tooltip, the table and the fill have to agree.
+// Carless crossed with poverty, derived rather than shipped: both shares are
+// already properties and the two medians are in stats.json, so a column here
+// would cost ~2 KB to save a comparison. The order of the four is fixed by
+// the arithmetic, so the labels are indexed by it rather than matched.
+//
+// The measured result is the reason this is a lens and not a score term:
+// "carless without means" is the *best* served quadrant in the city (18% of
+// its people past the 10-minute standard, against 71% for the car-owning,
+// better-off quadrant), because poverty and carlessness concentrate in the
+// dense core the subway was built around. It names who depends on transit,
+// not who is missing it.
+const NEED_QUADRANTS = ["Car-owning, better off", "Carless by choice",
+                        "Poorer, car-owning", "Carless without means"];
+function needQuadrant(p) {
+  const c = stats.need_cross;
+  if (!c || p.nveh == null || p.pov == null) return -1;
+  return (p.nveh > c.median_no_vehicle_pct ? 1 : 0)
+    + (p.pov > c.median_poverty_pct ? 2 : 0);
+}
+
 const needExpr = (w) => w
   ? ["+", 1 - w, ["*", w, ["+",
       ["number", ["get", "rnv"], NEUTRAL_RANK],
@@ -1097,6 +1117,29 @@ function wireHover() {
     } else {
       html += row("Walk to station", `${fmt(p.walk, 1)} min`);
       if (p.nveh != null) html += row("No car, households", `${fmt(p.nveh, 0)}%`);
+      if (p.pov != null) html += row("Below the poverty line", `${fmt(p.pov, 0)}%`);
+      // One line rather than four rows. These are context for who lives
+      // there, not inputs to anything on the map, and four more labeled rows
+      // would push the walk figures off the top of a phone tooltip.
+      const who = [
+        p.tcom != null ? `${fmt(p.tcom, 0)}% commute by transit` : null,
+        p.dis != null ? `${fmt(p.dis, 0)}% with a disability` : null,
+        p.u18 != null ? `${fmt(p.u18, 0)}% under 18` : null,
+        p.o65 != null ? `${fmt(p.o65, 0)}% over 65` : null,
+      ].filter(Boolean);
+      if (who.length)
+        html += `<div class="tk" style="margin:3px 0 5px">${who.join(" · ")}</div>`;
+      const q = needQuadrant(p);
+      if (q >= 0)
+        html += `<div class="tnote">${esc(NEED_QUADRANTS[q])}, against the
+                 citywide medians — the two shares above crossed.</div>`;
+      // Said in the tooltip rather than drawn on the map, because the flag is
+      // about precision and not about the quantity: a tract at 2% poverty
+      // ±1.5 points is over the threshold and still a low-poverty tract. It
+      // matters where a reader is about to rank areas by these shares.
+      if (p.moeflag === true || p.moeflag === "true")
+        html += `<div class="tnote">These two estimates are imprecise for an
+                 area this small (survey margin over 30% of the estimate).</div>`;
       if (p.wlo != null && p.whi != null)
         html += row("Range in area",`${fmt(p.wlo, 1)}–${fmt(p.whi, 1)} min`);
       // Always shown, not only on the access layer. The wait is a property of
@@ -1137,14 +1180,19 @@ function wireHover() {
       // the one that still separates two badly served tracts.
       if (p.jt10 != null)
         html += row("To a tenth of the city's jobs", `${fmt(p.jt10, 0)} min`);
-      // Shown with the walk it is paid on top of, because the number alone
-      // reads as a walk time rather than as a penalty.
-      if (p.sf != null && p.walk != null)
-        html += row("To a step-free station",
-                    `${fmt(p.sf, 1)} min (+${fmt(Math.max(p.sf - p.walk, 0), 1)})`);
       else if (p.j45 != null)
         html += `<div class="tnote">Never reaches a tenth of the city's
                  jobs.</div>`;
+      // Shown with the walk it is paid on top of, because the number alone
+      // reads as a walk time rather than as a penalty. Deliberately after
+      // the `else if` above and not between the two: inserting a statement
+      // there silently re-parents the else to the new `if`.
+      if (p.sf != null && p.walk != null)
+        html += row("To a step-free station",
+                    `${fmt(p.sf, 1)} min (+${fmt(Math.max(p.sf - p.walk, 0), 1)})`);
+      else if (p.walk != null)
+        html += `<div class="tnote">No step-free station reachable on
+                 foot.</div>`;
       const hv = p[hubKey()];
       const hubName = state.hub < 0 ? "nearest job center"
         : (stats.accessibility?.hubs?.[state.hub]?.name ?? "job center");

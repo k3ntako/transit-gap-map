@@ -221,9 +221,17 @@ def fetch_census(force: bool = False) -> Path:
 
     key = _census_key()
     geo = "tract" if C.GEO_LEVEL == "tract" else "block group"
-    extra = list(C.CENSUS_EXTRA_VARS.items())
+    # Estimates and their margins in one request. The API takes 50 variables
+    # per call and this is 46, so the next variable added here needs its own
+    # margin to fit -- check the count before adding a pair.
+    extra = (list(C.CENSUS_EXTRA_VARS.items())
+             + list(C.CENSUS_EXTRA_MOE_VARS.items()))
     cols = ([C.CENSUS_POP_VAR] + ([C.CENSUS_MOE_VAR] if C.CENSUS_MOE_VAR else [])
             + [v for _k, v in extra])
+    if len(cols) > 50:
+        raise FetchError(
+            f"{len(cols)} Census variables requested; the API allows 50. "
+            f"Split the request before adding another pair.")
     rows: list[dict] = []
 
     for county, name in C.COUNTY_FIPS.items():

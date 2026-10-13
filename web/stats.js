@@ -356,6 +356,61 @@ const MODE_PHRASE = {
   lirr: "on the LIRR", mnr: "on Metro-North",
 };
 
+// Carless crossed with poverty, and the measured result is the opposite of
+// the hypothesis it was built to test. Published as such: this project's rule
+// is that a prediction that fails is a finding, not an embarrassment.
+export function needCrossHtml(stats) {
+  const c = stats.need_cross;
+  if (!c?.quadrants?.length) return "";
+  const q = (i) => c.quadrants[i] ?? {};
+  const worst = [...c.quadrants].sort(
+    (a, b) => (b.pct_past_standard ?? 0) - (a.pct_past_standard ?? 0))[0];
+  const poor = q(3);
+  const fl = fmt(floorMin(stats), 0);
+  return `Having no car is an ambiguous signal on its own, and a quietly
+    circular one: the Upper West Side has very few cars <em>because</em> the
+    transit is excellent, so ranking need by carlessness alone scores the
+    best-served neighborhoods in the city as the most dependent. Crossing it
+    with poverty separates carless by choice from carless without means. Each
+    area is placed against the citywide medians
+    (${fmt(c.median_no_vehicle_pct, 0)}% of households without a car,
+    ${fmt(c.median_poverty_pct, 0)}% below the poverty line), and the result
+    is worth stating plainly because it is the opposite of what the crossing
+    was built to find: <strong>&ldquo;carless without means&rdquo; is among
+    the best-served groups in the city</strong>. Of its
+    ${fmt(poor.pop)} people, ${fmt(poor.pct_past_standard, 0)}% live more than
+    ${fl} minutes from a station, against
+    <strong>${fmt(worst.pct_past_standard, 0)}%</strong> for
+    ${esc((worst.name || "").toLowerCase())}. Poverty and carlessness
+    concentrate in the dense core the subway was built around. So the crossing
+    names who depends on transit, which is a real thing to know, and it does
+    not name who is missing it. The
+    ${fmt(poor.pop_past_standard)} people in both groups at once are the ones
+    this map is about, and that is the number to carry rather than the share.`;
+}
+
+export function needCrossTable(stats) {
+  const c = stats.need_cross;
+  if (!c?.quadrants?.length) return "";
+  const rows = c.quadrants.map((r) =>
+    `<tr><td>${esc(r.name)}</td>
+     <td class="num">${fmt(r.pop)}</td>
+     <td class="num">${fmt(r.median_walk_min, 1)}</td>
+     <td class="num">${fmt(r.pct_past_standard, 0)}%</td>
+     <td class="num">${fmt(r.pop_past_standard)}</td></tr>`).join("");
+  return `
+    <table>
+      <caption>Households without a car crossed with poverty, each area
+        against the citywide median of both. The last column is the one the
+        crossing was built for: people in that group who are also past the
+        ${fmt(floorMin(stats), 0)}-minute standard.</caption>
+      <thead><tr><th>Group</th><th class="num">Population</th>
+        <th class="num">Median walk</th><th class="num">Past the standard</th>
+        <th class="num">People past it</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
 // The elevator-priority table, and the deflating finding that comes with it.
 //
 // Two different numbers live here and the page has to keep them apart: the

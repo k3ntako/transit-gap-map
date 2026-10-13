@@ -199,7 +199,50 @@ CENSUS_EXTRA_VARS = {
     "pov_universe": "B17001_001E",  # NOT the tract population
     "pov_below": "B17001_002E",
     "median_income": "B19013_001E",
+    # Added 2026-10-12, Phase 5. Each is a count with its own denominator,
+    # and each arrives with its margin of error, because an ACS estimate for
+    # an area this small without one is a number pretending to be a fact --
+    # measured on Bronx tract 000400, the median-income MOE is +/- $40,861.
+    #
+    # Revealed demand, and the caution is in the name: it is partly an
+    # *outcome* of good service, so it belongs in a tooltip and not in a
+    # need term. Ranking need by it would score the best-served
+    # neighborhoods as the most needy, which is the same circularity the
+    # zero-vehicle note below warns about.
+    "commute_total": "B08301_001E",
+    "commute_transit": "B08301_010E",
+    # Age, where dependence on transit is highest at both ends. Single
+    # variables on purpose: B01001 would need 20 cells summed and 20 margins
+    # propagated to say the same thing.
+    "pop_under_18": "B09001_001E",
+    "pop_over_65": "B09020_001E",
+    # Disability, which is what makes the step-free layer answerable from the
+    # demand side rather than only the supply side. B18101 is sex by age by
+    # disability status, so "with a disability" is twelve cells -- six age
+    # bands, two sexes -- and the sum needs all twelve plus the universe.
+    # Note the universe is the *civilian noninstitutionalized* population,
+    # which is smaller than the tract population and not interchangeable
+    # with it.
+    "dis_universe": "B18101_001E",
+    **{f"dis_{i}": f"B18101_{i:03d}E" for i in
+       (4, 7, 10, 13, 16, 19, 23, 26, 29, 32, 35, 38)},
 }
+
+# Every estimate above, with its margin of error. Generated rather than
+# listed so a variable cannot be added without its MOE: that pairing is the
+# whole reason the margins are here.
+CENSUS_EXTRA_MOE_VARS = {
+    f"{k}_moe": v[:-1] + "M" for k, v in CENSUS_EXTRA_VARS.items()
+}
+
+# When an estimate is too uncertain to show. The Census Bureau's own
+# convention is the coefficient of variation -- MOE / 1.645 / estimate, the
+# standard error as a share of the estimate -- and 0.30 is the threshold
+# agencies commonly use to call an ACS figure unreliable. Nothing is dropped
+# at this threshold; the geography is flagged, the map can gray it, and the
+# tooltip says why. It deliberately does not reach the score, which uses
+# population and walk time and neither of these shares.
+CENSUS_CV_UNRELIABLE = 0.30
 
 # --- Data sources (all verified reachable 2026-10-09) -----------------------
 SOC_SUBWAY = "https://data.ny.gov/resource/39hk-dx4f.csv?$limit=1000"

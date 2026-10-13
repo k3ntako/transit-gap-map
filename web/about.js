@@ -8,7 +8,8 @@
 
 import {
   fmt, esc, floorMin, benchHtml, railHtml, validityHtml, clusterTable,
-  disagreeTable, stepFreeHtml, stepFreeTable, sourceHtml, licenseHtml,
+  disagreeTable, needCrossHtml, needCrossTable, stepFreeHtml, stepFreeTable,
+  sourceHtml, licenseHtml,
 } from "./stats.js";
 import { initDocPage, set, scrollToHash } from "./doc.js";
 
@@ -34,6 +35,24 @@ function scoreHtml(stats) {
       0)}% against a
     ${fmt(100 * (stats.alignment?.baseline ?? 0), 0)}% random baseline &mdash;
     indistinguishable from noise.`;
+}
+
+// Why the margins are fetched at all, said once on the page that explains
+// the method rather than on every tooltip.
+function marginsHtml(stats) {
+  const m = stats.margins;
+  if (!m) return "";
+  return `<strong>Every one of these shares is a survey estimate.</strong>
+    The American Community Survey publishes a margin of error with each one,
+    and for areas this small those margins are wide: the median area's
+    transit-commute share carries &plusmn;${fmt(m.median_moe?.tcom, 1)}
+    percentage points, and in
+    <strong>${fmt(m.pct_unreliable, 0)}%</strong> of populated areas one of
+    the two shares the map can weight by has a margin over 30% of the
+    estimate itself. Those areas are flagged in the tooltip rather than
+    dropped, because hiding an uncertain estimate replaces
+    &ldquo;uncertain&rdquo; with &ldquo;zero&rdquo;. None of this reaches the
+    score, which is built from population and walking time.`;
 }
 
 function waitHtml(stats) {
@@ -83,6 +102,9 @@ async function main() {
   set("#m-wait", waitHtml(stats));
   set("#m-censor", censorHtml(stats));
   set("#m-rail", railHtml(stats));
+  set("#m-cross", needCrossHtml(stats));
+  set("#m-cross-table", needCrossTable(stats));
+  set("#m-margins", marginsHtml(stats));
   set("#m-stepfree", stepFreeHtml(stats));
   set("#m-stepfree-table", stepFreeTable(stats));
   set("#m-src", sourceHtml(stats));

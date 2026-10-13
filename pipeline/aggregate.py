@@ -49,6 +49,53 @@ def _share(df, num: str, den: str):
     return pd.Series(out, index=df.index)
 
 
+def _share_moe(df, num: str, den: str):
+    """The margin of error on num/den, as percentage points.
+
+    The Census Bureau's formula for a derived proportion, which is the one to
+    use here rather than the ratio formula: the numerator is a subset of the
+    denominator, so the two are correlated and the ratio formula would
+    overstate the margin.
+
+        MOE(p) = (1/den) * sqrt(MOE(num)^2 - p^2 * MOE(den)^2)
+
+    The term under the root can come out negative on a small area, in which
+    case the Bureau's instruction is to fall back to the ratio formula, whose
+    plus sign cannot. Both appear below, and the fallback is counted.
+    """
+    cols = (num, den, f"{num}_moe", f"{den}_moe")
+    if any(c not in df.columns for c in cols):
+        return pd.Series(np.nan, index=df.index), 0
+    n = np.asarray(df[num], dtype=float)
+    d = np.asarray(df[den], dtype=float)
+    mn = np.asarray(df[f"{num}_moe"], dtype=float)
+    md = np.asarray(df[f"{den}_moe"], dtype=float)
+    ok = (d > 0) & np.isfinite(mn) & np.isfinite(md)
+    p = np.divide(n, d, out=np.full(d.shape, np.nan), where=ok)
+    inner = mn ** 2 - (p ** 2) * md ** 2
+    fell_back = int(np.sum(ok & ~(inner >= 0)))
+    inner = np.where(inner >= 0, inner, mn ** 2 + (p ** 2) * md ** 2)
+    out = np.full(d.shape, np.nan)
+    np.divide(100.0 * np.sqrt(np.maximum(inner, 0.0)), d, out=out, where=ok)
+    return pd.Series(out, index=df.index), fell_back
+
+
+def _cv(est, moe):
+    """Coefficient of variation: the standard error as a share of the estimate.
+
+    ACS publishes a 90% margin, so the standard error is MOE / 1.645. This is
+    the Bureau's own reliability measure and the reason the margins are
+    fetched at all -- an estimate is shown or flagged on this number rather
+    than on whether it looks plausible.
+    """
+    e = np.asarray(est, dtype=float)
+    m = np.asarray(moe, dtype=float)
+    ok = np.isfinite(e) & np.isfinite(m) & (e > 0)
+    out = np.full(e.shape, np.nan)
+    np.divide(m / 1.645, e, out=out, where=ok)
+    return out
+
+
 def load_geographies() -> gpd.GeoDataFrame:
     for path, hint in ((C.P_GEOMS, "python -m pipeline.fetch"),
                        (C.P_CENSUS, "python -m pipeline.fetch")):
@@ -77,7 +124,8 @@ def load_geographies() -> gpd.GeoDataFrame:
     pop["geoid"] = pop["geoid"].str.zfill(11)
 
     want = ["geoid", "pop", "pop_moe"] + [
-        c for c in C.CENSUS_EXTRA_VARS if c in pop.columns]
+        c for c in list(C.CENSUS_EXTRA_VARS) + list(C.CENSUS_EXTRA_MOE_VARS)
+        if c in pop.columns]
     merged = gdf.merge(pop[want].drop_duplicates("geoid"),
                        on="geoid", how="left")
 
@@ -94,6 +142,49 @@ def load_geographies() -> gpd.GeoDataFrame:
     # poverty rate in the city, by more in tracts with group quarters.
     merged["no_vehicle_pct"] = _share(merged, "hh_no_vehicle", "hh_total")
     merged["poverty_pct"] = _share(merged, "pov_below", "pov_universe")
+
+    # Phase 5. Each share against its own universe, and each with its margin,
+    # because at tract level an ACS share without one is a number pretending
+    # to be a fact. `dis_*` is twelve cells of B18101 -- six age bands by two
+    # sexes -- so its count is a sum and its margin is the root of the sum of
+    # squares, which is the Bureau's rule for a sum of estimates.
+    dis_cols = [c for c in merged.columns
+                if c.startswith("dis_") and not c.endswith("_moe")
+                and c != "dis_universe"]
+    if dis_cols:
+        merged["dis_count"] = sum(
+            np.asarray(merged[c], dtype=float) for c in dis_cols)
+        merged["dis_count_moe"] = np.sqrt(sum(
+            np.asarray(merged[f"{c}_moe"], dtype=float) ** 2
+            for c in dis_cols))
+
+    fallbacks = 0
+    shares = {
+        "no_vehicle_pct": ("hh_no_vehicle", "hh_total"),
+        "poverty_pct": ("pov_below", "pov_universe"),
+        "transit_commute_pct": ("commute_transit", "commute_total"),
+        "under_18_pct": ("pop_under_18", "pop"),
+        "over_65_pct": ("pop_over_65", "pop"),
+        "disability_pct": ("dis_count", "dis_universe"),
+    }
+    for name, (num, den) in shares.items():
+        if name not in merged.columns:
+            merged[name] = _share(merged, num, den)
+        moe, fb = _share_moe(merged, num, den)
+        merged[f"{name}_moe"] = moe
+        fallbacks += fb
+
+    # One reliability flag rather than six: the worst coefficient of variation
+    # among the shares the map actually shows. A geography over the threshold
+    # is flagged and not dropped -- the estimate is still the best available,
+    # and hiding it would quietly replace "uncertain" with "zero".
+    cvs = np.vstack([_cv(merged[k], merged[f"{k}_moe"])
+                     for k in ("no_vehicle_pct", "poverty_pct")])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        merged["need_cv"] = np.nanmax(cvs, axis=0)
+    merged["need_unreliable"] = merged["need_cv"] > C.CENSUS_CV_UNRELIABLE
+
     if "median_income" in merged.columns:
         inc = np.asarray(merged["median_income"], dtype=float)
         # ACS reports a missing median as 0 here; the fetch step already
@@ -110,6 +201,35 @@ def load_geographies() -> gpd.GeoDataFrame:
     print(f"          below poverty:           median {pv.median():.1f}% "
           f"(p10 {pv.quantile(.1):.1f}%, p90 {pv.quantile(.9):.1f}%); "
           f"{int(pv.isna().sum())} with no denominator")
+    for k, label in (("transit_commute_pct", "commute by transit"),
+                     ("under_18_pct", "under 18"),
+                     ("over_65_pct", "65 and over"),
+                     ("disability_pct", "with a disability")):
+        v = merged.loc[merged["pop"] > 0, k]
+        mo = merged.loc[merged["pop"] > 0, f"{k}_moe"]
+        print(f"          {label:24} median {v.median():.1f}% "
+              f"(p10 {v.quantile(.1):.1f}%, p90 {v.quantile(.9):.1f}%), "
+              f"median margin +/-{mo.median():.1f} pts")
+    npop = int((merged["pop"] > 0).sum())
+    pop_only = merged["pop"] > 0
+    for k, label in (("no_vehicle_pct", "zero-vehicle"),
+                     ("poverty_pct", "poverty")):
+        cv = _cv(merged[k], merged[f"{k}_moe"])[pop_only.to_numpy()]
+        over = int(np.nansum(cv > C.CENSUS_CV_UNRELIABLE))
+        print(f"  margins {label:13} coefficient of variation over "
+              f"{C.CENSUS_CV_UNRELIABLE:.2f} in {over} of {npop} populated "
+              f"{C.GEO_LEVEL}s ({100 * over / npop:.1f}%)")
+    unrel = int(merged.loc[pop_only, "need_unreliable"].sum())
+    # Read this as "imprecise relative to its own size", which is not the
+    # same as wrong: a tract at 2% poverty +/- 1.5 points is over the
+    # threshold and still clearly a low-poverty tract. It matters when a
+    # geography is being *ranked* by the share, which is what the equity
+    # weight does -- and that weight defaults to zero.
+    print(f"          either one over it in {unrel} ({100 * unrel / npop:.1f}%)"
+          f", which are flagged rather than dropped")
+    if fallbacks:
+        print(f"          {fallbacks} share margins fell back to the ratio "
+              f"formula, where the proportion formula went negative")
 
     total = merged["pop"].sum()
     print(f"  joined  {len(merged)} {C.GEO_LEVEL}s, total population {total:,.0f}")
@@ -306,6 +426,91 @@ def attach_served_station(df, nearest, serviceable):
     print(f"  access-cost station named for {int(ok.sum())}/{len(df)} "
           f"{C.GEO_LEVEL}s; {changed} differ from the nearest station")
     return df
+
+
+def margin_stats(df) -> dict:
+    """What the survey margins are, in the units the page quotes them in.
+
+    Shipped so the method page can say how uncertain these shares are without
+    a figure written in prose, which is the rule for every number on every
+    page here.
+    """
+    pop = df["is_populated"]
+    keys = {"nveh": "no_vehicle_pct", "pov": "poverty_pct",
+            "tcom": "transit_commute_pct", "u18": "under_18_pct",
+            "o65": "over_65_pct", "dis": "disability_pct"}
+    median_moe = {}
+    for short, col in keys.items():
+        mc = f"{col}_moe"
+        if mc in df.columns:
+            median_moe[short] = round(float(df.loc[pop, mc].median()), 1)
+    n = int(pop.sum())
+    unrel = int(df.loc[pop, "need_unreliable"].sum()) if \
+        "need_unreliable" in df.columns else 0
+    return {
+        "cv_threshold": C.CENSUS_CV_UNRELIABLE,
+        "median_moe": median_moe,
+        "n_unreliable": unrel,
+        "pct_unreliable": round(100 * unrel / n, 1) if n else None,
+    }
+
+
+def need_cross_stats(df) -> dict:
+    """Carless *crossed with* poverty, which is the point of having both.
+
+    Zero-vehicle share alone is ambiguous and quietly circular: the Upper West
+    Side has very few cars *because* the transit is excellent, so ranking need
+    by carlessness alone scores the best-served neighborhoods in the city as
+    the most dependent. Crossed with poverty it separates **carless by
+    choice** from **carless without means**, and the second is the strongest
+    need signal available in Phase 5.
+
+    Nothing new is shipped for it. The quadrant is
+    `(no_vehicle_pct > median) + 2 * (poverty_pct > median)`, both columns are
+    already in the payload, and the two medians go into stats.json -- so the
+    browser derives the quadrant the way it already derives the score. A
+    column costs about 2 KB to save a comparison.
+    """
+    pop = df["is_populated"].to_numpy()
+    nv = np.asarray(df["no_vehicle_pct"], dtype=float)
+    pv = np.asarray(df["poverty_pct"], dtype=float)
+    ok = pop & np.isfinite(nv) & np.isfinite(pv)
+    m_nv = float(np.median(nv[ok]))
+    m_pv = float(np.median(pv[ok]))
+    quad = (nv > m_nv).astype(int) + 2 * (pv > m_pv).astype(int)
+
+    # Capitalized because these are table row labels on the method page;
+    # `app.js:NEED_QUADRANTS` must stay in this order, which the arithmetic
+    # above fixes.
+    names = ["Car-owning, better off", "Carless by choice",
+             "Poorer, car-owning", "Carless without means"]
+    out = {"median_no_vehicle_pct": round(m_nv, 1),
+           "median_poverty_pct": round(m_pv, 1),
+           "quadrants": []}
+    excess = (df["walk_min"] - C.ACCESS_FLOOR_MINUTES).clip(lower=0).to_numpy()
+    for q, name in enumerate(names):
+        sel = ok & (quad == q)
+        qpop = float(df.loc[sel, "pop"].sum())
+        past = float(df.loc[sel & (excess > 0), "pop"].sum())
+        out["quadrants"].append({
+            "q": q, "name": name,
+            "n_geographies": int(sel.sum()),
+            "pop": int(qpop),
+            # The number the crossing exists to produce: of the people in
+            # this quadrant, how many are also past the walking standard.
+            "pop_past_standard": int(past),
+            "pct_past_standard": round(100 * past / qpop, 1) if qpop else None,
+            "median_walk_min": round(float(
+                df.loc[sel, "walk_min"].median()), 1),
+        })
+    print(f"  crossing zero-vehicle median {m_nv:.1f}%, poverty median "
+          f"{m_pv:.1f}%; four quadrants, population past the "
+          f"{C.ACCESS_FLOOR_MINUTES:.0f}-minute standard in each:")
+    for r in out["quadrants"]:
+        print(f"    {r['name']:24} {r['pop']:>9,} people, "
+              f"{r['pct_past_standard']:>5}% past it, median walk "
+              f"{r['median_walk_min']:>5} min")
+    return out
 
 
 def stepfree_stats(df) -> dict:
@@ -841,6 +1046,10 @@ def run(force: bool = False):
     print("Step-free access:")
     stepfree = stepfree_stats(df)
 
+    print("Who lives there:")
+    cross = need_cross_stats(df)
+    margins = margin_stats(df)
+
     print("Classification:")
     breaks = add_classes(df)
     stats = headline_stats(df, df["subway_walk_min"])
@@ -848,6 +1057,8 @@ def run(force: bool = False):
     stats["score"] = score_stats
     stats["clusters"] = cluster_stats
     stats["step_free"] = stepfree
+    stats["need_cross"] = cross
+    stats["margins"] = margins
     if acc_stats:
         stats["accessibility"] = acc_stats
     stats["hub_columns"] = hub_cols

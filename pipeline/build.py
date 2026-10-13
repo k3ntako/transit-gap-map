@@ -45,6 +45,12 @@ FIELDS = {
     # already ship, so neither is sent: at ~5 KB gzipped per field, shipping a
     # derivable column is 5 KB spent to save a multiplication.
     "no_vehicle_pct": "nveh", "poverty_pct": "pov",
+    # Phase 5. The quadrant that crosses the first two is *not* here: it is
+    # `(nveh > median) + 2 * (pov > median)` and both medians ship in
+    # stats.json, so the browser derives it the way it derives the score.
+    "transit_commute_pct": "tcom", "under_18_pct": "u18",
+    "over_65_pct": "o65", "disability_pct": "dis",
+    "need_unreliable": "moeflag",
     "cluster_tracts": "clu", "cluster_pop": "clupop",
     "cluster_id": "cluid",
     # Phase 4, in the three tightest encodings that still say something.
@@ -97,6 +103,18 @@ SCHEMA_DOC = {
     "stph": "trains per hour per direction at that station, weekday 8-9am",
     "nveh": "percent of households with no vehicle available (ACS B08201)",
     "pov": "percent below the poverty line, against B17001's own universe",
+    "tcom": "percent of workers who commute by public transit (ACS B08301). "
+            "Partly an outcome of good service rather than a measure of "
+            "need, which is why it is a tooltip line and not a score term",
+    "u18": "percent of residents under 18 (B09001)",
+    "o65": "percent of residents 65 and over (B09020)",
+    "dis": "percent with a disability, against B18101's civilian "
+           "noninstitutionalized universe, which is smaller than the "
+           "population",
+    "moeflag": "true where the zero-vehicle or poverty share has a "
+               "coefficient of variation over 0.30 -- imprecise relative to "
+               "its own size, which is not the same as wrong. Flagged rather "
+               "than dropped, and it reaches no published figure",
     "clu": "tracts in this tract's contiguous block beyond the 10-minute "
            "standard, 0 if it is inside the standard",
     "clupop": "population of that block",
@@ -179,7 +197,7 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
                 .replace([np.inf, -np.inf], np.nan).round(places))
 
     for col in ("walk", "swalk", "sf", "wlo", "whi", "acc", "wait", "stph",
-                "nveh", "pov"):
+                "nveh", "pov", "tcom", "u18", "o65", "dis"):
         out[col] = rounded(col, 1)
     # Two decimals, because the detour factor's middle 80% is 0.79 to 1.28 --
     # rounding it to one would quantize the layer into four values. Three
@@ -203,6 +221,7 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
     for col in ("bi", "dc", "wc"):
         out[col] = out[col].fillna(-1).astype("int16")
     out["noacc"] = out["noacc"].fillna(False).astype(bool)
+    out["moeflag"] = out["moeflag"].fillna(False).astype(bool)
 
     lookups = {}
     for col in INTERNED:

@@ -437,6 +437,52 @@ Fordham to Grand Central therefore reads 37 minutes against a real expected
 ~27. It biases toward *overstating* under-service on commuter rail, which is
 the direction this project has to be most suspicious of.
 
+**Carless crossed with poverty was predicted to be the strongest need signal
+here, and the measurement says the opposite.** Added 2026-10-12, Phase 5.
+Each geography is placed against the citywide medians (50.6% of households
+without a car, 13.7% below the poverty line) and the four quadrants come out:
+
+| group | population | median walk | past the 10-min standard |
+|---|---|---|---|
+| Car-owning, better off | 2,354,364 | 15.8 min | **71.3%** |
+| Poorer, car-owning | 1,231,671 | 10.6 min | 50.6% |
+| Carless without means | 3,287,755 | 6.2 min | **18.2%** |
+| Carless by choice | 1,633,214 | 5.5 min | 8.9% |
+
+So **"carless without means" is among the best-served groups in the city**,
+because poverty and carlessness concentrate in the dense core the subway was
+built around. The crossing names who *depends* on transit, which is worth
+knowing, and it does not name who is *missing* it — and multiplying it into
+the score would pull the score toward the well-served core. That is the same
+result the alignment table already reports from the other direction (the
+equity variables lower agreement, car-free households alone to 56%), now with
+a mechanism rather than only a number. The figure to carry is the overlap:
+**596,782 people are both carless without means and past the standard.**
+
+The quadrant is **derived in the browser**, not shipped: it is
+`(nveh > median) + 2 * (pov > median)`, both shares are already properties
+and both medians are in `stats.json`, so a column would cost ~2 KB to save a
+comparison. `app.js:NEED_QUADRANTS` is indexed by that arithmetic, so its
+order is fixed by the expression and not by matching labels.
+
+**Every ACS share now arrives with its margin of error, and the margins are
+wide.** `CENSUS_EXTRA_MOE_VARS` is generated from `CENSUS_EXTRA_VARS` so a
+variable cannot be added without one, which is what keeps the pairing
+honest — 46 variables in one request against the API's limit of 50, and
+`fetch.py` raises rather than silently truncating at 51. Shares use the
+Bureau's *derived proportion* formula, not the ratio formula, because the
+numerator is a subset of the denominator; where the term under the root goes
+negative the Bureau's own fallback to the ratio formula applies, which
+happened on 226 of 2,325 geographies. Reliability is the coefficient of
+variation (MOE / 1.645 / estimate) against a 0.30 threshold, which is the
+convention agencies use: **56.4% of populated tracts** are over it on the
+zero-vehicle or poverty share. Read that as "imprecise relative to its own
+size", not as wrong — a tract at 2% poverty ±1.5 points is over the threshold
+and still a low-poverty tract — and note that it matters precisely where a
+reader ranks geographies by these shares, which is what the equity slider
+does. Flagged in the tooltip, never dropped, and it reaches no published
+figure.
+
 **Step-free access is a lens and a station ranking, never a term in the
 score.** Added 2026-10-12. `distance.py` takes a `step_free` flag beside
 `subway_only` and `weighted` — the same multi-source Dijkstra over the 219 of
