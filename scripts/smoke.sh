@@ -74,10 +74,14 @@ if [[ "$CODE_ONLY" -eq 0 ]]; then
   # the data being served, not the previous deploy's.
   same_as_local "data/stats.json" "${WEB}/data/stats.json"
 
-  # stations.geojson has no budget, so no match is a normal answer here too.
+  # stations.geojson has no budget, so no match is a normal answer here too --
+  # and so is tract_cols.json, whose budget is the tracts.geojson one: that
+  # 420 KB covers the pair, because a column moving between the two files
+  # does not save a reader a byte.
   budget() { { grep -E "^BUDGET_$1_WIRE_KB" "${ROOT}/config.py" || true; } | sed -E 's/.*= *([0-9.]+).*/\1/'; }
   printf "  %-24s %10s %10s  %s\n" "" "wire KB" "budget" "encoding"
-  for f in tracts.geojson walksheds.geojson bus_ftn.geojson stations.geojson hubs.json; do
+  for f in tracts.geojson tract_cols.json walksheds.geojson bus_ftn.geojson \
+           stations.geojson hubs.json; do
     [[ -f "${WEB}/data/${f}" ]] || continue
     url="${SITE_URL}/data/${f}"
     enc="$(headers "$url" | header content-encoding)"

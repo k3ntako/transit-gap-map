@@ -1,5 +1,12 @@
 """Stage 8: emit the compact payloads the web map loads.
 
+The per-geography data ships as two files rather than one: `tracts.geojson`
+carries the geometry and the `geoid` that joins to it, and `tract_cols.json`
+carries every column as a parallel array. That split is measured rather than
+stylistic -- gzip's window cannot span 2,325 interleaved features, so a
+column costs about 2.5x more as a per-feature property than as a contiguous
+array -- and `C.BUDGET_TRACTS_WIRE_KB` is asserted against the pair.
+
 Run:  python -m pipeline.build
 """
 
@@ -107,6 +114,33 @@ SCHEMA_DOC = {
 }
 
 
+def _column(s) -> list:
+    # Unannotated `s` on purpose: `out[col]` is typed Series | DataFrame by the
+    # stubs, and the cast to satisfy that would be noise around a one-column
+    # read. See the pyright baseline note in CLAUDE.md.
+    """One column as a JSON array: NaN to null, and no float that is an int.
+
+    `10.0` costs two more bytes per geography than `10` and says the same
+    thing to a browser, which over 2,325 geographies and a dozen float
+    columns is real. Infinity is null for the same reason NaN is -- JSON has
+    no spelling for it and no paint expression can read it.
+    """
+    if pd.api.types.is_bool_dtype(s):
+        return [bool(v) for v in s]
+    if pd.api.types.is_integer_dtype(s):
+        return [int(v) for v in s]
+    if pd.api.types.is_float_dtype(s):
+        out = []
+        for v in s:
+            f = float(v)
+            if not np.isfinite(f):
+                out.append(None)
+            else:
+                out.append(int(f) if f.is_integer() else f)
+        return out
+    return [None if pd.isna(v) else str(v) for v in s]
+
+
 def build_geographies(df: gpd.GeoDataFrame) -> int:
     """Simplified, trimmed GeoJSON of the census geographies."""
     g = df.copy()
@@ -133,19 +167,26 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
     # cost 61 KB gzipped for four fields, 200x the 0.3 KB a rounded field costs
     # and most of the way through the payload budget. The map renders to one
     # decimal; 10.81292377475531 is 15 digits of nothing.
+    # float64 before rounding, every time: a float32 column rounds to
+    # 0.8500000238418579 rather than to 0.85, and the sidecar writes the
+    # digits a GeoJSON driver used to hide. Same trap as `j45` below.
+    def rounded(col, places):
+        return (out[col].astype("float64")
+                .replace([np.inf, -np.inf], np.nan).round(places))
+
     for col in ("walk", "swalk", "wlo", "whi", "acc", "wait", "stph",
                 "nveh", "pov"):
-        out[col] = out[col].replace([np.inf, -np.inf], np.nan).round(1)
+        out[col] = rounded(col, 1)
     # Two decimals, because the detour factor's middle 80% is 0.79 to 1.28 --
     # rounding it to one would quantize the layer into four values. Three
     # decimals costs 8.0 KB against 4.6 and shows nothing.
-    out["det"] = out["det"].replace([np.inf, -np.inf], np.nan).round(2)
+    out["det"] = rounded("det", 2)
     # Whole minutes to a hub: 4.5 KB at one decimal against 2.9 at none, for a
     # number nobody reads to the tenth of a minute over a 40-minute trip.
-    out["hub"] = out["hub"].replace([np.inf, -np.inf], np.nan).round(0)
+    out["hub"] = rounded("hub", 0)
     # Whole minutes: the field spans 11 to 132, so a decimal place would be
     # three characters per feature to say nothing a reader can act on.
-    out["jt10"] = out["jt10"].replace([np.inf, -np.inf], np.nan).round(0)
+    out["jt10"] = rounded("jt10", 0)
     # float64 before rounding: the column arrives as float32, where 100 * 0.758
     # is 75.800003 and `.round(1)` leaves it that way -- seven digits per
     # feature of pure float noise, which the budget pays for.
@@ -153,7 +194,7 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
     for col in ("clu", "clupop"):
         out[col] = out[col].fillna(0).astype("int32")
     out["cluid"] = out["cluid"].fillna(-1).astype("int16")
-    out["dens"] = out["dens"].replace([np.inf, -np.inf], np.nan).round(0)
+    out["dens"] = rounded("dens", 0)
     out["pop"] = out["pop"].round(0).astype("int64")
     for col in ("bi", "dc", "wc"):
         out[col] = out[col].fillna(-1).astype("int16")
@@ -167,22 +208,57 @@ def build_geographies(df: gpd.GeoDataFrame) -> int:
         out[col] = vals.map(code).astype("int32")
         lookups[col] = table
 
+    # --- the split: geometry in one file, every column in the other --------
+    # The payload debt ROADMAP.md carried since Phase 4, paid on the way in
+    # with the step-free field rather than after it. A column costs roughly
+    # 2.5x more as a per-feature property than as a parallel array, because
+    # gzip's window cannot span 2,325 interleaved features -- so
+    # `tracts.geojson` keeps the geometry and the join key and nothing else,
+    # and every other column ships as an array in `tract_cols.json`, aligned
+    # to an explicit `geoids` list. `app.js:attachCols()` joins them onto the
+    # features before `addSource`, which is where the properties the paint
+    # expressions read have to exist.
+    #
+    # Explicit geoids rather than feature order: aligning two files by
+    # position is the coupling that breaks silently the first time a geography
+    # is dropped, and the join is a Map lookup either way.
+    data_cols = [c for c in out.columns if c not in ("geometry", "geoid")]
+    sidecar = {
+        "geoids": out["geoid"].astype(str).tolist(),
+        "interned": list(INTERNED),
+        "cols": {c: _column(out[c]) for c in data_cols},
+    }
+    cols_path = C.WEB_DATA / f"{C.GEO_LEVEL}_cols.json"
+    cols_path.write_text(json.dumps(sidecar, separators=(",", ":")))
+    cols_wire = C.wire_kb(cols_path)
+    print(f"  saved   {cols_path.name} "
+          f"({cols_path.stat().st_size / 1024:.0f} KB on disk, "
+          f"{cols_wire:.0f} KB gzipped, {len(data_cols)} columns x "
+          f"{len(sidecar['geoids'])} {C.GEO_LEVEL}s)")
+
     path = C.WEB_DATA / f"{C.GEO_LEVEL}s.geojson"
-    out.to_file(path, driver="GeoJSON", coordinate_precision=C.COORD_PRECISION)
+    out[["geometry", "geoid"]].to_file(
+        path, driver="GeoJSON", coordinate_precision=C.COORD_PRECISION)
     mb = path.stat().st_size / 1e6
     wire_kb = C.wire_kb(path)
     saved = sum(len(v) for v in lookups.values())
     print(f"  saved   {path.name} ({mb:.2f} MB on disk, {wire_kb:.0f} KB "
           f"gzipped, {len(out)} features; {len(INTERNED)} fields interned into "
           f"{saved} unique strings)")
-    if wire_kb > C.BUDGET_TRACTS_WIRE_KB:
+    total = wire_kb + cols_wire
+    print(f"  wire    {total:.0f} KB gzipped for both per-{C.GEO_LEVEL} "
+          f"payloads, against a {C.BUDGET_TRACTS_WIRE_KB:.0f} KB budget")
+    if total > C.BUDGET_TRACTS_WIRE_KB:
         raise SystemExit(
-            f"{path.name} is {wire_kb:.0f} KB gzipped, over the "
-            f"{C.BUDGET_TRACTS_WIRE_KB:.0f} KB budget. A new numeric field costs "
-            f"~5 KB here and an unrounded one ~15 KB, so check the rounding "
-            f"tuple above first; past that, raise SIMPLIFY_TOLERANCE_METERS, or "
-            f"check that a new string column joined INTERNED rather than "
-            f"shipping {len(out)} copies of itself.")
+            f"{path.name} plus {cols_path.name} is {total:.0f} KB gzipped, "
+            f"over the {C.BUDGET_TRACTS_WIRE_KB:.0f} KB budget. The budget "
+            f"covers both files because a column can move between them "
+            f"without a reader downloading one byte less. A new numeric "
+            f"field costs ~2 KB in the sidecar and an unrounded one ~6 KB, "
+            f"so check the rounding tuple above first; past that, raise "
+            f"SIMPLIFY_TOLERANCE_METERS, or check that a new string column "
+            f"joined INTERNED rather than shipping {len(out)} copies of "
+            f"itself.")
     return mb, lookups
 
 

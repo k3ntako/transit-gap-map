@@ -106,20 +106,25 @@ WAIT_WINDOW = "am_peak"
 # field must be added to the rounding tuple in build.py: unrounded float64
 # costs 15 KB gzipped per field instead of 5.
 #
-# **Raised from 350 to 420 on 2026-10-11, deliberately and once.** Phase 4
-# took the file from 305 KB to 343 against a 350 budget, which left room for
-# no further field at all, and the next three items in the roadmap each want
-# one. The alternative was to move the numeric columns into a parallel-array
-# sidecar, which is measured at ~2.5x cheaper per column than a per-feature
-# property, because gzip's window cannot span 2,325 interleaved features --
-# `hubs.json` carries eight such columns for 34 KB where interleaving them
-# would have cost about 100. That refactor is still the right answer at the
-# *next* wall and it is written down in ROADMAP.md; what it is not is a thing
-# to do in the same commit as the fields that provoked it. 420 is 343 plus
-# five fields of measured headroom (5.1 KB gzipped each, plus the interleaving
-# tax), and the number to watch is not this one -- it is whether the next
-# field arrives as a property or as an array.
-BUDGET_TRACTS_WIRE_KB = 420.0      # was 350; see the note above
+# **Raised from 350 to 420 on 2026-10-11, deliberately and once** -- and the
+# loan that raise took was repaid on 2026-10-12, which is what the figures
+# below are now measuring. Phase 4 took the file from 305 KB to 343 against a
+# 350 budget, leaving room for no further field at all. The fix deferred then
+# was to move the columns into a parallel-array sidecar, measured at ~2.5x
+# cheaper per column than a per-feature property because gzip's window cannot
+# span 2,325 interleaved features. Step-free access wanted the next field, so
+# it came with that refactor: `tracts.geojson` is geometry plus `geoid`, every
+# column is an array in `tract_cols.json`, and `app.js:attachCols()` joins
+# them before `addSource`.
+#
+# **The budget now covers both files**, because a column moving between them
+# saves a reader nothing, and this is the number to keep honest. Measured
+# 2026-10-12: 216 KB of geometry plus 76 KB of 29 columns = 292 KB against
+# 420, where the same columns interleaved were 350. A sidecar column costs
+# about 2 KB gzipped against the ~5 KB it cost as a property, so the headroom
+# is now roughly sixty columns rather than four -- which makes geometry
+# fidelity, not field count, the thing this budget is really guarding.
+BUDGET_TRACTS_WIRE_KB = 420.0      # geometry + sidecar together; see above
 BUDGET_WALKSHEDS_WIRE_KB = 150.0   # now 111 KB
 
 # The surface raster is budgeted raw: a PNG is already compressed, so gzip

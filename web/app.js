@@ -15,6 +15,11 @@ const BASEMAP = {
   dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
 };
 const GEO = "data/tracts.geojson";
+// The columns that used to be properties of GEO. Kept in a second file
+// because a column costs about 2.5x more interleaved once per feature than
+// as one contiguous array -- see `attachCols`. Not optional: without it every
+// paint expression reads null.
+const COLS = "data/tract_cols.json";
 
 // The five boroughs plus the sliver of New Jersey, Westchester and Nassau that
 // holds stations legitimately serving NYC. The opening view is framed with
@@ -109,7 +114,7 @@ const state = {
   themePinned: false,
 };
 
-let map, pal, stats, surf, tracts, hubs;
+let map, pal, stats, surf, tracts, hubs, cols;
 
 // queryRenderedFeatures throws on an unknown layer id, and during a theme
 // switch the style is torn down and rebuilt, so the guard is not paranoia.
@@ -272,6 +277,37 @@ function rankInto(feats, src, dst) {
   const rank = new Map();
   vals.forEach((v, i) => rank.set(v, (i + 1) / vals.length));
   for (const f of feats) f.properties[dst] = rank.get(f.properties[src]);
+}
+
+// Every per-geography column, joined onto the features by geoid.
+//
+// `tracts.geojson` ships geometry and `geoid` and nothing else. The columns
+// live in parallel arrays in `tract_cols.json` because gzip's window cannot
+// span 2,325 interleaved features, so the same numbers cost roughly 2.5x more
+// as per-feature properties than as contiguous arrays -- measured, the split
+// moved the pair of files well under the budget that one file was pressed
+// against. This is the join, and like `attachHubs` it has to run before
+// `addSource`.
+//
+// A missing or partial sidecar is fatal rather than tolerated: with no columns
+// there is nothing to paint, no table to rank and no tooltip to show, so it is
+// loaded like the geometry and not like `hubs.json`. Returns a reason to show
+// the reader, or null when every feature got its row.
+function attachCols() {
+  const geoids = cols?.geoids;
+  const table = cols?.cols;
+  if (!geoids?.length || !table) return `${COLS} carries no columns`;
+  const row = new Map(geoids.map((g, i) => [g, i]));
+  const names = Object.keys(table);
+  let joined = 0;
+  for (const f of tracts.features) {
+    const i = row.get(f.properties.geoid);
+    if (i == null) continue;
+    for (const k of names) f.properties[k] = table[k][i];
+    joined++;
+  }
+  return joined === tracts.features.length ? null
+    : `${COLS} covers ${joined} of ${tracts.features.length} areas`;
 }
 
 // Per-hub travel times, joined onto the features by geoid.
@@ -1714,7 +1750,7 @@ async function main() {
     settle(import(MAPLIBRE_URL)),
     settle(Promise.all([
       j("data/palette.json"), j("data/stats.json"), j("data/walk_surface.json"),
-      j(GEO),
+      j(GEO), j(COLS),
       // Optional, and deliberately so: it is 34 KB that only the hub switcher
       // reads, and a build from before Phase 4 has no such file. A rejection
       // here would take the whole map down with it, so it resolves to null
@@ -1745,7 +1781,15 @@ async function main() {
         <span style="color:var(--ink-muted)">${data.err.message}</span></div>`;
     return;
   }
-  [pal, stats, surf, tracts, hubs] = data.v;
+  [pal, stats, surf, tracts, cols, hubs] = data.v;
+  const colErr = attachCols();
+  if (colErr) {
+    fail("The area data did not load.",
+         `<code>${COLS}</code> holds every column the map paints with, and `
+         + "it is written by <code>make all</code> beside the geometry.",
+         colErr);
+    return;
+  }
   attachHubs();
   const ranked = rankTracts();
   console.info(`ranked ${ranked} populated tracts for the gap score`);

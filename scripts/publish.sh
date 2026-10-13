@@ -39,8 +39,8 @@ if [[ -z "${DISTRIBUTION_ID:-}" ]]; then DISTRIBUTION_ID="$(site_output distribu
 # optional. A build that stopped partway would otherwise publish a map that
 # loads and then fails in the reader's browser.
 REQUIRED=(
-  tracts.geojson stations.geojson walksheds.geojson bus_ftn.geojson
-  stats.json palette.json walk_surface.json walk_surface.png
+  tracts.geojson tract_cols.json stations.geojson walksheds.geojson
+  bus_ftn.geojson stats.json palette.json walk_surface.json walk_surface.png
 )
 if [[ "$CODE_ONLY" -eq 0 ]]; then
   missing=()
