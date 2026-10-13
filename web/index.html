@@ -50,9 +50,7 @@
 
   <section class="panel" id="controls">
     <p class="grouplabel">Color tracts by</p>
-    <label class="opt"><input type="radio" name="choro" value="bivariate" checked>
-      Density &times; walk time</label>
-    <label class="opt"><input type="radio" name="choro" value="gap">
+    <label class="opt"><input type="radio" name="choro" value="gap" checked>
       Under-service score</label>
     <div class="field" id="gapweight" hidden>
       <div class="flabel"><label for="f-weight">Equity weight</label>
@@ -71,6 +69,16 @@
         total population. A rail line serves a strip of neighborhoods, so a
         block is closer to what a project could serve than a single tract.
         Blocks stop at water.</p>
+    </div>
+    <label class="opt"><input type="radio" name="choro" value="bivariate">
+      Density &times; walk time</label>
+    <div class="field" id="binote" hidden>
+      <p class="sub" style="margin:5px 0 0">The two inputs to the score, cut
+        into thirds and crossed. It separates them, which the score cannot:
+        a far tract is not always an empty one. It also groups rather than
+        ranks, so every dense-and-far tract shares one color whatever its
+        magnitude, and it is the one layer whose colors reverse between light
+        and dark mode.</p>
     </div>
     <label class="opt"><input type="radio" name="choro" value="density">
       Population density</label>

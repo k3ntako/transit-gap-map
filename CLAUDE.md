@@ -233,9 +233,25 @@ is the only layer where lightness carries *two* variables and therefore needs
 twice the range. Searched inside the band: its best achievable
 `among_populated_delta_e` is **12.3 against a 15.0 floor**, and the
 dual-surface floor has to fall to **1.2:1** before it passes — which is
-where a cell genuinely starts dissolving into the page. So the headline layer
-still flips direction with the theme while the other eight do not. Anyone
+where a cell genuinely starts dissolving into the page. So one layer still
+flips direction with the theme while the other eight do not. Anyone
 revisiting this should re-run the search before assuming it is possible.
+
+**So the map opens on the score, not on the matrix.** Changed 2026-10-12, and
+the flip is only half the reason. The bivariate layer was the default and was
+the one layer with no validated number behind it: `alignment()` measures the
+shipped score at 80% of its worst 25 inside a proposed corridor and 52%
+clumped, while the matrix cross-tabs the same two inputs into terciles and has
+never been tested at all. Measured on the shipped payload, its dense+far cell
+ties **53 tracts whose scores span 5,261 to 80,727 excess person-minutes** —
+a 15x spread inside one swatch, which is the resolution a project like this
+exists to show. The matrix stays as an opt-in lens, because separating the two
+variables is a job the score genuinely cannot do: a far tract is not always an
+empty one. But it is no longer what a reader sees first, and it is no longer
+what a bare link means — `app.js:syncHash` omits the default layer, so that
+constant and `state.choropleth` must change together or every short URL
+silently names the wrong layer. Doing this before the map is published is what
+made it free; afterwards it would have changed what existing links mean.
 
 **The under-served blocks layer draws the contiguity measure, and shades it by
 the block's population rather than the tract's.** Added 2026-10-11 beside the

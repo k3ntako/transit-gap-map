@@ -53,7 +53,15 @@ const $ = (s) => document.querySelector(s);
 
 const state = {
   theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
-  choropleth: "bivariate",
+  // The under-service score, not the bivariate matrix, and the reason is that
+  // this is the only layer with a validated number behind it: `verify.py`
+  // ranks it at 80% of its worst 25 inside a proposed corridor, 52% clumped,
+  // against a 26% baseline. The matrix cross-tabs the same two inputs into
+  // terciles, which ties 53 tracts into its dense+far cell whose scores span
+  // 5,261 to 80,727 excess person-minutes -- a 15x spread inside one swatch.
+  // It also stays stepped per mode, so it is the one layer whose direction
+  // flips with the theme; opening on it put the exception on the front page.
+  choropleth: "gap",
   // How much the equity terms count. 0 weights residents equally, which is
   // the measured-best version; 1 doubles the weight on the most car-free,
   // highest-poverty tracts.
@@ -98,7 +106,7 @@ const query = (layer, point) =>
 // and reads as a list of deliberate choices. Plain key=value with unknown keys
 // ignored, which means a later control is one more key and there is no format
 // to version. `v` is zoom/lat/lon, the order OSM and Mapbox hashes use.
-const CHOROPLETHS = ["bivariate", "gap", "clump", "density", "walk", "access",
+const CHOROPLETHS = ["gap", "clump", "bivariate", "density", "walk", "access",
                      "jobs", "jobtime", "hub", "none"];
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -147,7 +155,7 @@ function syncHash() {
   clearTimeout(hashTimer);
   hashTimer = setTimeout(() => {
     const q = [];
-    if (state.choropleth !== "bivariate") q.push(`c=${state.choropleth}`);
+    if (state.choropleth !== "gap") q.push(`c=${state.choropleth}`);
     if (state.densFloor) q.push(`dens=${state.densFloor}`);
     if (state.popFloor) q.push(`pop=${state.popFloor}`);
     if (state.servedFaded) q.push("served=1");
@@ -180,7 +188,7 @@ function reflectState() {
   $("#f-pop").value = state.popFloor;
   if ($("#t-served")) $("#t-served").checked = state.servedFaded;
   $("#f-weight").value = state.gapWeight;
-  showGapWeight();
+  showLayerNotes();
   if ($("#f-hub")) $("#f-hub").value = String(state.hub);
   showHubPick();
   // Open the panel when a floor is in force, or the faded tracts look like a bug.
@@ -1433,11 +1441,15 @@ function repaint() {
   renderLegend();
 }
 
-// The weight slider is meaningless unless the gap layer is the one on screen.
-function showGapWeight() {
+// Each layer's own control or caveat, shown only while that layer is on
+// screen: the weight slider is meaningless anywhere but the gap layer, and a
+// note explaining a layer the reader is not looking at is noise.
+function showLayerNotes() {
   $("#gapweight").hidden = state.choropleth !== "gap";
-  const cn = $("#clumpnote");
-  if (cn) cn.hidden = state.choropleth !== "clump";
+  for (const [id, layer] of [["clumpnote", "clump"], ["binote", "bivariate"]]) {
+    const el = $(`#${id}`);
+    if (el) el.hidden = state.choropleth !== layer;
+  }
 }
 
 function showHubPick() {
@@ -1491,7 +1503,7 @@ function wireControls() {
       map.setLayoutProperty("tracts-fill", "visibility", on ? "visible" : "none");
       map.setLayoutProperty("tracts-line", "visibility", on ? "visible" : "none");
       if (on) repaint(); else renderLegend();
-      showGapWeight();
+      showLayerNotes();
       showHubPick();
       syncHash();
     });
