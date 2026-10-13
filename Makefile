@@ -77,9 +77,10 @@ access: distance transit
 aggregate: access
 	$(PY) -m pipeline.aggregate
 
-# One hypothetical station per lattice site. Reads the walk graph and the
-# nearest-station distances, so it needs `distance`, and it writes its own
-# cache -- `build` reads that cache rather than recomputing.
+# One hypothetical station per lattice site, then one hypothetical footbridge
+# per barrier pair. Reads the walk graph and the nearest-station distances, so
+# it needs `distance`, and it writes its own caches -- `build` reads those
+# rather than recomputing. `--sites-only` skips the crossings half.
 siting: distance aggregate
 	$(PY) -m pipeline.siting
 

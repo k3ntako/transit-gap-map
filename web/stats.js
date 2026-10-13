@@ -356,6 +356,59 @@ const MODE_PHRASE = {
   lirr: "on the LIRR", mnr: "on Metro-North",
 };
 
+// Where a new foot crossing would help most. Ranked per meter of span and
+// never priced, and the caution is in the copy rather than in a footnote.
+export function crossingsHtml(stats) {
+  const c = stats.siting?.crossings;
+  if (!c?.crossings?.length) return "";
+  const best = c.crossings[0];
+  return `The barrier probes this map is tested against — Newtown Creek,
+    Hunts Point, Coney Island Creek — are places close together in a straight
+    line and far apart on foot. Searching for every such pair gives the
+    opposite question: not where to put a station, but where a
+    <strong>footbridge</strong> would do some of the same work. Candidates are
+    lattice pairs within ${fmt(c.max_span_m, 0)} m of each other whose walking
+    route is at least ${fmt(c.min_ratio, 0)}&times; longer, and
+    ${fmt(c.n_unreachable)} of the ${fmt(c.n_candidates)} that are worth
+    anything are not connected at all inside two kilometers of walking. The
+    best one, a ${fmt(best.span_m)} m span in
+    ${esc(best.where)}, removes ${fmt(best.excess_min_cut / 1000, 0)}k
+    person-minutes of walking.
+    <strong>Cost is ranked, never priced.</strong> A footbridge over a rail
+    cut and a crossing of a navigable channel differ by orders of magnitude,
+    so the ordering is person-minutes removed per meter of span. And note what
+    it does not know: this measures the length of a span, not what is
+    underneath it. Several of these cross water. Look before quoting one.`;
+}
+
+export function crossingsTable(stats) {
+  const c = stats.siting?.crossings;
+  if (!c?.crossings?.length) return "";
+  const rows = c.crossings.map((r, i) =>
+    `<tr><td class="num">${i + 1}</td><td>${esc(r.where)}</td>
+     <td>${esc(r.boro)}</td>
+     <td class="num">${fmt(r.span_m)} m</td>
+     <td class="num">${r.detour == null ? "no route"
+       : `${fmt(r.detour, 0)}×`}</td>
+     <td class="num">${fmt(r.excess_min_cut / 1000, 0)}k</td>
+     <td class="num">${fmt(r.min_per_meter, 0)}</td></tr>`).join("");
+  return `
+    <table>
+      <caption>Hypothetical foot crossings, ranked by person-minutes of
+        walking removed per meter of span. &ldquo;On foot today&rdquo; is how
+        much further the walking route is than the straight line;
+        &ldquo;no route&rdquo; means the two sides are more than two
+        kilometers apart on foot. Benefits further than
+        ${fmt(c.reach_m / 1000, 1)} km from a crossing are not counted, so
+        every figure here is a floor. Nobody has proposed these.</caption>
+      <thead><tr><th class="num">#</th><th>Where</th><th>Borough</th>
+        <th class="num">Span</th><th class="num">On foot today</th>
+        <th class="num">Person-min removed</th>
+        <th class="num">Per meter</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
 // Bikes: the result the roadmap predicted, measured. Published with its
 // shape intact, because a single citywide ratio hides the whole finding.
 export function bikeHtml(stats) {

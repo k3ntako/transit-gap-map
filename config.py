@@ -548,6 +548,26 @@ SITING_TABLE_ROWS = 25
 # it is one. The full surface still ships unsuppressed -- this governs the
 # list, not the map.
 SITING_MIN_SEPARATION_METERS = 2.0 * SITING_REACH_METERS
+
+# --- Where a new foot crossing would help most (Phase 7) -------------------
+# A barrier is two places close in a straight line and far apart on foot, so
+# the candidates are lattice pairs within this span whose walking route is at
+# least this many times longer. 500 m spans creeks, rail cuts, expressways
+# and highway interchanges; it deliberately does not span the East River
+# (~700-1,000 m), because a crossing of that is a different project by orders
+# of magnitude and ranking the two together would be the kind of arithmetic
+# this file refuses elsewhere.
+CROSSING_MAX_SPAN_METERS = 500.0
+CROSSING_MIN_RATIO = 4.0
+# How far from the new crossing benefits are counted. Exact for "people
+# brought inside the standard" at any value >= ACCESS_FLOOR_MINUTES of
+# walking, since a sample further than that from the crossing cannot be
+# inside the standard because of it. For the person-minute figure it is a
+# floor rather than a total: a rider two kilometers away whose route improves
+# is not counted, so every benefit reported here is understated.
+CROSSING_REACH_METERS = 2.0 * SITING_REACH_METERS
+CROSSING_TABLE_ROWS = 25
+P_CROSSINGS = PROCESSED / "crossings.parquet"
 BUDGET_SITING_WIRE_KB = 60.0
 
 BUDGET_HUBS_WIRE_KB = 60.0

@@ -407,9 +407,19 @@ def build_siting() -> dict:
     a continuous field -- and drawing it as a smooth surface would imply a
     resolution the method does not have.
     """
-    from pipeline.siting import compute as compute_siting, summarize
+    from pipeline.siting import (compute as compute_siting, crossings,
+                                 summarize, summarize_crossings)
     res = compute_siting(force=False)
     stats = summarize(res)
+    # The crossings half of the same stage. Data and a ranked list only: no
+    # map layer, deliberately, because what a 400 m span crosses -- a rail
+    # cut, an expressway, a navigable channel -- is the thing that decides
+    # whether it is a footbridge or a capital project, and this knows the
+    # length of the span and not what is underneath it. A reader has to look.
+    try:
+        stats["crossings"] = summarize_crossings(crossings(force=False))
+    except SystemExit as e:
+        print(f"  crossings skipped: {e}")
     gdf = gpd.GeoDataFrame(
         pd.DataFrame({
             # Person-minutes to the nearest hundred and people to the nearest
